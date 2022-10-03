@@ -33,7 +33,7 @@ import torch
 from isaacgym import gymutil, gymtorch, gymapi
 from .base.vec_task import VecTask
 
-class Cartpole(VecTask):
+class Vine(VecTask):
 
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         self.cfg = cfg
@@ -73,7 +73,7 @@ class Cartpole(VecTask):
         upper = gymapi.Vec3(0.5 * spacing, spacing, spacing)
 
         asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
-        asset_file = "urdf/cartpole.urdf"
+        asset_file = "urdf/vine.urdf"
 
         if "asset" in self.cfg["env"]:
             asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.cfg["env"]["asset"].get("assetRoot", asset_root))
@@ -85,8 +85,8 @@ class Cartpole(VecTask):
 
         asset_options = gymapi.AssetOptions()
         asset_options.fix_base_link = True
-        cartpole_asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
-        self.num_dof = self.gym.get_asset_dof_count(cartpole_asset)
+        vine_asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
+        self.num_dof = self.gym.get_asset_dof_count(vine_asset)
 
         pose = gymapi.Transform()
         if self.up_axis == 'z':
@@ -97,24 +97,24 @@ class Cartpole(VecTask):
             pose.p.y = 2.0
             pose.r = gymapi.Quat(-np.sqrt(2)/2, 0.0, 0.0, np.sqrt(2)/2)
 
-        self.cartpole_handles = []
+        self.vine_handles = []
         self.envs = []
         for i in range(self.num_envs):
             # create env instance
             env_ptr = self.gym.create_env(
                 self.sim, lower, upper, num_per_row
             )
-            cartpole_handle = self.gym.create_actor(env_ptr, cartpole_asset, pose, "cartpole", i, 1, 0)
+            vine_handle = self.gym.create_actor(env_ptr, vine_asset, pose, "vine", i, 1, 0)
 
-            dof_props = self.gym.get_actor_dof_properties(env_ptr, cartpole_handle)
+            dof_props = self.gym.get_actor_dof_properties(env_ptr, vine_handle)
             dof_props['driveMode'][0] = gymapi.DOF_MODE_EFFORT
             dof_props['driveMode'][1] = gymapi.DOF_MODE_NONE
             dof_props['stiffness'][:] = 0.0
             dof_props['damping'][:] = 0.0
-            self.gym.set_actor_dof_properties(env_ptr, cartpole_handle, dof_props)
+            self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
 
             self.envs.append(env_ptr)
-            self.cartpole_handles.append(cartpole_handle)
+            self.vine_handles.append(vine_handle)
 
     def compute_reward(self):
         # retrieve environment observations from buffer
@@ -123,7 +123,7 @@ class Cartpole(VecTask):
         cart_vel = self.obs_buf[:, 1]
         cart_pos = self.obs_buf[:, 0]
 
-        self.rew_buf[:], self.reset_buf[:] = compute_cartpole_reward(
+        self.rew_buf[:], self.reset_buf[:] = compute_vine_reward(
             pole_angle, pole_vel, cart_vel, cart_pos,
             self.reset_dist, self.reset_buf, self.progress_buf, self.max_episode_length
         )
@@ -178,7 +178,7 @@ class Cartpole(VecTask):
 
 
 @torch.jit.script
-def compute_cartpole_reward(pole_angle, pole_vel, cart_vel, cart_pos,
+def compute_vine_reward(pole_angle, pole_vel, cart_vel, cart_pos,
                             reset_dist, reset_buf, progress_buf, max_episode_length):
     # type: (Tensor, Tensor, Tensor, Tensor, float, Tensor, Tensor, float) -> Tuple[Tensor, Tensor]
 

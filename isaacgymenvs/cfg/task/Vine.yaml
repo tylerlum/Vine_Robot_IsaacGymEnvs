@@ -1,5 +1,5 @@
 # used to create the object
-name: Cartpole
+name: Vine
 
 physics_engine: ${..physics_engine}
 
@@ -15,7 +15,7 @@ env:
 
   asset:
     assetRoot: "../../assets"
-    assetFileName: "urdf/cartpole.urdf"
+    assetFileName: "urdf/vine.urdf"
 
   # set to True if you use camera sensors in the environment
   enableCameraSensors: False
