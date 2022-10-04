@@ -70,25 +70,8 @@ class Vine(VecTask):
         # Store dof state tensor, and get pos and vel
         dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
         self.dof_state = gymtorch.wrap_tensor(dof_state_tensor)
-        dof_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 0]
-        dof_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 1]
-
-        # Sanity check
-        dof_dict = self.gym.get_asset_dof_dict(self.vine_asset)
-        num_revolute_dofs = len([name for name, _ in dof_dict.items() if "revolute" in name])
-        num_prismatic_dofs = len([name for name, _ in dof_dict.items() if "prismatic" in name])
-        assert(num_revolute_dofs == num_prismatic_dofs)
-        assert(num_revolute_dofs + num_prismatic_dofs == self.num_dof)
-
-        # Split into revolute and prismatic
-        revolute_dof_names = [name for name, _ in dof_dict.items() if "revolute" in name]
-        prismatic_dof_names = [name for name, _ in dof_dict.items() if "prismatic" in name]
-        self.revolute_dof_indices = sorted([dof_dict[name] for name in revolute_dof_names])
-        self.prismatic_dof_indices = sorted([dof_dict[name] for name in prismatic_dof_names])
-        self.revolute_dof_pos = dof_pos[:, self.revolute_dof_indices]
-        self.revolute_dof_vel = dof_vel[:, self.revolute_dof_indices]
-        self.prismatic_dof_pos = dof_pos[:, self.prismatic_dof_indices]
-        self.prismatic_dof_vel = dof_vel[:, self.prismatic_dof_indices]
+        self.dof_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 0]
+        self.dof_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 1]
 
         # Store rigid body state tensor
         rigid_body_state_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
@@ -98,8 +81,7 @@ class Vine(VecTask):
         # TODO: Can get other rigid body info
         # rigid_body_names = self.gym.get_asset_rigid_body_dict(self.vine_asset)
         rigid_body_state_by_env = self.rigid_body_state.view(self.num_envs, self.num_rigid_bodies, NUM_STATES)
-        self.last_link_rigid_body_state = rigid_body_state_by_env[:, -1, :]
-        self.tip_pos = self.last_link_rigid_body_state[:, 0:3]
+        self.tip_pos = rigid_body_state_by_env[:, -1, 0:3]
 
     def refresh_state_tensors(self):
         self.gym.refresh_dof_state_tensor(self.sim)
@@ -147,14 +129,36 @@ class Vine(VecTask):
         self.num_dof = self.gym.get_asset_dof_count(self.vine_asset)
         self.num_rigid_bodies = self.gym.get_asset_rigid_body_count(self.vine_asset)
 
+        # Sanity check
+        dof_dict = self.gym.get_asset_dof_dict(self.vine_asset)
+        num_revolute_dofs = len([name for name, _ in dof_dict.items() if "revolute" in name])
+        num_prismatic_dofs = len([name for name, _ in dof_dict.items() if "prismatic" in name])
+        assert(num_revolute_dofs == num_prismatic_dofs)
+        assert(num_revolute_dofs + num_prismatic_dofs == self.num_dof)
+
+        # Split into revolute and prismatic
+        revolute_dof_names = [name for name, _ in dof_dict.items() if "revolute" in name]
+        prismatic_dof_names = [name for name, _ in dof_dict.items() if "prismatic" in name]
+        self.revolute_dof_indices = sorted([dof_dict[name] for name in revolute_dof_names])
+        self.prismatic_dof_indices = sorted([dof_dict[name] for name in prismatic_dof_names])
+
+        # Store limits
+        self.dof_props = self.gym.get_asset_dof_properties(self.vine_asset)
+        self.dof_lowers = torch.from_numpy(self.dof_props["lower"]).to(self.device)
+        self.dof_uppers = torch.from_numpy(self.dof_props["upper"]).to(self.device)
+        self.revolute_dof_lowers = self.dof_lowers[self.revolute_dof_indices]
+        self.revolute_dof_uppers = self.dof_uppers[self.revolute_dof_indices]
+        self.prismatic_dof_lowers = self.dof_lowers[self.prismatic_dof_indices]
+        self.prismatic_dof_uppers = self.dof_uppers[self.prismatic_dof_indices]
+
         # Set initial actor poses
         pose = gymapi.Transform()
         if self.up_axis == 'z':
-            pose.p.z = 2.0
+            pose.p.z = 1.0
             # asset is rotated z-up by default, no additional rotations needed
             pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
         else:
-            pose.p.y = 2.0
+            pose.p.y = 1.0
             pose.r = gymapi.Quat(-np.sqrt(2)/2, 0.0, 0.0, np.sqrt(2)/2)
 
         self.vine_handles = []
@@ -173,8 +177,8 @@ class Vine(VecTask):
             # Set dof properties
             dof_props = self.gym.get_actor_dof_properties(env_ptr, vine_handle)
             dof_props['driveMode'][:] = gymapi.DOF_MODE_POS
-            dof_props['stiffness'][:] = 0.0  # TODO
-            dof_props['damping'][:] = 0.0  # TODO
+            dof_props['stiffness'][:] = 1.0  # TODO
+            dof_props['damping'][:] = 1.0  # TODO
             self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
 
             self.envs.append(env_ptr)
@@ -223,7 +227,6 @@ class Vine(VecTask):
         dof_types = [self.gym.get_asset_dof_type(asset, i) for i in range(self.num_dof)]
         dof_type_strings = [self.gym.get_dof_type_string(dof_type) for dof_type in dof_types]
 
-        num_rigid_bodies = self.gym.get_asset_rigid_body_count(asset)
         rigid_body_dict = self.gym.get_asset_rigid_body_dict(asset)
         joint_dict = self.gym.get_asset_joint_dict(asset)
         dof_dict = self.gym.get_asset_dof_dict(asset)
@@ -235,7 +238,7 @@ class Vine(VecTask):
             print("  Type:     %s" % dof_type_string)
             print("  Properties:  %r" % dof_prop)
         print()
-        print(f"num_rigid_bodies = {num_rigid_bodies}")
+        print(f"self.num_rigid_bodies = {self.num_rigid_bodies}")
         print(f"rigid_body_dict = {rigid_body_dict}")
         print(f"joint_dict = {joint_dict}")
         print(f"dof_dict = {dof_dict}")
@@ -257,23 +260,26 @@ class Vine(VecTask):
         self.refresh_state_tensors()
 
         # Compute dist_tip_to_target
-        TARGET = torch.tensor([1, 2, 3]).to(self.device)  # TODO
+        TARGET = torch.tensor([1, 1, 1]).to(self.device)  # TODO
         dist_tip_to_target = torch.linalg.norm(self.tip_pos[env_ids] - TARGET, dim=-1)
 
+        # Split into revolute and prismatic
+        revolute_dof_pos = self.dof_pos[:, self.revolute_dof_indices]
+        prismatic_dof_pos = self.dof_pos[:, self.prismatic_dof_indices]
+
         # Populate obs_buf
-        self.obs_buf[env_ids, 0:self.num_dof//2] = torch.cos(self.revolute_dof_pos[env_ids, :])
-        self.obs_buf[env_ids, self.num_dof//2:self.num_dof] = torch.sin(self.revolute_dof_pos[env_ids, :])
-        self.obs_buf[env_ids, self.num_dof:self.num_dof+self.num_dof//2] = self.prismatic_dof_pos[env_ids, :]
+        num_revolute_dofs, num_prismatic_dofs = self.num_dof // 2, self.num_dof // 2
+        self.obs_buf[env_ids, 0:num_revolute_dofs] = torch.cos(revolute_dof_pos[env_ids, :])
+        self.obs_buf[env_ids, num_revolute_dofs:(2 * num_revolute_dofs)] = torch.sin(revolute_dof_pos[env_ids, :])
+        self.obs_buf[env_ids, (2 * num_revolute_dofs):(2 * num_revolute_dofs + num_prismatic_dofs)] = prismatic_dof_pos[env_ids, :]
         self.obs_buf[env_ids, -1] = dist_tip_to_target
 
         return self.obs_buf
 
     def reset_idx(self, env_ids):
         # TODO: Reset init pos
-        self.revolute_dof_pos[env_ids, :] = 0.0
-        self.revolute_dof_vel[env_ids, :] = 0.0
-        self.prismatic_dof_pos[env_ids, :] = 0.0
-        self.prismatic_dof_vel[env_ids, :] = 0.0
+        self.dof_pos[env_ids, :] = torch.rand(*self.dof_pos[env_ids, :].shape).to(self.device) * (self.dof_uppers - self.dof_lowers) + self.dof_lowers
+        self.dof_vel[env_ids, :] = 0.0
 
         env_ids_int32 = env_ids.to(dtype=torch.int32)
         self.gym.set_dof_state_tensor_indexed(self.sim,
@@ -284,10 +290,13 @@ class Vine(VecTask):
         self.progress_buf[env_ids] = 0
 
     def pre_physics_step(self, actions):
-        actions_tensor = torch.zeros((self.num_envs, self.num_dof), device=self.device, dtype=torch.float)
-        # TODO: Use actions
+        # TODO: Find smallest index of prismatic joint not at limit, use that to control action space
+        # actions_tensor = torch.zeros((self.num_envs, self.num_dof), device=self.device, dtype=torch.float)
+        # actions_tensor[:, self.revolute_dof_indices] = actions[:, 0:3] * (self.revolute_dof_uppers - self.revolute_dof_lowers) + self.revolute_dof_lowers
+        # actions_tensor[:, 3] = actions[:, 3] * (self.prismatic_dof_uppers - self.prismatic_dof_lowers) + self.revolute_dof_lowers
+        self.actions = actions.clone().to(self.device) * (self.dof_uppers - self.dof_lowers) + self.dof_lowers
 
-        position_targets = gymtorch.unwrap_tensor(actions_tensor)
+        position_targets = gymtorch.unwrap_tensor(self.actions)
         self.gym.set_dof_position_target_tensor(self.sim, position_targets)
 
     def post_physics_step(self):
