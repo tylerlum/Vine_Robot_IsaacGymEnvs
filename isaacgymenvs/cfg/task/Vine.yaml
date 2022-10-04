@@ -7,11 +7,13 @@ physics_engine: ${..physics_engine}
 env:
   numEnvs: ${resolve_default:512,${...num_envs}}
   envSpacing: 4.0
-  resetDist: 3.0
-  maxEffort: 400.0
 
   clipObservations: 5.0
   clipActions: 1.0
+
+  maxEpisodeLength: 500
+  numObservations: 10
+  numActions: 4
 
   asset:
     assetRoot: "../../assets"
