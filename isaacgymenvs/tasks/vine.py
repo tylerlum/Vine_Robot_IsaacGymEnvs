@@ -35,7 +35,8 @@ from .base.vec_task import VecTask
 
 NUM_STATES = 13  # xyz, quat, v_xyz, w_xyz
 NUM_XYZ = 3
-Z = 1
+Z = 1.0
+TARGET_POS_MIN, TARGET_POS_MAX = -0.5, 0.5
 # TODO: Self collision check, parameters of movement, mass, diameter
 
 
@@ -69,8 +70,7 @@ class Vine(VecTask):
                          headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
 
         self.initialize_state_tensors()
-        self.target_positions = torch.rand(self.num_envs, NUM_XYZ, device=self.device, dtype=torch.float)
-        self.target_positions[:, 2] = Z
+        self.target_positions = self.sample_target_positions(self.num_envs)
 
     def initialize_state_tensors(self):
         # Store dof state tensor, and get pos and vel
@@ -278,6 +278,7 @@ class Vine(VecTask):
         self.obs_buf[env_ids, (2 * num_revolute_dofs):(2 * num_revolute_dofs + num_prismatic_dofs)] = prismatic_dof_pos[env_ids, :]
         self.obs_buf[env_ids, -6:-3] = self.tip_positions
         self.obs_buf[env_ids, -3:] = self.target_positions
+        print(f"self.obs_buf[0] = {self.obs_buf[0]}")
 
         return self.obs_buf
 
@@ -295,8 +296,12 @@ class Vine(VecTask):
         self.progress_buf[env_ids] = 0
 
         # New target positions
-        self.target_positions[env_ids, :] = torch.rand(len(env_ids), NUM_XYZ, device=self.device, dtype=torch.float)
-        self.target_positions[env_ids, 2] = Z
+        self.target_positions[env_ids, :] = self.sample_target_positions(len(env_ids))
+
+    def sample_target_positions(self, num_envs):
+        target_positions = torch.rand(num_envs, NUM_XYZ, device=self.device, dtype=torch.float) * (TARGET_POS_MAX - TARGET_POS_MIN) + TARGET_POS_MIN
+        target_positions[:, 2] = Z
+        return target_positions
 
     def pre_physics_step(self, actions):
         # TODO: Find smallest index of prismatic joint not at limit, use that to control action space
