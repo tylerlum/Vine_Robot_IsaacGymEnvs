@@ -47,10 +47,12 @@ class Vine(VecTask):
     Observation:
       * 6 Cos/Sin of Revolute Joint Positions (3 revolute)
       * 3 Prismatic Joint Positions
-      * 1 Dist to target
+      * 3 tip position
+      * 3 target position
     Action:
       * 1 for lengthen/retract the closest prismatic joint that is not at 0 or full length
       * 3 for angles (only applies actions to angles that have length)
+      * OR 6 joint position targets normalized [-1, 1]
     Reward:
       * Dist to target
     Environment:
@@ -85,7 +87,7 @@ class Vine(VecTask):
         # TODO: Can get other rigid body info
         # rigid_body_names = self.gym.get_asset_rigid_body_dict(self.vine_asset)
         rigid_body_state_by_env = self.rigid_body_state.view(self.num_envs, self.num_rigid_bodies, NUM_STATES)
-        self.tip_pos = rigid_body_state_by_env[:, -1, 0:3]
+        self.tip_positions = rigid_body_state_by_env[:, -1, 0:3]
 
     def refresh_state_tensors(self):
         self.gym.refresh_dof_state_tensor(self.sim)
@@ -250,10 +252,12 @@ class Vine(VecTask):
 
     def compute_reward(self):
         # retrieve environment observations from buffer
-        dist_to_target = self.obs_buf[:, 9]
+        tip_positions = self.obs_buf[:, -6:-3]
+        target_positions = self.obs_buf[:, -3:]
+        dist_tip_to_target = torch.linalg.norm(tip_positions - target_positions, dim=-1)
 
         self.rew_buf[:], self.reset_buf[:] = compute_vine_reward(
-            dist_to_target, self.reset_buf, self.progress_buf, self.max_episode_length
+            dist_tip_to_target, self.reset_buf, self.progress_buf, self.max_episode_length
         )
 
     def compute_observations(self, env_ids=None):
@@ -262,9 +266,6 @@ class Vine(VecTask):
 
         # Refresh tensors
         self.refresh_state_tensors()
-
-        # Compute dist_tip_to_target
-        dist_tip_to_target = torch.linalg.norm(self.tip_pos[env_ids] - self.target_positions, dim=-1)
 
         # Split into revolute and prismatic
         revolute_dof_pos = self.dof_pos[:, self.revolute_dof_indices]
@@ -275,7 +276,8 @@ class Vine(VecTask):
         self.obs_buf[env_ids, 0:num_revolute_dofs] = torch.cos(revolute_dof_pos[env_ids, :])
         self.obs_buf[env_ids, num_revolute_dofs:(2 * num_revolute_dofs)] = torch.sin(revolute_dof_pos[env_ids, :])
         self.obs_buf[env_ids, (2 * num_revolute_dofs):(2 * num_revolute_dofs + num_prismatic_dofs)] = prismatic_dof_pos[env_ids, :]
-        self.obs_buf[env_ids, -1] = dist_tip_to_target
+        self.obs_buf[env_ids, -6:-3] = self.tip_positions
+        self.obs_buf[env_ids, -3:] = self.target_positions
 
         return self.obs_buf
 
@@ -342,7 +344,7 @@ def compute_vine_reward(dist_to_target, reset_buf, progress_buf, max_episode_len
     # type: (Tensor, Tensor, Tensor, float) -> Tuple[Tensor, Tensor]
 
     # reward is punishing dist_to_target
-    reward = 1.0 - dist_to_target  # TODO
+    reward = -dist_to_target  # TODO
     reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset_buf)
 
     return reward, reset
