@@ -34,6 +34,8 @@ from isaacgym import gymutil, gymtorch, gymapi
 from .base.vec_task import VecTask
 
 NUM_STATES = 13  # xyz, quat, v_xyz, w_xyz
+NUM_XYZ = 3
+Z = 1
 # TODO: Self collision check, parameters of movement, mass, diameter
 
 
@@ -65,6 +67,8 @@ class Vine(VecTask):
                          headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
 
         self.initialize_state_tensors()
+        self.target_positions = torch.rand(self.num_envs, NUM_XYZ, device=self.device, dtype=torch.float)
+        self.target_positions[:, 2] = Z
 
     def initialize_state_tensors(self):
         # Store dof state tensor, and get pos and vel
@@ -154,11 +158,11 @@ class Vine(VecTask):
         # Set initial actor poses
         pose = gymapi.Transform()
         if self.up_axis == 'z':
-            pose.p.z = 1.0
+            pose.p.z = Z
             # asset is rotated z-up by default, no additional rotations needed
             pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
         else:
-            pose.p.y = 1.0
+            pose.p.y = Z
             pose.r = gymapi.Quat(-np.sqrt(2)/2, 0.0, 0.0, np.sqrt(2)/2)
 
         self.vine_handles = []
@@ -260,8 +264,7 @@ class Vine(VecTask):
         self.refresh_state_tensors()
 
         # Compute dist_tip_to_target
-        TARGET = torch.tensor([1, 1, 1]).to(self.device)  # TODO
-        dist_tip_to_target = torch.linalg.norm(self.tip_pos[env_ids] - TARGET, dim=-1)
+        dist_tip_to_target = torch.linalg.norm(self.tip_pos[env_ids] - self.target_positions, dim=-1)
 
         # Split into revolute and prismatic
         revolute_dof_pos = self.dof_pos[:, self.revolute_dof_indices]
@@ -289,6 +292,10 @@ class Vine(VecTask):
         self.reset_buf[env_ids] = 0
         self.progress_buf[env_ids] = 0
 
+        # New target positions
+        self.target_positions[env_ids, :] = torch.rand(len(env_ids), NUM_XYZ, device=self.device, dtype=torch.float)
+        self.target_positions[env_ids, 2] = Z
+
     def pre_physics_step(self, actions):
         # TODO: Find smallest index of prismatic joint not at limit, use that to control action space
         # actions_tensor = torch.zeros((self.num_envs, self.num_dof), device=self.device, dtype=torch.float)
@@ -302,12 +309,28 @@ class Vine(VecTask):
     def post_physics_step(self):
         self.progress_buf += 1
 
+        # Reset
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         if len(env_ids) > 0:
             self.reset_idx(env_ids)
 
+        # Compute observations and reward
         self.compute_observations()
         self.compute_reward()
+
+        # Draw debug info
+        if self.viewer and self.enable_viewer_sync:
+            # Create spheres
+            visualization_sphere_radius = 0.1
+            visualization_sphere_red = gymutil.WireframeSphereGeometry(visualization_sphere_radius, 3, 3, color=(1, 0, 0))
+
+            # Draw target
+            self.gym.clear_lines(self.viewer)
+            for i in range(self.num_envs):
+                target_position = self.target_positions[i]
+                sphere_pose = gymapi.Transform(gymapi.Vec3(target_position[0], target_position[1], target_position[2]), r=None)
+                gymutil.draw_lines(visualization_sphere_red, self.gym, self.viewer, self.envs[i], sphere_pose) 
+
 
 #####################################################################
 ###=========================jit functions=========================###
