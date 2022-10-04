@@ -35,7 +35,7 @@
             <geometry>
                 <box size="0.1 0.1 0.1"/>
             </geometry>
-            <material name="red"/>
+            <material name="black"/>
         </visual>
 
     </link>
@@ -58,7 +58,7 @@
             <geometry>
                 <box size="0.1 0.1 0.1"/>
             </geometry>
-            <material name="green"/>
+            <material name="red"/>
         </visual>
     </link>
 
@@ -80,7 +80,7 @@
             <geometry>
                 <box size="0.1 0.1 0.1"/>
             </geometry>
-            <material name="blue"/>
+            <material name="green"/>
         </visual>
     </link>
 
@@ -102,7 +102,7 @@
             <geometry>
                 <box size="0.1 0.1 0.1"/>
             </geometry>
-            <material name="black"/>
+            <material name="blue"/>
         </visual>
     </link>
 
@@ -116,7 +116,7 @@
        	<limit lower="-3.146" upper="3.146" effort="10" velocity="3"/>
     </joint>
     <joint name="prismatic_joint_0" type="prismatic">
-        <origin xyz="0.1 0.0 0.0" rpy="0.0 0.0 0.0"/>
+        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
         <parent link="base_virtual_link"/>
         <child link="link_0"/>
         <axis xyz="1.0 0.0 0.0"/>
@@ -131,7 +131,7 @@
        	<limit lower="-3.146" upper="3.146" effort="10" velocity="3"/>
     </joint>
     <joint name="prismatic_joint_1" type="prismatic">
-        <origin xyz="0.1 0.0 0.0" rpy="0.0 0.0 0.0"/>
+        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
         <parent link="virtual_link_0"/>
         <child link="link_1"/>
         <axis xyz="1.0 0.0 0.0"/>
@@ -146,7 +146,7 @@
        	<limit lower="-3.146" upper="3.146" effort="10" velocity="3"/>
     </joint>
     <joint name="prismatic_joint_2" type="prismatic">
-        <origin xyz="0.1 0.0 0.0" rpy="0.0 0.0 0.0"/>
+        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
         <parent link="virtual_link_1"/>
         <child link="link_2"/>
         <axis xyz="1.0 0.0 0.0"/>
