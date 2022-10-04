@@ -278,7 +278,6 @@ class Vine(VecTask):
         self.obs_buf[env_ids, (2 * num_revolute_dofs):(2 * num_revolute_dofs + num_prismatic_dofs)] = prismatic_dof_pos[env_ids, :]
         self.obs_buf[env_ids, -6:-3] = self.tip_positions
         self.obs_buf[env_ids, -3:] = self.target_positions
-        print(f"self.obs_buf[0] = {self.obs_buf[0]}")
 
         return self.obs_buf
 
