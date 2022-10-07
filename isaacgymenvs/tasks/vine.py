@@ -36,8 +36,10 @@ from .base.vec_task import VecTask
 NUM_STATES = 13  # xyz, quat, v_xyz, w_xyz
 NUM_XYZ = 3
 Z = 1.0
-TARGET_POS_MIN, TARGET_POS_MAX = -0.5, 0.5
+TARGET_POS_MIN, TARGET_POS_MAX = -0.7, 0.7
 DOF_MODE = "POSITION"  # "FORCE" OR "POSITION"
+
+
 # TODO: Self collision check, parameters of movement, mass, diameter
 
 
@@ -290,19 +292,21 @@ class Vine(VecTask):
                                                        num_prismatic_dofs)] = prismatic_dof_pos[env_ids, :]
         self.obs_buf[env_ids, -6:-3] = self.tip_positions
         self.obs_buf[env_ids, -3:] = self.target_positions
-        i = 7
-        print(f"for i = {i}")
-        print(f"revolute_dof_pos = {revolute_dof_pos[i]}")
-        print(f"prismatic_dof_pos = {prismatic_dof_pos[i]}")
-        print(f"tip_positions = {self.tip_positions[i]}")
-        print(f"target_positions = {self.target_positions[i]}")
-        print()
+        PRINT_THIS_2 = False
+        if PRINT_THIS_2:
+            i = 7
+            print(f"for i = {i}")
+            print(f"revolute_dof_pos = {revolute_dof_pos[i]}")
+            print(f"prismatic_dof_pos = {prismatic_dof_pos[i]}")
+            print(f"tip_positions = {self.tip_positions[i]}")
+            print(f"target_positions = {self.target_positions[i]}")
+            print()
 
         return self.obs_buf
 
     def reset_idx(self, env_ids):
-        RANDOMIZE_REVOLUTES = False
-        RANDOMIZE_PRISMATICS = False
+        RANDOMIZE_REVOLUTES = True
+        RANDOMIZE_PRISMATICS = True
         if RANDOMIZE_REVOLUTES:
             # Set randomized initial revolute dof positions
             num_revolute_joints = len(self.revolute_dof_lowers)
@@ -363,9 +367,15 @@ class Vine(VecTask):
         return target_positions
 
     def pre_physics_step(self, actions):
-        # self.raw_actions = actions.clone().to(self.device) TODO REMOVE
-        self.raw_actions = torch.zeros_like(actions, device=self.device)
-        self.raw_actions[:, -1] = 1.0
+        print(f"PRE PHYSICS STEP")
+        print("-" * 100)
+        print()
+        USE_FIXED_ACTION = True
+        if not USE_FIXED_ACTION:
+            self.raw_actions = actions.clone().to(self.device)
+        else:
+            self.raw_actions = torch.zeros_like(actions, device=self.device)
+            self.raw_actions[:, -1] = 1.0
 
         # Break into revolute and prismatic action
         revolute_raw_actions, prismatic_raw_actions = self.raw_actions[:, :-1], self.raw_actions[:, -1]
@@ -376,8 +386,12 @@ class Vine(VecTask):
         num_prismatic_joints = len(self.prismatic_dof_lowers)
         prismatic_indexes = torch.ones(self.num_envs, dtype=torch.int32, device=self.device) * num_prismatic_joints
         for i in range(num_prismatic_joints):
-            prismatic_indexes[(prismatic_dof_pos[:, i] < self.prismatic_dof_uppers[i])
+            BUFFER = 0.9
+            prismatic_indexes[(prismatic_dof_pos[:, i] < BUFFER * self.prismatic_dof_uppers[i])
                               & (prismatic_indexes == num_prismatic_joints)] = i
+        # If goes to end, then bring it back to before end
+        prismatic_indexes[prismatic_indexes == num_prismatic_joints] = num_prismatic_joints - 1
+        print(f"prismatic_indexes = {prismatic_indexes}")
 
         # TODO: Handle edge cases
         #   * full extension, then try to grow (do nothing) [SHOULD BE HANDLED]
@@ -409,38 +423,76 @@ class Vine(VecTask):
                                                                             )
             self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
         elif DOF_MODE == "POSITION":
-            position_targets = torch.zeros(self.num_envs, self.num_dof, device=self.device)
-
-            # Populate revolute targets
+            # Populate revolute targets: Angle is 0 if beyond prismatic joint
             revolute_actions = (revolute_raw_actions + 1.) / 2. * (self.revolute_dof_uppers -
                                                                    self.revolute_dof_lowers) + self.revolute_dof_lowers
             for i in range(num_prismatic_joints):
                 revolute_actions[:, i] = torch.where(i <= prismatic_indexes, revolute_actions[:, i], 0)
-            position_targets[:, self.revolute_dof_indices] = revolute_actions
 
             # Populate prismatic targets
             current_lengths = torch.sum(prismatic_dof_pos, dim=1).to(self.device)
             desired_lengths = (prismatic_raw_actions + 1.) / 2. * torch.sum(self.prismatic_dof_uppers)
             difference_lengths = desired_lengths - current_lengths  # +ve if grow, -ve if shrink
             prismatic_actions = torch.zeros(self.num_envs, num_prismatic_joints, device=self.device)
+
+            remainder_lengths = torch.zeros(self.num_envs, device=self.device)
             for i in range(num_prismatic_joints):
-                prismatic_actions[:, i] = torch.where(i < prismatic_indexes, self.prismatic_dof_uppers[i],
-                                                      torch.where(i > prismatic_indexes, self.prismatic_dof_lowers[i],
-                                                                  torch.where(difference_lengths > 0,
-                                                                              torch.min(difference_lengths,
-                                                                                        self.prismatic_dof_uppers[i]),
-                                                                              torch.max(difference_lengths, self.prismatic_dof_lowers[i]))))
+                remainder_lengths[prismatic_indexes == i] = prismatic_dof_pos[prismatic_indexes == i, i]
+            print(f"prismatic_dof_pos.shape = {prismatic_dof_pos.shape}")
+            print(f"remainder_lengths.shape = {remainder_lengths.shape}")
+            print(f"remainder_lengths = {remainder_lengths}")
+            print(f"current_lengths = {current_lengths}")
+            print(f"desired_lengths = {desired_lengths}")
+            print(f"difference_lengths = {difference_lengths}")
+            BUFFER = 0.9
+
+            # FOUND BUG WITH prismatic_indexes out of bounds
+            go_to_next_joint = (difference_lengths > 0) & ((prismatic_indexes < num_prismatic_joints) & (remainder_lengths >
+                                                           BUFFER * self.prismatic_dof_uppers[prismatic_indexes.long()]))
+            print(f"go_to_next_joint = {go_to_next_joint}")
+            go_to_prev_joint = (difference_lengths < 0) & (prismatic_indexes > 0) & ((prismatic_indexes < num_prismatic_joints) & (remainder_lengths < (
+                1 - BUFFER) * self.prismatic_dof_uppers[prismatic_indexes.long()] + self.prismatic_dof_lowers[prismatic_indexes.long()]))
+            print(f"go_to_prev_joint = {go_to_prev_joint}")
+            modified_prismatic_indexes = torch.where(go_to_next_joint, prismatic_indexes + 1,
+                                                     torch.where(go_to_prev_joint, prismatic_indexes - 1,
+                                                                 prismatic_indexes))
+            print(f"modified_prismatic_indexes = {modified_prismatic_indexes}")
+
+            for i in range(num_prismatic_joints):
+                prismatic_actions[:, i] = torch.where(i < modified_prismatic_indexes, self.prismatic_dof_uppers[i],
+                                                      torch.where(i > modified_prismatic_indexes, self.prismatic_dof_lowers[i],
+                                                                  torch.clamp(prismatic_dof_pos[:, i] + difference_lengths,
+                                                                              min=self.prismatic_dof_lowers[i],
+                                                                              max=self.prismatic_dof_uppers[i])))
+            print(f"prismatic_actions.shape = {prismatic_actions.shape}")
+
+            position_targets = torch.zeros(self.num_envs, self.num_dof, device=self.device)
+            print(f"position_targets.shape = {position_targets.shape}")
+            position_targets[:, self.revolute_dof_indices] = revolute_actions
             position_targets[:, self.prismatic_dof_indices] = prismatic_actions
+            print(f"position_targets = {position_targets}")
+#             for i in range(num_prismatic_joints):
+#                 print(f"position_targets = {position_targets}")
+#                 print(f"position_targets.shape = {position_targets.shape}")
+#                 print(f"self.revolute_dof_indices[i] = {self.revolute_dof_indices[i]}")
+#                 print(f"self.prismatic_dof_indices[i] = {self.prismatic_dof_indices[i]}")
+#                 print(f"self.revolute_dof_indices = {self.revolute_dof_indices}")
+#                 print(f"self.prismatic_dof_indices = {self.prismatic_dof_indices}")
+#                 position_targets[:, self.revolute_dof_indices[i]] = revolute_actions[:, i]
+#                 position_targets[:, self.prismatic_dof_indices[i]] = prismatic_actions[:, i]
+# 
             # TODO: Remove
-            print(f"revolute_actions = {revolute_actions[7]}")
-            print(f"prismatic_actions = {prismatic_actions[7]}")
-            print(f"prismatic_indexes = {prismatic_indexes[7]}")
-            print(f"current_lengths = {current_lengths[7]}")
-            print(f"desired_lengths = {desired_lengths[7]}")
-            print(f"difference_lengths = {difference_lengths[7]}")
-            print(f"raw_actions = {self.raw_actions[7]}")
-            print(f"prismatic_raw_actions = {prismatic_raw_actions[7]}")
-            print()
+            PRINT_THIS = False
+            if PRINT_THIS:
+                print(f"revolute_actions = {revolute_actions[7]}")
+                print(f"prismatic_actions = {prismatic_actions[7]}")
+                print(f"prismatic_indexes = {prismatic_indexes[7]}")
+                print(f"current_lengths = {current_lengths[7]}")
+                print(f"desired_lengths = {desired_lengths[7]}")
+                print(f"difference_lengths = {difference_lengths[7]}")
+                print(f"raw_actions = {self.raw_actions[7]}")
+                print(f"prismatic_raw_actions = {prismatic_raw_actions[7]}")
+                print()
 
             # Apply targets
             self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(position_targets))
