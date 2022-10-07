@@ -370,7 +370,7 @@ class Vine(VecTask):
         print(f"PRE PHYSICS STEP")
         print("-" * 100)
         print()
-        USE_FIXED_ACTION = True
+        USE_FIXED_ACTION = False
         if not USE_FIXED_ACTION:
             self.raw_actions = actions.clone().to(self.device)
         else:
