@@ -37,7 +37,7 @@ NUM_STATES = 13  # xyz, quat, v_xyz, w_xyz
 NUM_XYZ = 3
 Z = 1.0
 TARGET_POS_MIN, TARGET_POS_MAX = -0.5, 0.5
-DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
+DOF_MODE = "POSITION"  # "FORCE" OR "POSITION"
 # TODO: Self collision check, parameters of movement, mass, diameter
 
 
@@ -290,38 +290,58 @@ class Vine(VecTask):
                                                        num_prismatic_dofs)] = prismatic_dof_pos[env_ids, :]
         self.obs_buf[env_ids, -6:-3] = self.tip_positions
         self.obs_buf[env_ids, -3:] = self.target_positions
+        i = 7
+        print(f"for i = {i}")
+        print(f"revolute_dof_pos = {revolute_dof_pos[i]}")
+        print(f"prismatic_dof_pos = {prismatic_dof_pos[i]}")
+        print(f"tip_positions = {self.tip_positions[i]}")
+        print(f"target_positions = {self.target_positions[i]}")
+        print()
 
         return self.obs_buf
 
     def reset_idx(self, env_ids):
-        # Set initial lengths
-        min_length, max_length = sum(self.prismatic_dof_lowers), sum(self.prismatic_dof_uppers)
-        initial_lengths = torch.FloatTensor(len(env_ids)).uniform_(min_length, max_length).to(self.device)
+        RANDOMIZE_REVOLUTES = False
+        RANDOMIZE_PRISMATICS = False
+        if RANDOMIZE_REVOLUTES:
+            # Set randomized initial revolute dof positions
+            num_revolute_joints = len(self.revolute_dof_lowers)
+            for i in range(num_revolute_joints):
+                self.dof_pos[env_ids, self.revolute_dof_indices[i]] = torch.FloatTensor(len(env_ids)).uniform_(
+                    self.revolute_dof_lowers[i], self.revolute_dof_uppers[i]).to(self.device)
+        else:
+            num_revolute_joints = len(self.revolute_dof_lowers)
+            for i in range(num_revolute_joints):
+                self.dof_pos[env_ids, self.revolute_dof_indices[i]] = 0
 
-        # Compute prismatic indexes (smallest index i such that prismatic_joint_i < prismatic_joint_limit_i)
-        # And remainder_lengths (length of prismatic_joint_i)
-        current_lengths = initial_lengths.clone()
-        remainder_lengths = initial_lengths.clone()
-        num_prismatic_joints = len(self.prismatic_dof_lowers)
-        prismatic_indexes = torch.ones(len(env_ids), dtype=torch.int32, device=self.device) * num_prismatic_joints
-        for i in range(num_prismatic_joints):
-            prev_lengths = current_lengths.clone()  # TODO: Optimize?
-            current_lengths -= self.prismatic_dof_uppers[i]
-            remainder_lengths[(current_lengths < 0) & (prev_lengths >= 0)
-                              ] = prev_lengths[(current_lengths < 0) & (prev_lengths >= 0)]
-            prismatic_indexes[(current_lengths < 0) & (prev_lengths >= 0)] = i
+        if RANDOMIZE_PRISMATICS:
+            # Set initial lengths
+            min_length, max_length = sum(self.prismatic_dof_lowers), sum(self.prismatic_dof_uppers)
+            initial_lengths = torch.FloatTensor(len(env_ids)).uniform_(min_length, max_length).to(self.device)
 
-        # Set randomized initial revolute dof positions
-        num_revolute_joints = len(self.revolute_dof_lowers)
-        for i in range(num_revolute_joints):
-            self.dof_pos[env_ids, self.revolute_dof_indices[i]] = torch.FloatTensor(len(env_ids)).uniform_(
-                self.revolute_dof_lowers[i], self.revolute_dof_uppers[i]).to(self.device)
+            # Compute prismatic indexes (smallest index i such that prismatic_joint_i < prismatic_joint_limit_i)
+            # And remainder_lengths (length of prismatic_joint_i)
+            current_lengths = initial_lengths.clone()
+            remainder_lengths = initial_lengths.clone()
+            num_prismatic_joints = len(self.prismatic_dof_lowers)
+            prismatic_indexes = torch.ones(len(env_ids), dtype=torch.int32, device=self.device) * num_prismatic_joints
+            for i in range(num_prismatic_joints):
+                prev_lengths = current_lengths.clone()  # TODO: Optimize?
+                current_lengths -= self.prismatic_dof_uppers[i]
+                remainder_lengths[(current_lengths < 0) & (prev_lengths >= 0)
+                                ] = prev_lengths[(current_lengths < 0) & (prev_lengths >= 0)]
+                prismatic_indexes[(current_lengths < 0) & (prev_lengths >= 0)] = i
 
-        # Set initial prismatic dof positions to match sampled initial lengths
-        for i in range(num_prismatic_joints):
-            self.dof_pos[env_ids, self.prismatic_dof_indices[i]] = torch.where(i < prismatic_indexes, self.prismatic_dof_uppers[i],
-                                                                               torch.where(i > prismatic_indexes, self.prismatic_dof_lowers[i],
-                                                                                           remainder_lengths))
+            # Set initial prismatic dof positions to match sampled initial lengths
+            for i in range(num_prismatic_joints):
+                self.dof_pos[env_ids, self.prismatic_dof_indices[i]] = torch.where(i < prismatic_indexes, self.prismatic_dof_uppers[i],
+                                                                                torch.where(i > prismatic_indexes, self.prismatic_dof_lowers[i],
+                                                                                            remainder_lengths))
+        else:
+            num_prismatic_joints = len(self.prismatic_dof_lowers)
+            for i in range(num_prismatic_joints):
+                self.dof_pos[env_ids, self.prismatic_dof_indices[i]] = 0
+
         # Set dof velocities to 0
         self.dof_vel[env_ids, :] = 0.0
 
@@ -370,7 +390,13 @@ class Vine(VecTask):
             REVOLUTE_FORCE_SCALING = 1
             PRISMATIC_FORCE_SCALING = 1
             dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
+
+            # Revolute
             dof_efforts[:, self.revolute_dof_indices] = revolute_raw_actions * REVOLUTE_FORCE_SCALING
+            for i in range(num_prismatic_joints):
+                dof_efforts[:, self.revolute_dof_indices[i]] = torch.where(i <= prismatic_indexes, dof_efforts[:, self.revolute_dof_indices[i]], 0)  # TODO: Make it go back to middle
+
+            # Prismatic
             for i in range(num_prismatic_joints):
                 dof_efforts[:, self.prismatic_dof_indices[i]] = prismatic_raw_actions * REVOLUTE_FORCE_SCALING
 
@@ -385,11 +411,13 @@ class Vine(VecTask):
             # Populate revolute targets
             revolute_actions = (revolute_raw_actions + 1) / 2 * (self.revolute_dof_uppers -
                                                                  self.revolute_dof_lowers) + self.revolute_dof_lowers
+            for i in range(num_prismatic_joints):
+                revolute_actions[:, i] = torch.where(i <= prismatic_indexes, revolute_actions[:, i], 0)
             position_targets[:, self.revolute_dof_indices] = revolute_actions
 
             # Populate prismatic targets
             current_lengths = torch.sum(prismatic_dof_pos, dim=1).to(self.device)
-            desired_lengths = prismatic_raw_actions * torch.sum(self.prismatic_dof_uppers)
+            desired_lengths = (prismatic_raw_actions + 1) / 2 * torch.sum(self.prismatic_dof_uppers)
             difference_lengths = desired_lengths - current_lengths  # +ve if grow, -ve if shrink
             for i in range(num_prismatic_joints):
                 position_targets[:, self.prismatic_dof_indices[i]] = torch.where(i < prismatic_indexes, self.prismatic_dof_uppers[i],
