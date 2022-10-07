@@ -66,6 +66,10 @@ class Vine(VecTask):
         self.cfg = cfg
         self.max_episode_length = self.cfg["env"]["maxEpisodeLength"]
 
+        # Must set this before continuing
+        self.cfg["env"]["numObservations"] = 15
+        self.cfg["env"]["numActions"] = 4  # 4 or 6 depending on action space selection
+
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id,
                          headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
 
@@ -275,15 +279,41 @@ class Vine(VecTask):
         num_revolute_dofs, num_prismatic_dofs = self.num_dof // 2, self.num_dof // 2
         self.obs_buf[env_ids, 0:num_revolute_dofs] = torch.cos(revolute_dof_pos[env_ids, :])
         self.obs_buf[env_ids, num_revolute_dofs:(2 * num_revolute_dofs)] = torch.sin(revolute_dof_pos[env_ids, :])
-        self.obs_buf[env_ids, (2 * num_revolute_dofs):(2 * num_revolute_dofs + num_prismatic_dofs)] = prismatic_dof_pos[env_ids, :]
+        self.obs_buf[env_ids, (2 * num_revolute_dofs):(2 * num_revolute_dofs +
+                                                       num_prismatic_dofs)] = prismatic_dof_pos[env_ids, :]
         self.obs_buf[env_ids, -6:-3] = self.tip_positions
         self.obs_buf[env_ids, -3:] = self.target_positions
 
         return self.obs_buf
 
     def reset_idx(self, env_ids):
-        # TODO: Reset init pos
-        self.dof_pos[env_ids, :] = torch.rand(*self.dof_pos[env_ids, :].shape).to(self.device) * (self.dof_uppers - self.dof_lowers) + self.dof_lowers
+        # Set initial lengths
+        min_length, max_length = sum(self.prismatic_dof_lowers), sum(self.prismatic_dof_uppers)
+        initial_lengths = torch.rand(len(env_ids)).to(self.device) * (max_length - min_length) + min_length
+
+        # Compute prismatic indexes (smallest index i such that prismatic_joint_i < prismatic_joint_limit_i)
+        # And remainder_lengths (length of prismatic_joint_i)
+        print(f"initial_lengths = {initial_lengths}")
+        current_lengths = initial_lengths.clone()
+        remainder_lengths = initial_lengths.clone()
+        num_prismatic_joints = len(self.prismatic_dof_lowers)
+        prismatic_indexes = torch.ones(len(env_ids), dtype=torch.int32).to(self.device) * num_prismatic_joints
+        for i in range(num_prismatic_joints):
+            prev_lengths = current_lengths.clone()
+            current_lengths -= self.prismatic_dof_uppers[i]
+            remainder_lengths[(current_lengths < 0) & (prev_lengths >= 0)
+                              ] = prev_lengths[(current_lengths < 0) & (prev_lengths >= 0)]
+            prismatic_indexes[(current_lengths < 0) & (prev_lengths >= 0)] = i
+
+        # Set randomized initial dof positions
+        num_revolute_joints = len(self.revolute_dof_lowers)
+        for i in range(num_revolute_joints):
+            self.dof_pos[env_ids, self.revolute_dof_indices[i]] = torch.rand(len(env_ids)).to(
+                self.device) * (self.revolute_dof_uppers[i] - self.revolute_dof_lowers[i]) + self.revolute_dof_lowers[i]
+
+        for i in range(num_prismatic_joints):
+            self.dof_pos[env_ids, self.prismatic_dof_indices[i]] = torch.where(i < prismatic_indexes, self.prismatic_dof_uppers[i],
+                                                                               torch.where(i == prismatic_indexes, remainder_lengths, 0))
         self.dof_vel[env_ids, :] = 0.0
 
         env_ids_int32 = env_ids.to(dtype=torch.int32)
@@ -298,16 +328,22 @@ class Vine(VecTask):
         self.target_positions[env_ids, :] = self.sample_target_positions(len(env_ids))
 
     def sample_target_positions(self, num_envs):
-        target_positions = torch.rand(num_envs, NUM_XYZ, device=self.device, dtype=torch.float) * (TARGET_POS_MAX - TARGET_POS_MIN) + TARGET_POS_MIN
+        target_positions = torch.rand(num_envs, NUM_XYZ, device=self.device, dtype=torch.float) * \
+            (TARGET_POS_MAX - TARGET_POS_MIN) + TARGET_POS_MIN
         target_positions[:, 2] = Z
         return target_positions
 
     def pre_physics_step(self, actions):
-        # TODO: Find smallest index of prismatic joint not at limit, use that to control action space
-        # actions_tensor = torch.zeros((self.num_envs, self.num_dof), device=self.device, dtype=torch.float)
-        # actions_tensor[:, self.revolute_dof_indices] = actions[:, 0:3] * (self.revolute_dof_uppers - self.revolute_dof_lowers) + self.revolute_dof_lowers
-        # actions_tensor[:, 3] = actions[:, 3] * (self.prismatic_dof_uppers - self.prismatic_dof_lowers) + self.revolute_dof_lowers
-        self.actions = actions.clone().to(self.device) * (self.dof_uppers - self.dof_lowers) + self.dof_lowers
+        CONTROL_ALL_DOFS = False
+        if CONTROL_ALL_DOFS:
+            self.actions = actions.clone().to(self.device) * (self.dof_uppers - self.dof_lowers) + self.dof_lowers
+        else:
+            # TODO
+            self.actions = torch.rand(actions.shape[0], 6).to(self.device) * (self.dof_uppers - self.dof_lowers) + self.dof_lowers
+            # Find smallest index of prismatic joint not at limit, use that to control action space
+            # actions_tensor = torch.zeros((self.num_envs, self.num_dof), device=self.device, dtype=torch.float)
+            # actions_tensor[:, self.revolute_dof_indices] = actions[:, 0:3] * (self.revolute_dof_uppers - self.revolute_dof_lowers) + self.revolute_dof_lowers
+            # actions_tensor[:, 3] = actions[:, 3] * (self.prismatic_dof_uppers - self.prismatic_dof_lowers) + self.revolute_dof_lowers
 
         position_targets = gymtorch.unwrap_tensor(self.actions)
         self.gym.set_dof_position_target_tensor(self.sim, position_targets)
@@ -328,14 +364,16 @@ class Vine(VecTask):
         if self.viewer and self.enable_viewer_sync:
             # Create spheres
             visualization_sphere_radius = 0.1
-            visualization_sphere_red = gymutil.WireframeSphereGeometry(visualization_sphere_radius, 3, 3, color=(1, 0, 0))
+            visualization_sphere_red = gymutil.WireframeSphereGeometry(
+                visualization_sphere_radius, 3, 3, color=(1, 0, 0))
 
             # Draw target
             self.gym.clear_lines(self.viewer)
             for i in range(self.num_envs):
                 target_position = self.target_positions[i]
-                sphere_pose = gymapi.Transform(gymapi.Vec3(target_position[0], target_position[1], target_position[2]), r=None)
-                gymutil.draw_lines(visualization_sphere_red, self.gym, self.viewer, self.envs[i], sphere_pose) 
+                sphere_pose = gymapi.Transform(gymapi.Vec3(
+                    target_position[0], target_position[1], target_position[2]), r=None)
+                gymutil.draw_lines(visualization_sphere_red, self.gym, self.viewer, self.envs[i], sphere_pose)
 
 
 #####################################################################

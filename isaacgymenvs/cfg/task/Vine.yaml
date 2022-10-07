@@ -11,9 +11,7 @@ env:
   clipObservations: 5.0
   clipActions: 1.0
 
-  maxEpisodeLength: 1000
-  numObservations: 15
-  numActions: 6  # 6 or 4
+  maxEpisodeLength: 100
 
   asset:
     assetRoot: "../../assets"
