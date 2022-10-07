@@ -37,6 +37,7 @@ NUM_STATES = 13  # xyz, quat, v_xyz, w_xyz
 NUM_XYZ = 3
 Z = 1.0
 TARGET_POS_MIN, TARGET_POS_MAX = -0.5, 0.5
+DOF_MODE = "POSITION"  # "FORCE" OR "POSITION"
 # TODO: Self collision check, parameters of movement, mass, diameter
 
 
@@ -68,7 +69,8 @@ class Vine(VecTask):
 
         # Must set this before continuing
         self.cfg["env"]["numObservations"] = 15
-        self.cfg["env"]["numActions"] = 4  # 4 or 6 depending on action space selection
+
+        self.cfg["env"]["numActions"] = 4  # # revolute dofs + 1
 
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id,
                          headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
@@ -186,7 +188,13 @@ class Vine(VecTask):
 
             # Set dof properties
             dof_props = self.gym.get_actor_dof_properties(env_ptr, vine_handle)
-            dof_props['driveMode'][:] = gymapi.DOF_MODE_POS
+
+            if DOF_MODE == "FORCE":
+                dof_props['driveMode'][:] = gymapi.DOF_MODE_EFFORT
+            elif DOF_MODE == "POSITION":
+                dof_props['driveMode'][:] = gymapi.DOF_MODE_POS
+            else:
+                raise ValueError(f"Invalid DOF_MODE = {DOF_MODE}")
             dof_props['stiffness'][:] = 1.0  # TODO
             dof_props['damping'][:] = 1.0  # TODO
             self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
@@ -289,11 +297,10 @@ class Vine(VecTask):
     def reset_idx(self, env_ids):
         # Set initial lengths
         min_length, max_length = sum(self.prismatic_dof_lowers), sum(self.prismatic_dof_uppers)
-        initial_lengths = torch.rand(len(env_ids)).to(self.device) * (max_length - min_length) + min_length
+        initial_lengths = torch.FloatTensor(len(env_ids)).uniform_(min_length, max_length).to(self.device)
 
         # Compute prismatic indexes (smallest index i such that prismatic_joint_i < prismatic_joint_limit_i)
         # And remainder_lengths (length of prismatic_joint_i)
-        print(f"initial_lengths = {initial_lengths}")
         current_lengths = initial_lengths.clone()
         remainder_lengths = initial_lengths.clone()
         num_prismatic_joints = len(self.prismatic_dof_lowers)
@@ -308,12 +315,13 @@ class Vine(VecTask):
         # Set randomized initial dof positions
         num_revolute_joints = len(self.revolute_dof_lowers)
         for i in range(num_revolute_joints):
-            self.dof_pos[env_ids, self.revolute_dof_indices[i]] = torch.rand(len(env_ids)).to(
-                self.device) * (self.revolute_dof_uppers[i] - self.revolute_dof_lowers[i]) + self.revolute_dof_lowers[i]
+            self.dof_pos[env_ids, self.revolute_dof_indices[i]] = torch.FloatTensor(len(env_ids)).uniform_(
+                self.revolute_dof_lowers[i], self.revolute_dof_uppers[i]).to(self.device)
 
         for i in range(num_prismatic_joints):
             self.dof_pos[env_ids, self.prismatic_dof_indices[i]] = torch.where(i < prismatic_indexes, self.prismatic_dof_uppers[i],
-                                                                               torch.where(i == prismatic_indexes, remainder_lengths, 0))
+                                                                               torch.where(i > prismatic_indexes, self.prismatic_dof_lowers[i],
+                                                                               remainder_lengths))
         self.dof_vel[env_ids, :] = 0.0
 
         env_ids_int32 = env_ids.to(dtype=torch.int32)
@@ -328,25 +336,62 @@ class Vine(VecTask):
         self.target_positions[env_ids, :] = self.sample_target_positions(len(env_ids))
 
     def sample_target_positions(self, num_envs):
-        target_positions = torch.rand(num_envs, NUM_XYZ, device=self.device, dtype=torch.float) * \
-            (TARGET_POS_MAX - TARGET_POS_MIN) + TARGET_POS_MIN
+        target_positions = torch.FloatTensor(num_envs, NUM_XYZ).uniform_(TARGET_POS_MIN, TARGET_POS_MAX).to(self.device)
         target_positions[:, 2] = Z
         return target_positions
 
     def pre_physics_step(self, actions):
-        CONTROL_ALL_DOFS = False
-        if CONTROL_ALL_DOFS:
-            self.actions = actions.clone().to(self.device) * (self.dof_uppers - self.dof_lowers) + self.dof_lowers
-        else:
-            # TODO
-            self.actions = torch.rand(actions.shape[0], 6).to(self.device) * (self.dof_uppers - self.dof_lowers) + self.dof_lowers
-            # Find smallest index of prismatic joint not at limit, use that to control action space
-            # actions_tensor = torch.zeros((self.num_envs, self.num_dof), device=self.device, dtype=torch.float)
-            # actions_tensor[:, self.revolute_dof_indices] = actions[:, 0:3] * (self.revolute_dof_uppers - self.revolute_dof_lowers) + self.revolute_dof_lowers
-            # actions_tensor[:, 3] = actions[:, 3] * (self.prismatic_dof_uppers - self.prismatic_dof_lowers) + self.revolute_dof_lowers
+        self.raw_actions = actions.clone().to(self.device)
 
-        position_targets = gymtorch.unwrap_tensor(self.actions)
-        self.gym.set_dof_position_target_tensor(self.sim, position_targets)
+        # Break into revolute and prismatic action
+        revolute_raw_actions, prismatic_raw_actions = self.raw_actions[:, :-1], self.raw_actions[:, -1]
+
+        # Compute prismatic indexes (smallest index i such that prismatic_joint_i < prismatic_joint_limit_i)
+        # And remainder_lengths (length of prismatic_joint_i)
+        prismatic_dof_pos = self.dof_pos[:, self.prismatic_dof_indices]
+        num_prismatic_joints = len(self.prismatic_dof_lowers)
+        prismatic_indexes = torch.ones(self.num_envs, dtype=torch.int32).to(self.device) * num_prismatic_joints
+        for i in range(num_prismatic_joints):
+            prismatic_indexes[(prismatic_dof_pos[:, i] < self.prismatic_dof_uppers[i])
+                              & (prismatic_indexes == num_prismatic_joints)] = i
+
+        if DOF_MODE == "FORCE":
+            # TODO: IF PREVIOUS LENGTH ALREADY FULL, DO I STILL NEED TO APPLY FORCE? Assume yes
+            REVOLUTE_FORCE_SCALING = 1
+            PRISMATIC_FORCE_SCALING = 1
+            dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
+            dof_efforts[:, self.revolute_dof_indices] = revolute_raw_actions * REVOLUTE_FORCE_SCALING
+            for i in range(num_prismatic_joints):
+                dof_efforts[:, self.prismatic_dof_indices[i]] = prismatic_raw_actions * REVOLUTE_FORCE_SCALING
+
+                dof_efforts[:, self.prismatic_dof_indices[i]] = torch.where(i < prismatic_indexes, PRISMATIC_FORCE_SCALING,
+                                                                            torch.where(i > prismatic_indexes, -PRISMATIC_FORCE_SCALING,
+                                                                            PRISMATIC_FORCE_SCALING * prismatic_raw_actions)
+                                                                            )
+            self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
+        elif DOF_MODE == "POSITION":
+            position_targets = torch.zeros(self.num_envs, self.num_dof, device=self.device)
+
+            # Populate revolute targets
+            revolute_actions = (revolute_raw_actions + 1) / 2 * (self.revolute_dof_uppers -
+                                                                 self.revolute_dof_lowers) + self.revolute_dof_lowers
+            position_targets[:, self.revolute_dof_indices] = revolute_actions
+
+            # Populate prismatic targets
+            current_lengths = torch.sum(prismatic_dof_pos, dim=1).to(self.device)
+            desired_lengths = prismatic_raw_actions * torch.sum(self.prismatic_dof_uppers)
+            difference_lengths = desired_lengths - current_lengths  # +ve if grow, -ve if shrink
+            for i in range(num_prismatic_joints):
+                position_targets[:, self.prismatic_dof_indices[i]] = torch.where(i < prismatic_indexes, self.prismatic_dof_uppers[i],
+                                                                                 torch.where(i > prismatic_indexes, self.prismatic_dof_lowers[i],
+                                                                                 torch.where(difference_lengths > 0,
+                                                                                             torch.min(difference_lengths, self.prismatic_dof_uppers[i]),
+                                                                                             torch.max(difference_lengths, self.prismatic_dof_lowers[i]))))
+
+            # Apply targets
+            self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(position_targets))
+        else:
+            raise ValueError(f"Invalid DOF_MODE = {DOF_MODE}")
 
     def post_physics_step(self):
         self.progress_buf += 1
