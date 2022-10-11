@@ -286,16 +286,17 @@ class Vine(VecTask):
                 dof_type = self.gym.get_asset_dof_type(self.vine_asset, j)
 
                 # Dof type specific params
+                # HACK: Decrease dof props by order of magnitude as we move along because masses decrease at that rate
                 if dof_type == gymapi.DofType.DOF_ROTATION:
                     if j == 0:  # First revolute is different
-                        dof_props['stiffness'][:] = 10.0  # TODO: Tune
-                        dof_props['damping'][:] = 1.0  # TODO: Tune
+                        dof_props['stiffness'][j] = 10.0 / (10**(j//2))  # TODO: Tune
+                        dof_props['damping'][j] = 1.0 / (10**(j//2))  # TODO: Tune
                     else:
-                        dof_props['stiffness'][:] = 10.0  # TODO: Tune
-                        dof_props['damping'][:] = 1.0  # TODO: Tune
+                        dof_props['stiffness'][j] = 10.0 / (10**(j//2))  # TODO: Tune
+                        dof_props['damping'][j] = 1.0 / (10**(j//2))  # TODO: Tune
                 elif dof_type == gymapi.DofType.DOF_TRANSLATION:
-                    dof_props['stiffness'][:] = 100.0  # TODO: Tune
-                    dof_props['damping'][:] = 1.0  # TODO: Tune
+                    dof_props['stiffness'][j] = 100.0 / (10**(j//2))  # TODO: Tune
+                    dof_props['damping'][j] = 1.0 / (10**(j//2)) # TODO: Tune
                 else:
                     raise ValueError(f"Invalid dof_type = {dof_type}")
 
@@ -475,19 +476,15 @@ class Vine(VecTask):
 
         # Handle forced commands from keyboard
         if self.FORCE_ELONGATE > 0:
-            self.raw_actions[:] = 0.0
             self.raw_actions[:, -1] = 1.0
             self.FORCE_ELONGATE -= 1
         if self.FORCE_SHORTEN > 0:
-            self.raw_actions[:] = 0.0
             self.raw_actions[:, -1] = -1.0
             self.FORCE_SHORTEN -= 1
         if self.FORCE_TURN_LEFT > 0:
-            self.raw_actions[:] = 0.0
             self.raw_actions[:, self.FORCE_TURN_IDX] = 1.0
             self.FORCE_TURN_LEFT -= 1
         if self.FORCE_TURN_RIGHT > 0:
-            self.raw_actions[:] = 0.0
             self.raw_actions[:, self.FORCE_TURN_IDX] = -1.0
             self.FORCE_TURN_RIGHT -= 1
 
