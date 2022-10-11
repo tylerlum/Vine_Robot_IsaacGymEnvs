@@ -138,10 +138,10 @@ class Vine(VecTask):
             "PREV_TURN_IDX": self._prev_turn_idx_callback,
         }
         # Create state variables
-        self.FORCE_ELONGATE = False
-        self.FORCE_SHORTEN = False
-        self.FORCE_TURN_LEFT = False
-        self.FORCE_TURN_RIGHT = False
+        self.FORCE_ELONGATE = 0
+        self.FORCE_SHORTEN = 0
+        self.FORCE_TURN_LEFT = 0
+        self.FORCE_TURN_RIGHT = 0
         self.FORCE_TURN_IDX = 0
 
         assert(sorted(list(self.event_action_to_key.keys())) == sorted(list(self.event_action_to_function.keys())))
@@ -158,31 +158,33 @@ class Vine(VecTask):
 
     def _elongate_callback(self):
         print("ELONGATING")
-        self.FORCE_ELONGATE = True
+        self.FORCE_ELONGATE = 5
 
     def _shorten_callback(self):
         print("SHORTENING")
-        self.FORCE_SHORTEN = True
+        self.FORCE_SHORTEN = 5
 
     def _turn_left_callback(self):
         print(f"TURNING_LEFT for idx = {self.FORCE_TURN_IDX}")
-        self.FORCE_TURN_LEFT = True
+        self.FORCE_TURN_LEFT = 5
 
     def _turn_right_callback(self):
         print(f"TURNING_RIGHT for idx = {self.FORCE_TURN_IDX}")
-        self.FORCE_TURN_RIGHT = True
+        self.FORCE_TURN_RIGHT = 5
 
     def _next_turn_idx_callback(self):
-        print(f"Increasing TURN IDX")
+        print(f"INCREASING TURN IDX")
         self.FORCE_TURN_IDX += 1
         if self.FORCE_TURN_IDX >= N_REVOLUTE_DOFS:
             self.FORCE_TURN_IDX = N_REVOLUTE_DOFS - 1
+        print(f"Now: self.FORCE_TURN_IDX = {self.FORCE_TURN_IDX}")
 
     def _prev_turn_idx_callback(self):
         print(f"DECREASING TURN IDX")
         self.FORCE_TURN_IDX -= 1
         if self.FORCE_TURN_IDX < 0:
             self.FORCE_TURN_IDX = 0
+        print(f"NOW: self.FORCE_TURN_IDX = {self.FORCE_TURN_IDX}")
 
     def create_sim(self):
         # set the up axis to be z-up given that assets are y-up by default
@@ -453,18 +455,18 @@ class Vine(VecTask):
         self.raw_actions = actions.clone().to(self.device)
 
         # Handle forced commands from keyboard
-        if self.FORCE_ELONGATE:
+        if self.FORCE_ELONGATE > 0:
             self.raw_actions[:, -1] = 1.0
-            self.FORCE_ELONGATE = False
-        if self.FORCE_SHORTEN:
+            self.FORCE_ELONGATE -= 1
+        if self.FORCE_SHORTEN > 0:
             self.raw_actions[:, -1] = -1.0
-            self.FORCE_SHORTEN = False
-        if self.FORCE_TURN_LEFT:
+            self.FORCE_SHORTEN -= 1
+        if self.FORCE_TURN_LEFT > 0:
             self.raw_actions[:, self.FORCE_TURN_IDX] = 1.0
-            self.FORCE_TURN_LEFT = False
-        if self.FORCE_TURN_RIGHT:
+            self.FORCE_TURN_LEFT -= 1
+        if self.FORCE_TURN_RIGHT > 0:
             self.raw_actions[:, self.FORCE_TURN_IDX] = -1.0
-            self.FORCE_TURN_RIGHT = False
+            self.FORCE_TURN_RIGHT -= 1
 
         # Break into revolute and prismatic action
         revolute_raw_actions, prismatic_raw_actions = self.raw_actions[:, :-1], self.raw_actions[:, -1]
