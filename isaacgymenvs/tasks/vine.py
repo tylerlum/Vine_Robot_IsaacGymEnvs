@@ -42,7 +42,7 @@ VERTICAL_PLANE_QUAT = gymapi.Quat(0.707, 0.0, 0.0, 0.707)
 # PARAMETERS
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.5
 INIT_QUAT = VERTICAL_PLANE_QUAT
-TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 2.0
+TARGET_POS_MIN_X, TARGET_POS_MAX_X = 1.0, 3.0
 TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -2.0, 2.0
 TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = 0.0, 2.0
 DOF_MODE = "POSITION"  # "FORCE" OR "POSITION"
@@ -51,6 +51,7 @@ N_PRISMATIC_DOFS = N_REVOLUTE_DOFS
 RANDOMIZE_REVOLUTES = True
 RANDOMIZE_PRISMATICS = True
 JOINT_BUFFER = 0.9
+N_OBSTACLES = 3
 
 # TODO: Investigate if self collision checks work (probably not)
 
@@ -112,7 +113,7 @@ class Vine(VecTask):
 
         # For now, only care about last link to get tip location
         # rigid_body_names = self.gym.get_asset_rigid_body_dict(self.vine_asset)
-        rigid_body_state_by_env = self.rigid_body_state.view(self.num_envs, self.num_rigid_bodies, NUM_STATES)
+        rigid_body_state_by_env = self.rigid_body_state.view(self.num_envs, self.num_rigid_bodies + N_OBSTACLES, NUM_STATES)
         self.tip_positions = rigid_body_state_by_env[:, -1, 0:3]
 
     def refresh_state_tensors(self):
@@ -242,22 +243,22 @@ class Vine(VecTask):
         upper = gymapi.Vec3(0.5 * spacing, spacing, spacing)
 
         # Find asset file
-        asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
-        asset_file = "urdf/vine.urdf"
+        vine_asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
+        vine_asset_file = "urdf/vine.urdf"
 
         if "asset" in self.cfg["env"]:
-            asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                      self.cfg["env"]["asset"].get("assetRoot", asset_root))
-            asset_file = self.cfg["env"]["asset"].get("assetFileName", asset_file)
+            vine_asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                      self.cfg["env"]["asset"].get("assetRoot", vine_asset_root))
+            vine_asset_file = self.cfg["env"]["asset"].get("assetFileName", vine_asset_file)
 
-        asset_path = os.path.join(asset_root, asset_file)
-        asset_root = os.path.dirname(asset_path)
-        asset_file = os.path.basename(asset_path)
+        vine_asset_path = os.path.join(vine_asset_root, vine_asset_file)
+        vine_asset_root = os.path.dirname(vine_asset_path)
+        vine_asset_file = os.path.basename(vine_asset_path)
 
-        # Create asset
-        asset_options = gymapi.AssetOptions()
-        asset_options.fix_base_link = True  # Fixed base for vine
-        self.vine_asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
+        # Create vine asset
+        vine_asset_options = gymapi.AssetOptions()
+        vine_asset_options.fix_base_link = True  # Fixed base for vine
+        self.vine_asset = self.gym.load_asset(self.sim, vine_asset_root, vine_asset_file, vine_asset_options)
 
         # Store useful variables
         self.num_dof = self.gym.get_asset_dof_count(self.vine_asset)
@@ -287,24 +288,49 @@ class Vine(VecTask):
         self.prismatic_dof_lowers = self.dof_lowers[self.prismatic_dof_indices]
         self.prismatic_dof_uppers = self.dof_uppers[self.prismatic_dof_indices]
 
+        # Create obstacle asset
+        obstacle_size = 0.2
+        obstacle_asset_options = gymapi.AssetOptions()
+        obstacle_asset_options.fix_base_link = True  # Fixed base for obstacle
+        obstacle_asset = self.gym.create_box(self.sim, obstacle_size, obstacle_size, obstacle_size, obstacle_asset_options)
+
         # Set initial actor poses
-        pose = gymapi.Transform()
+        vine_init_pose = gymapi.Transform()
         assert(self.up_axis == 'z')
-        pose.p.x = INIT_X
-        pose.p.y = INIT_Y
-        pose.p.z = INIT_Z
-        pose.r = INIT_QUAT
+        vine_init_pose.p.x = INIT_X
+        vine_init_pose.p.y = INIT_Y
+        vine_init_pose.p.z = INIT_Z
+        vine_init_pose.r = INIT_QUAT
+
+        # Set obstacle poses
+        obstacle_pose = gymapi.Transform()
+        obstacle_pose.p.x = 1.0
+        obstacle_pose.p.y = 0.0
+        obstacle_pose.p.z = INIT_Z
+        obstacle_pose_2 = gymapi.Transform()
+        obstacle_pose_2.p.x = 1.0
+        obstacle_pose_2.p.y = 0.0
+        obstacle_pose_2.p.z = INIT_Z + 0.4
+        obstacle_pose_3 = gymapi.Transform()
+        obstacle_pose_3.p.x = 1.0
+        obstacle_pose_3.p.y = 0.0
+        obstacle_pose_3.p.z = INIT_Z - 0.4
 
         self.vine_handles = []
         self.envs = []
+        self.object_handles = []
         for i in range(num_envs):
             # create env instance
             env_ptr = self.gym.create_env(
                 self.sim, lower, upper, num_per_row
             )
             collision_group, collision_filter, segmentation_id = i, 1, 0
+            obstacle_handle = self.gym.create_actor(env_ptr, obstacle_asset, obstacle_pose, "obstacle", group=collision_group, filter=collision_filter+1, segmentationId=segmentation_id+1)
+            obstacle_handle_2 = self.gym.create_actor(env_ptr, obstacle_asset, obstacle_pose_2, "obstacle", group=collision_group, filter=collision_filter+1, segmentationId=segmentation_id+1)
+            obstacle_handle_3 = self.gym.create_actor(env_ptr, obstacle_asset, obstacle_pose_3, "obstacle", group=collision_group, filter=collision_filter+1, segmentationId=segmentation_id+1)
+
             vine_handle = self.gym.create_actor(
-                env_ptr, self.vine_asset, pose, "vine", group=collision_group, filter=collision_filter, segmentationId=segmentation_id)
+                env_ptr, self.vine_asset, vine_init_pose, "vine", group=collision_group, filter=collision_filter, segmentationId=segmentation_id)
 
             # Set dof properties
             dof_props = self.gym.get_actor_dof_properties(env_ptr, vine_handle)
@@ -338,6 +364,7 @@ class Vine(VecTask):
 
             self.envs.append(env_ptr)
             self.vine_handles.append(vine_handle)
+            self.object_handles.extend([obstacle_handle, obstacle_handle_2, obstacle_handle_3])
 
         PRINT_ASSET_INFO = False
         if PRINT_ASSET_INFO:
@@ -470,14 +497,17 @@ class Vine(VecTask):
                 self.dof_pos[env_ids, self.revolute_dof_indices[i]] = 0
 
         # Set dof velocities to 0
+        self.dof_pos[env_ids, :] = 0.0
         self.dof_vel[env_ids, :] = 0.0
 
         # Update dofs
         env_ids_int32 = env_ids.to(dtype=torch.int32)
-        self.gym.set_dof_state_tensor_indexed(self.sim,
-                                              gymtorch.unwrap_tensor(self.dof_state),
-                                              gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
-
+        if len(env_ids_int32) == self.num_envs:
+            self.gym.set_dof_state_tensor(self.sim, gymtorch.unwrap_tensor(self.dof_state))
+        else:
+            self.gym.set_dof_state_tensor_indexed(self.sim,
+                                                gymtorch.unwrap_tensor(self.dof_state),
+                                                gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
         self.reset_buf[env_ids] = 0
         self.progress_buf[env_ids] = 0
 
@@ -577,6 +607,7 @@ class Vine(VecTask):
             desired_lengths = (prismatic_raw_actions + 1.) / 2. * torch.sum(self.prismatic_dof_uppers)
             difference_lengths = desired_lengths - current_lengths  # +ve if grow, -ve if shrink
 
+
             # Compute remainder_lengths, which is length at the prismatic_index
             remainder_lengths = torch.zeros(self.num_envs, device=self.device)
             for i in range(num_prismatic_joints):
@@ -638,6 +669,7 @@ class Vine(VecTask):
         self.compute_observations()
         self.compute_reward()
 
+
         # Draw debug info
         if self.viewer and self.enable_viewer_sync:
             # Create spheres
@@ -652,7 +684,6 @@ class Vine(VecTask):
                 sphere_pose = gymapi.Transform(gymapi.Vec3(
                     target_position[0], target_position[1], target_position[2]), r=None)
                 gymutil.draw_lines(visualization_sphere_green, self.gym, self.viewer, self.envs[i], sphere_pose)
-
 
 #####################################################################
 ###=========================jit functions=========================###
