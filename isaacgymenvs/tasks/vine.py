@@ -277,6 +277,7 @@ class Vine(VecTask):
 
             for j in range(self.gym.get_asset_dof_count(self.vine_asset)):
                 dof_type = self.gym.get_asset_dof_type(self.vine_asset, j)
+
                 # Dof type specific params
                 if dof_type == gymapi.DofType.DOF_ROTATION:
                     if j == 0:  # First revolute is different
@@ -396,44 +397,43 @@ class Vine(VecTask):
         return self.obs_buf
 
     def reset_idx(self, env_ids):
+        if RANDOMIZE_PRISMATICS:
+            # Sample random initial lengths
+            min_length, max_length = sum(self.prismatic_dof_lowers), sum(self.prismatic_dof_uppers)
+            initial_lengths = torch.FloatTensor(len(env_ids)).uniform_(min_length, max_length).to(self.device)
+
+            # Set initial prismatic dof positions to match sampled initial lengths
+            current_lengths = initial_lengths.clone()
+            num_prismatic_joints = len(self.prismatic_dof_lowers)
+            for i in range(num_prismatic_joints):
+                # If current_length not reached, then extend to full
+                # Else fill in with current_length
+                self.dof_pos[env_ids, self.prismatic_dof_indices[i]] = torch.where(current_lengths >= self.prismatic_dof_uppers[i],
+                                                                                   self.prismatic_dof_uppers[i],
+                                                                                   current_lengths)
+                # Decrement current_lengths and ensure it says doesn't go below 0
+                current_lengths -= self.prismatic_dof_uppers[i]
+                current_lengths = torch.where(current_lengths < 0.0, 0.0, current_lengths)
+        else:
+            num_prismatic_joints = len(self.prismatic_dof_lowers)
+            for i in range(num_prismatic_joints):
+                self.dof_pos[env_ids, self.prismatic_dof_indices[i]] = 0
+
         if RANDOMIZE_REVOLUTES:
             # Set randomized initial revolute dof positions
             num_revolute_joints = len(self.revolute_dof_lowers)
             for i in range(num_revolute_joints):
                 self.dof_pos[env_ids, self.revolute_dof_indices[i]] = torch.FloatTensor(len(env_ids)).uniform_(
                     self.revolute_dof_lowers[i], self.revolute_dof_uppers[i]).to(self.device)
+
+                # Set to 0.0 if length at this index is 0.0
+                self.dof_pos[env_ids, self.revolute_dof_indices[i]] = torch.where(self.dof_pos[env_ids, self.prismatic_dof_indices[i]] == 0.0,
+                                                                                  0.0,
+                                                                                  self.dof_pos[env_ids, self.revolute_dof_indices[i]])
         else:
             num_revolute_joints = len(self.revolute_dof_lowers)
             for i in range(num_revolute_joints):
                 self.dof_pos[env_ids, self.revolute_dof_indices[i]] = 0
-
-        if RANDOMIZE_PRISMATICS:
-            # Set initial lengths
-            min_length, max_length = sum(self.prismatic_dof_lowers), sum(self.prismatic_dof_uppers)
-            initial_lengths = torch.FloatTensor(len(env_ids)).uniform_(min_length, max_length).to(self.device)
-
-            # Compute prismatic indexes (smallest index i such that prismatic_joint_i < prismatic_joint_limit_i)
-            # And remainder_lengths (length of prismatic_joint_i)
-            current_lengths = initial_lengths.clone()
-            remainder_lengths = initial_lengths.clone()
-            num_prismatic_joints = len(self.prismatic_dof_lowers)
-            prismatic_indexes = torch.ones(len(env_ids), dtype=torch.int32, device=self.device) * num_prismatic_joints
-            for i in range(num_prismatic_joints):
-                prev_lengths = current_lengths.clone()  # TODO: Optimize?
-                current_lengths -= self.prismatic_dof_uppers[i]
-                remainder_lengths[(current_lengths < 0) & (prev_lengths >= 0)
-                                  ] = prev_lengths[(current_lengths < 0) & (prev_lengths >= 0)]
-                prismatic_indexes[(current_lengths < 0) & (prev_lengths >= 0)] = i
-
-            # Set initial prismatic dof positions to match sampled initial lengths
-            for i in range(num_prismatic_joints):
-                self.dof_pos[env_ids, self.prismatic_dof_indices[i]] = torch.where(i < prismatic_indexes, self.prismatic_dof_uppers[i],
-                                                                                   torch.where(i > prismatic_indexes, self.prismatic_dof_lowers[i],
-                                                                                               remainder_lengths))
-        else:
-            num_prismatic_joints = len(self.prismatic_dof_lowers)
-            for i in range(num_prismatic_joints):
-                self.dof_pos[env_ids, self.prismatic_dof_indices[i]] = 0
 
         # Set dof velocities to 0
         self.dof_vel[env_ids, :] = 0.0
@@ -484,17 +484,17 @@ class Vine(VecTask):
         # Break into revolute and prismatic action
         revolute_raw_actions, prismatic_raw_actions = self.raw_actions[:, :-1], self.raw_actions[:, -1]
 
-        # Compute prismatic indexes (smallest index i such that prismatic_joint_i < prismatic_joint_limit_i)
+        # Compute prismatic indexes (smallest index i such that prismatic_joint_i < prismatic_joint_limit_i, with buffer)
         # And remainder_lengths (length of prismatic_joint_i)
         prismatic_dof_pos = self.dof_pos[:, self.prismatic_dof_indices]
         num_prismatic_joints = len(self.prismatic_dof_lowers)
-        prismatic_indexes = torch.ones(self.num_envs, dtype=torch.int32, device=self.device) * num_prismatic_joints
+        prismatic_indexes = torch.ones(self.num_envs, dtype=torch.int32, device=self.device) * -1
         for i in range(num_prismatic_joints):
             BUFFER = 0.9
             prismatic_indexes[(prismatic_dof_pos[:, i] < BUFFER * self.prismatic_dof_uppers[i])
-                              & (prismatic_indexes == num_prismatic_joints)] = i
+                              & (prismatic_indexes == -1)] = i
         # If goes to end, then bring it back to before end
-        prismatic_indexes[prismatic_indexes == num_prismatic_joints] = num_prismatic_joints - 1
+        prismatic_indexes[prismatic_indexes == -1] = num_prismatic_joints - 1
 
         # TODO: Handle edge cases
         #   * full extension, then try to grow (do nothing) [SHOULD BE HANDLED]
