@@ -588,9 +588,9 @@ class Vine(VecTask):
         # Draw debug info
         if self.viewer and self.enable_viewer_sync:
             # Create spheres
-            visualization_sphere_radius = 0.1
-            visualization_sphere_red = gymutil.WireframeSphereGeometry(
-                visualization_sphere_radius, 3, 3, color=(1, 0, 0))
+            visualization_sphere_radius = 0.05
+            visualization_sphere_green = gymutil.WireframeSphereGeometry(
+                visualization_sphere_radius, 3, 3, color=(0, 1, 0))
 
             # Draw target
             self.gym.clear_lines(self.viewer)
@@ -598,7 +598,7 @@ class Vine(VecTask):
                 target_position = self.target_positions[i]
                 sphere_pose = gymapi.Transform(gymapi.Vec3(
                     target_position[0], target_position[1], target_position[2]), r=None)
-                gymutil.draw_lines(visualization_sphere_red, self.gym, self.viewer, self.envs[i], sphere_pose)
+                gymutil.draw_lines(visualization_sphere_green, self.gym, self.viewer, self.envs[i], sphere_pose)
 
 
 #####################################################################
