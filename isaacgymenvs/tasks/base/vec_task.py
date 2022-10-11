@@ -239,6 +239,12 @@ class VecTask(Env):
             self.gym.subscribe_viewer_keyboard_event(
                 self.viewer, gymapi.KEY_V, "toggle_viewer_sync")
 
+            # TYLER ADDITION: Manually added events
+            if hasattr(self, "event_action_to_key"):
+                for event_action, event_key in self.event_action_to_key.items():
+                    self.gym.subscribe_viewer_keyboard_event(
+                        self.viewer, event_key, event_action)
+
             # set the camera position based on up axis
             sim_params = self.gym.get_sim_params(self.sim)
             if sim_params.up_axis == gymapi.UP_AXIS_Z:
@@ -418,6 +424,10 @@ class VecTask(Env):
                     sys.exit()
                 elif evt.action == "toggle_viewer_sync" and evt.value > 0:
                     self.enable_viewer_sync = not self.enable_viewer_sync
+                # TYLER ADDITION: Manually added events
+                elif hasattr(self, "event_action_to_function") and evt.action in self.event_action_to_function and evt.value > 0:
+                    event_function = self.event_action_to_function[evt.action]
+                    event_function()
 
             # fetch results
             if self.device != 'cpu':
