@@ -42,7 +42,7 @@ VERTICAL_PLANE_QUAT = gymapi.Quat(0.707, 0.0, 0.0, 0.707)
 # PARAMETERS
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.5
 INIT_QUAT = HORIZONTAL_PLANE_QUAT
-TARGET_POS_MIN, TARGET_POS_MAX = -0.7, 0.7
+TARGET_POS_MIN, TARGET_POS_MAX = -2.0, 2.0
 DOF_MODE = "POSITION"  # "FORCE" OR "POSITION"
 N_REVOLUTE_DOFS = 6
 N_PRISMATIC_DOFS = N_REVOLUTE_DOFS
@@ -51,6 +51,10 @@ RANDOMIZE_PRISMATICS = False
 JOINT_BUFFER = 0.9
 
 # TODO: Investigate if self collision checks work (probably not)
+
+def print_if(text="", should_print=False):
+    if should_print:
+        print(text)
 
 
 class Vine(VecTask):
@@ -471,15 +475,19 @@ class Vine(VecTask):
 
         # Handle forced commands from keyboard
         if self.FORCE_ELONGATE > 0:
+            self.raw_actions[:] = 0.0
             self.raw_actions[:, -1] = 1.0
             self.FORCE_ELONGATE -= 1
         if self.FORCE_SHORTEN > 0:
+            self.raw_actions[:] = 0.0
             self.raw_actions[:, -1] = -1.0
             self.FORCE_SHORTEN -= 1
         if self.FORCE_TURN_LEFT > 0:
+            self.raw_actions[:] = 0.0
             self.raw_actions[:, self.FORCE_TURN_IDX] = 1.0
             self.FORCE_TURN_LEFT -= 1
         if self.FORCE_TURN_RIGHT > 0:
+            self.raw_actions[:] = 0.0
             self.raw_actions[:, self.FORCE_TURN_IDX] = -1.0
             self.FORCE_TURN_RIGHT -= 1
 
@@ -539,7 +547,11 @@ class Vine(VecTask):
             current_lengths = torch.sum(prismatic_dof_pos, dim=1).to(self.device)
             desired_lengths = (prismatic_raw_actions + 1.) / 2. * torch.sum(self.prismatic_dof_uppers)
             difference_lengths = desired_lengths - current_lengths  # +ve if grow, -ve if shrink
-            prismatic_actions = torch.zeros(self.num_envs, num_prismatic_joints, device=self.device)
+            print_if(f"prismatic_dof_pos = {prismatic_dof_pos[7]}")
+            print_if(f"prismatic_indexes = {prismatic_indexes[7]}")
+            print_if(f"current_lengths = {current_lengths[7]}")
+            print_if(f"desired_lengths = {desired_lengths[7]}")
+            print_if(f"difference_lengths = {difference_lengths[7]}")
 
             # Compute remainder_lengths, which is length at the prismatic_index
             remainder_lengths = torch.zeros(self.num_envs, device=self.device)
@@ -559,6 +571,7 @@ class Vine(VecTask):
             # If below prismatic_index, go to max length
             # If above prismatic_index, go to min length
             # If at prismatic_index, go to desired length (clamped to valid range)
+            prismatic_actions = torch.zeros(self.num_envs, num_prismatic_joints, device=self.device)
             for i in range(num_prismatic_joints):
                 prismatic_actions[:, i] = torch.where(i < modified_prismatic_indexes, self.prismatic_dof_uppers[i],
                                                       torch.where(i > modified_prismatic_indexes, self.prismatic_dof_lowers[i],
@@ -570,6 +583,8 @@ class Vine(VecTask):
             position_targets = torch.zeros(self.num_envs, self.num_dof, device=self.device)
             position_targets[:, self.revolute_dof_indices] = revolute_actions
             position_targets[:, self.prismatic_dof_indices] = prismatic_actions
+            print_if(f"position_targets = {position_targets[7]}")
+            print_if()
 
             # Apply targets
             self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(position_targets))

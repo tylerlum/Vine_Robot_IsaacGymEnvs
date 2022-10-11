@@ -32,7 +32,7 @@
     <!-- Decide on best shape for links -->
     <link name="base_link">
         <inertial>
-            <mass value="0.1"/>
+            <mass value="1"/>
             <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
         </inertial>
 
@@ -81,7 +81,7 @@
 
     <link name="link_1">
         <inertial>
-            <mass value="0.1"/>
+            <mass value="0.01"/>
             <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
         </inertial>
 
@@ -105,7 +105,7 @@
 
     <link name="link_2">
         <inertial>
-            <mass value="0.1"/>
+            <mass value="0.001"/>
             <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
         </inertial>
 
@@ -129,7 +129,7 @@
 
     <link name="link_3">
         <inertial>
-            <mass value="0.1"/>
+            <mass value="0.0001"/>
             <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
         </inertial>
 
@@ -153,7 +153,7 @@
 
     <link name="link_4">
         <inertial>
-            <mass value="0.1"/>
+            <mass value="0.00001"/>
             <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
         </inertial>
 
@@ -177,7 +177,7 @@
 
     <link name="link_5">
         <inertial>
-            <mass value="0.1"/>
+            <mass value="0.000001"/>
             <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
         </inertial>
 
@@ -209,7 +209,8 @@
         <parent link="base_link"/>
         <child link="base_virtual_link"/>
         <axis xyz="0.0 0.0 1.0"/>
-        <limit lower="-3.146" upper="3.146" effort="10000" velocity="3"/>
+        <!-- <limit lower="-3.146" upper="3.146" effort="10000" velocity="3"/> -->
+        <limit lower="-0.5236" upper="0.5236" effort="10000" velocity="3"/>
     </joint>
     <joint name="prismatic_joint_0" type="prismatic">
         <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
