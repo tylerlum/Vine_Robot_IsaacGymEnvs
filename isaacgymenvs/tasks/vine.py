@@ -47,6 +47,7 @@ DOF_MODE = "POSITION"  # "FORCE" OR "POSITION"
 N_REVOLUTE_DOFS = 3
 RANDOMIZE_REVOLUTES = False
 RANDOMIZE_PRISMATICS = False
+JOINT_BUFFER = 0.9
 
 # TODO: Investigate if self collision checks work (probably not)
 
@@ -490,8 +491,8 @@ class Vine(VecTask):
         num_prismatic_joints = len(self.prismatic_dof_lowers)
         prismatic_indexes = torch.ones(self.num_envs, dtype=torch.int32, device=self.device) * -1
         for i in range(num_prismatic_joints):
-            BUFFER = 0.9
-            prismatic_indexes[(prismatic_dof_pos[:, i] < BUFFER * self.prismatic_dof_uppers[i])
+            JOINT_BUFFER = 0.9
+            prismatic_indexes[(prismatic_dof_pos[:, i] < JOINT_BUFFER * self.prismatic_dof_uppers[i])
                               & (prismatic_indexes == -1)] = i
         # If goes to end, then bring it back to before end
         prismatic_indexes[prismatic_indexes == -1] = num_prismatic_joints - 1
@@ -533,24 +534,28 @@ class Vine(VecTask):
                 revolute_actions[:, i] = torch.where(i <= prismatic_indexes, revolute_actions[:, i], 0)
 
             # Populate prismatic targets
+            # Compute difference between desired_lengths and current_lengths to see if we want to grow or shrink
             current_lengths = torch.sum(prismatic_dof_pos, dim=1).to(self.device)
             desired_lengths = (prismatic_raw_actions + 1.) / 2. * torch.sum(self.prismatic_dof_uppers)
             difference_lengths = desired_lengths - current_lengths  # +ve if grow, -ve if shrink
             prismatic_actions = torch.zeros(self.num_envs, num_prismatic_joints, device=self.device)
 
+            # Compute remainder_lengths, which is length at the prismatic_index
             remainder_lengths = torch.zeros(self.num_envs, device=self.device)
             for i in range(num_prismatic_joints):
                 remainder_lengths[prismatic_indexes == i] = prismatic_dof_pos[prismatic_indexes == i, i]
-            BUFFER = 0.9
 
-            go_to_next_joint = (difference_lengths > 0) & ((prismatic_indexes < num_prismatic_joints) & (remainder_lengths >
-                                                           BUFFER * self.prismatic_dof_uppers[prismatic_indexes.long()]))
-            go_to_prev_joint = (difference_lengths < 0) & (prismatic_indexes > 0) & ((prismatic_indexes < num_prismatic_joints) & (remainder_lengths < (
-                1 - BUFFER) * self.prismatic_dof_uppers[prismatic_indexes.long()] + self.prismatic_dof_lowers[prismatic_indexes.long()]))
+            # Check if we are at a boundary at which we should go to next or prev joint index
+            # New index allowed to be out of bounds, because we only compare indexes to these values (not use them directly)
+            go_to_next_joint = (difference_lengths > 0) & (remainder_lengths > JOINT_BUFFER * self.prismatic_dof_uppers[prismatic_indexes.long()])
+            go_to_prev_joint = (difference_lengths < 0) & (remainder_lengths < (1 - JOINT_BUFFER) * self.prismatic_dof_uppers[prismatic_indexes.long()] + self.prismatic_dof_lowers[prismatic_indexes.long()])
             modified_prismatic_indexes = torch.where(go_to_next_joint, prismatic_indexes + 1,
                                                      torch.where(go_to_prev_joint, prismatic_indexes - 1,
                                                                  prismatic_indexes))
 
+            # If below prismatic_index, go to max length
+            # If above prismatic_index, go to min length
+            # If at prismatic_index, go to desired length (clamped to valid range)
             for i in range(num_prismatic_joints):
                 prismatic_actions[:, i] = torch.where(i < modified_prismatic_indexes, self.prismatic_dof_uppers[i],
                                                       torch.where(i > modified_prismatic_indexes, self.prismatic_dof_lowers[i],
@@ -558,6 +563,7 @@ class Vine(VecTask):
                                                                               min=self.prismatic_dof_lowers[i],
                                                                               max=self.prismatic_dof_uppers[i])))
 
+            # Fill in position targets
             position_targets = torch.zeros(self.num_envs, self.num_dof, device=self.device)
             position_targets[:, self.revolute_dof_indices] = revolute_actions
             position_targets[:, self.prismatic_dof_indices] = prismatic_actions
