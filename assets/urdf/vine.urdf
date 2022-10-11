@@ -16,6 +16,15 @@
     <material name="blue">
         <color rgba="0.0 0.0 1.0 0.0"/>
     </material>
+    <material name="magenta">
+        <color rgba="1.0 0.0 1.0 0.0"/>
+    </material>
+    <material name="teal">
+        <color rgba="0.0 1.0 1.0 0.0"/>
+    </material>
+    <material name="yellow">
+        <color rgba="1.0 1.0 0.0 0.0"/>
+    </material>
 
     <!-- LINKS -->
     <!-- Alternate between links with mass and virtual links to connect joints -->
@@ -116,6 +125,78 @@
         </visual>
     </link>
 
+    <link name="virtual_link_2"/>
+
+    <link name="link_3">
+        <inertial>
+            <mass value="0.1"/>
+            <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+        </inertial>
+
+        <collision name="link_3_collision">
+            <geometry>
+                <cylinder radius="0.025" length="0.1"/>
+            </geometry>
+            <origin xyz="0 0 0" rpy="0 1.57 0"/>
+        </collision>
+
+        <visual>
+            <geometry>
+                <cylinder radius="0.025" length="0.1"/>
+            </geometry>
+            <origin xyz="0 0 0" rpy="0 1.57 0"/>
+            <material name="magenta"/>
+        </visual>
+    </link>
+
+    <link name="virtual_link_3"/>
+
+    <link name="link_4">
+        <inertial>
+            <mass value="0.1"/>
+            <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+        </inertial>
+
+        <collision name="link_4_collision">
+            <geometry>
+                <cylinder radius="0.025" length="0.1"/>
+            </geometry>
+            <origin xyz="0 0 0" rpy="0 1.57 0"/>
+        </collision>
+
+        <visual>
+            <geometry>
+                <cylinder radius="0.025" length="0.1"/>
+            </geometry>
+            <origin xyz="0 0 0" rpy="0 1.57 0"/>
+            <material name="teal"/>
+        </visual>
+    </link>
+
+    <link name="virtual_link_4"/>
+
+    <link name="link_5">
+        <inertial>
+            <mass value="0.1"/>
+            <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+        </inertial>
+
+        <collision name="link_5_collision">
+            <geometry>
+                <cylinder radius="0.025" length="0.1"/>
+            </geometry>
+            <origin xyz="0 0 0" rpy="0 1.57 0"/>
+        </collision>
+
+        <visual>
+            <geometry>
+                <cylinder radius="0.025" length="0.1"/>
+            </geometry>
+            <origin xyz="0 0 0" rpy="0 1.57 0"/>
+            <material name="yellow"/>
+        </visual>
+    </link>
+
     <!-- JOINTS -->
     <!-- Alternate between revolute joints (link to virtual link) and prismatic joints (virtual link to link)-->
     <!-- Segment lengths usually at most 1 meters, so use 0.5m (prismatic upper limit)-->
@@ -164,6 +245,51 @@
         <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
         <parent link="virtual_link_1"/>
         <child link="link_2"/>
+        <axis xyz="1.0 0.0 0.0"/>
+        <limit lower="0.0" upper="0.5" effort="10000" velocity="1"/>
+    </joint>
+
+    <joint name="revolute_joint_3" type="revolute">
+        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+        <parent link="link_2"/>
+        <child link="virtual_link_2"/>
+        <axis xyz="0.0 0.0 1.0"/>
+        <limit lower="-0.5236" upper="0.5236" effort="10000" velocity="3"/>
+    </joint>
+    <joint name="prismatic_joint_3" type="prismatic">
+        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+        <parent link="virtual_link_2"/>
+        <child link="link_3"/>
+        <axis xyz="1.0 0.0 0.0"/>
+        <limit lower="0.0" upper="0.5" effort="10000" velocity="1"/>
+    </joint>
+
+    <joint name="revolute_joint_4" type="revolute">
+        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+        <parent link="link_3"/>
+        <child link="virtual_link_3"/>
+        <axis xyz="0.0 0.0 1.0"/>
+        <limit lower="-0.5236" upper="0.5236" effort="10000" velocity="3"/>
+    </joint>
+    <joint name="prismatic_joint_4" type="prismatic">
+        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+        <parent link="virtual_link_3"/>
+        <child link="link_4"/>
+        <axis xyz="1.0 0.0 0.0"/>
+        <limit lower="0.0" upper="0.5" effort="10000" velocity="1"/>
+    </joint>
+
+    <joint name="revolute_joint_5" type="revolute">
+        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+        <parent link="link_4"/>
+        <child link="virtual_link_4"/>
+        <axis xyz="0.0 0.0 1.0"/>
+        <limit lower="-0.5236" upper="0.5236" effort="10000" velocity="3"/>
+    </joint>
+    <joint name="prismatic_joint_5" type="prismatic">
+        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+        <parent link="virtual_link_4"/>
+        <child link="link_5"/>
         <axis xyz="1.0 0.0 0.0"/>
         <limit lower="0.0" upper="0.5" effort="10000" velocity="1"/>
     </joint>

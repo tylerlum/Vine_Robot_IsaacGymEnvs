@@ -41,10 +41,11 @@ VERTICAL_PLANE_QUAT = gymapi.Quat(0.707, 0.0, 0.0, 0.707)
 
 # PARAMETERS
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.5
-INIT_QUAT = VERTICAL_PLANE_QUAT
+INIT_QUAT = HORIZONTAL_PLANE_QUAT
 TARGET_POS_MIN, TARGET_POS_MAX = -0.7, 0.7
 DOF_MODE = "POSITION"  # "FORCE" OR "POSITION"
-N_REVOLUTE_DOFS = 3
+N_REVOLUTE_DOFS = 6
+N_PRISMATIC_DOFS = N_REVOLUTE_DOFS
 RANDOMIZE_REVOLUTES = False
 RANDOMIZE_PRISMATICS = False
 JOINT_BUFFER = 0.9
@@ -81,7 +82,7 @@ class Vine(VecTask):
         self.max_episode_length = self.cfg["env"]["maxEpisodeLength"]
 
         # Must set this before continuing
-        self.cfg["env"]["numObservations"] = 15
+        self.cfg["env"]["numObservations"] = N_REVOLUTE_DOFS * 2 + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ
         self.cfg["env"]["numActions"] = N_REVOLUTE_DOFS + 1
         self.subscribe_to_keyboard_events()
 
@@ -238,6 +239,7 @@ class Vine(VecTask):
         assert(num_revolute_dofs == num_prismatic_dofs)
         assert(num_revolute_dofs + num_prismatic_dofs == self.num_dof)
         assert(num_revolute_dofs == N_REVOLUTE_DOFS)
+        assert(num_prismatic_dofs == N_PRISMATIC_DOFS)
 
         # Split into revolute and prismatic
         revolute_dof_names = [name for name, _ in dof_dict.items() if "revolute" in name]
@@ -387,11 +389,10 @@ class Vine(VecTask):
         prismatic_dof_pos = self.dof_pos[:, self.prismatic_dof_indices]
 
         # Populate obs_buf
-        num_revolute_dofs, num_prismatic_dofs = self.num_dof // 2, self.num_dof // 2
-        self.obs_buf[env_ids, 0:num_revolute_dofs] = torch.cos(revolute_dof_pos[env_ids, :])
-        self.obs_buf[env_ids, num_revolute_dofs:(2 * num_revolute_dofs)] = torch.sin(revolute_dof_pos[env_ids, :])
-        self.obs_buf[env_ids, (2 * num_revolute_dofs):(2 * num_revolute_dofs +
-                                                       num_prismatic_dofs)] = prismatic_dof_pos[env_ids, :]
+        self.obs_buf[env_ids, 0:N_REVOLUTE_DOFS] = torch.cos(revolute_dof_pos[env_ids, :])
+        self.obs_buf[env_ids, N_REVOLUTE_DOFS:(2 * N_REVOLUTE_DOFS)] = torch.sin(revolute_dof_pos[env_ids, :])
+        self.obs_buf[env_ids, (2 * N_REVOLUTE_DOFS):(2 * N_REVOLUTE_DOFS +
+                                                     N_PRISMATIC_DOFS)] = prismatic_dof_pos[env_ids, :]
         self.obs_buf[env_ids, -6:-3] = self.tip_positions
         self.obs_buf[env_ids, -3:] = self.target_positions
 
@@ -547,8 +548,10 @@ class Vine(VecTask):
 
             # Check if we are at a boundary at which we should go to next or prev joint index
             # New index allowed to be out of bounds, because we only compare indexes to these values (not use them directly)
-            go_to_next_joint = (difference_lengths > 0) & (remainder_lengths > JOINT_BUFFER * self.prismatic_dof_uppers[prismatic_indexes.long()])
-            go_to_prev_joint = (difference_lengths < 0) & (remainder_lengths < (1 - JOINT_BUFFER) * self.prismatic_dof_uppers[prismatic_indexes.long()] + self.prismatic_dof_lowers[prismatic_indexes.long()])
+            go_to_next_joint = (difference_lengths > 0) & (remainder_lengths > JOINT_BUFFER *
+                                                           self.prismatic_dof_uppers[prismatic_indexes.long()])
+            go_to_prev_joint = (difference_lengths < 0) & (remainder_lengths < (
+                1 - JOINT_BUFFER) * self.prismatic_dof_uppers[prismatic_indexes.long()] + self.prismatic_dof_lowers[prismatic_indexes.long()])
             modified_prismatic_indexes = torch.where(go_to_next_joint, prismatic_indexes + 1,
                                                      torch.where(go_to_prev_joint, prismatic_indexes - 1,
                                                                  prismatic_indexes))
