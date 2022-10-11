@@ -3,7 +3,7 @@ name: Vine
 
 physics_engine: ${..physics_engine}
 
-# if given, will override the device setting in gym. 
+# if given, will override the device setting in gym.
 env:
   numEnvs: ${resolve_default:4096,${...num_envs}}
   envSpacing: 4.0
