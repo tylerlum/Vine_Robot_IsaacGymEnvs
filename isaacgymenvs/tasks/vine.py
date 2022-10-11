@@ -38,8 +38,8 @@ VERTICAL_PLANE_QUAT = gymapi.Quat(0.707, 0.0, 0.0, 0.707)
 
 NUM_STATES = 13  # xyz, quat, v_xyz, w_xyz
 NUM_XYZ = 3
-INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.0
-INIT_QUAT = HORIZONTAL_PLANE_QUAT
+INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.5
+INIT_QUAT = VERTICAL_PLANE_QUAT
 TARGET_POS_MIN, TARGET_POS_MAX = -0.7, 0.7
 DOF_MODE = "POSITION"  # "FORCE" OR "POSITION"
 N_REVOLUTE_DOFS = 3
@@ -158,19 +158,19 @@ class Vine(VecTask):
 
     def _elongate_callback(self):
         print("ELONGATING")
-        self.FORCE_ELONGATE = 5
+        self.FORCE_ELONGATE = 60
 
     def _shorten_callback(self):
         print("SHORTENING")
-        self.FORCE_SHORTEN = 5
+        self.FORCE_SHORTEN = 60
 
     def _turn_left_callback(self):
         print(f"TURNING_LEFT for idx = {self.FORCE_TURN_IDX}")
-        self.FORCE_TURN_LEFT = 5
+        self.FORCE_TURN_LEFT = 60
 
     def _turn_right_callback(self):
         print(f"TURNING_RIGHT for idx = {self.FORCE_TURN_IDX}")
-        self.FORCE_TURN_RIGHT = 5
+        self.FORCE_TURN_RIGHT = 60
 
     def _next_turn_idx_callback(self):
         print(f"INCREASING TURN IDX")
@@ -274,14 +274,29 @@ class Vine(VecTask):
             # Set dof properties
             dof_props = self.gym.get_actor_dof_properties(env_ptr, vine_handle)
 
-            if DOF_MODE == "FORCE":
-                dof_props['driveMode'][:] = gymapi.DOF_MODE_EFFORT
-            elif DOF_MODE == "POSITION":
-                dof_props['driveMode'][:] = gymapi.DOF_MODE_POS
-            else:
-                raise ValueError(f"Invalid DOF_MODE = {DOF_MODE}")
-            dof_props['stiffness'][:] = 1.0  # TODO
-            dof_props['damping'][:] = 1.0  # TODO
+            for j in range(self.gym.get_asset_dof_count(self.vine_asset)):
+                dof_type = self.gym.get_asset_dof_type(self.vine_asset, j)
+                # Dof type specific params
+                if dof_type == gymapi.DofType.DOF_ROTATION:
+                    if j == 0:  # First revolute is different
+                        dof_props['stiffness'][:] = 10.0  # TODO
+                        dof_props['damping'][:] = 1.0  # TODO
+                    else:
+                        dof_props['stiffness'][:] = 10.0  # TODO
+                        dof_props['damping'][:] = 1.0  # TODO
+                elif dof_type == gymapi.DofType.DOF_TRANSLATION:
+                    dof_props['stiffness'][:] = 100.0  # TODO
+                    dof_props['damping'][:] = 1.0  # TODO
+                else:
+                    raise ValueError(f"Invalid dof_type = {dof_type}")
+
+                if DOF_MODE == "FORCE":
+                    dof_props['driveMode'][j] = gymapi.DOF_MODE_EFFORT
+                elif DOF_MODE == "POSITION":
+                    dof_props['driveMode'][j] = gymapi.DOF_MODE_POS
+                else:
+                    raise ValueError(f"Invalid DOF_MODE = {DOF_MODE}")
+
             self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
 
             self.envs.append(env_ptr)
@@ -444,8 +459,15 @@ class Vine(VecTask):
         self.target_positions[env_ids, :] = self.sample_target_positions(len(env_ids))
 
     def sample_target_positions(self, num_envs):
-        target_positions = torch.FloatTensor(num_envs, NUM_XYZ).uniform_(TARGET_POS_MIN, TARGET_POS_MAX).to(self.device)
-        target_positions[:, 2] = INIT_Z
+        if INIT_QUAT == VERTICAL_PLANE_QUAT:
+            target_positions = torch.FloatTensor(num_envs, NUM_XYZ).uniform_(TARGET_POS_MIN, TARGET_POS_MAX).to(self.device)
+            target_positions[:, 1] = 0
+            target_positions[:, 2] = torch.FloatTensor(num_envs).uniform_(0, 2*INIT_Z).to(self.device)
+        elif INIT_QUAT == HORIZONTAL_PLANE_QUAT:
+            target_positions = torch.FloatTensor(num_envs, NUM_XYZ).uniform_(TARGET_POS_MIN, TARGET_POS_MAX).to(self.device)
+            target_positions[:, 2] = INIT_Z
+        else:
+            raise ValueError(f"Invalid INIT_QUAT = {INIT_QUAT}")
         return target_positions
 
     def pre_physics_step(self, actions):
