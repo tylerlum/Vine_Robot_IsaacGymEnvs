@@ -42,15 +42,18 @@ VERTICAL_PLANE_QUAT = gymapi.Quat(0.707, 0.0, 0.0, 0.707)
 # PARAMETERS
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.5
 INIT_QUAT = HORIZONTAL_PLANE_QUAT
-TARGET_POS_MIN, TARGET_POS_MAX = -2.0, 2.0
+TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 2.0
+TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -2.0, 2.0
+TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = 0.0, 4.0
 DOF_MODE = "POSITION"  # "FORCE" OR "POSITION"
 N_REVOLUTE_DOFS = 6
 N_PRISMATIC_DOFS = N_REVOLUTE_DOFS
-RANDOMIZE_REVOLUTES = False
-RANDOMIZE_PRISMATICS = False
+RANDOMIZE_REVOLUTES = True
+RANDOMIZE_PRISMATICS = True
 JOINT_BUFFER = 0.9
 
 # TODO: Investigate if self collision checks work (probably not)
+
 
 def print_if(text="", should_print=False):
     if should_print:
@@ -123,6 +126,9 @@ class Vine(VecTask):
         self.event_action_to_key = {
             "RESET": gymapi.KEY_R,
             "PAUSE": gymapi.KEY_P,
+            "PRINT_DEBUG": gymapi.KEY_D,
+            "PRINT_DEBUG_IDX_UP": gymapi.KEY_K,
+            "PRINT_DEBUG_IDX_DOWN": gymapi.KEY_J,
             "ELONGATE": gymapi.KEY_W,
             "SHORTEN": gymapi.KEY_S,
             "TURN_LEFT": gymapi.KEY_LEFT,
@@ -133,6 +139,9 @@ class Vine(VecTask):
         self.event_action_to_function = {
             "RESET": self._reset_callback,
             "PAUSE": self._pause_callback,
+            "PRINT_DEBUG": self._print_debug_callback,
+            "PRINT_DEBUG_IDX_UP": self._print_debug_idx_up_callback,
+            "PRINT_DEBUG_IDX_DOWN": self.__print_debug_idx_down_callback,
             "ELONGATE": self._elongate_callback,
             "SHORTEN": self._shorten_callback,
             "TURN_LEFT": self._turn_left_callback,
@@ -141,6 +150,8 @@ class Vine(VecTask):
             "PREV_TURN_IDX": self._prev_turn_idx_callback,
         }
         # Create state variables
+        self.PRINT_DEBUG = False
+        self.PRINT_DEBUG_IDX = 0
         self.FORCE_ELONGATE = 0
         self.FORCE_SHORTEN = 0
         self.FORCE_TURN_LEFT = 0
@@ -158,6 +169,22 @@ class Vine(VecTask):
         print("PAUSING")
         import time
         time.sleep(1)
+
+    def _print_debug_callback(self):
+        self.PRINT_DEBUG = not self.PRINT_DEBUG
+        print(f"self.PRINT_DEBUG = {self.PRINT_DEBUG}")
+
+    def _print_debug_idx_up_callback(self):
+        self.PRINT_DEBUG_IDX += 1
+        if self.PRINT_DEBUG_IDX >= self.num_envs:
+            self.PRINT_DEBUG_IDX = self.num_envs - 1
+        print(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
+
+    def __print_debug_idx_down_callback(self):
+        self.PRINT_DEBUG_IDX -= 1
+        if self.PRINT_DEBUG_IDX < 0:
+            self.PRINT_DEBUG_IDX = 0
+        print(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
 
     def _elongate_callback(self):
         print("ELONGATING")
@@ -296,7 +323,7 @@ class Vine(VecTask):
                         dof_props['damping'][j] = 1.0 / (10**(j//2))  # TODO: Tune
                 elif dof_type == gymapi.DofType.DOF_TRANSLATION:
                     dof_props['stiffness'][j] = 100.0 / (10**(j//2))  # TODO: Tune
-                    dof_props['damping'][j] = 1.0 / (10**(j//2)) # TODO: Tune
+                    dof_props['damping'][j] = 1.0 / (10**(j//2))  # TODO: Tune
                 else:
                     raise ValueError(f"Invalid dof_type = {dof_type}")
 
@@ -458,14 +485,19 @@ class Vine(VecTask):
         self.target_positions[env_ids, :] = self.sample_target_positions(len(env_ids))
 
     def sample_target_positions(self, num_envs):
+        target_positions = torch.zeros(num_envs, NUM_XYZ, device=self.device)
+
         if INIT_QUAT == VERTICAL_PLANE_QUAT:
-            target_positions = torch.FloatTensor(num_envs, NUM_XYZ).uniform_(
-                TARGET_POS_MIN, TARGET_POS_MAX).to(self.device)
-            target_positions[:, 1] = 0
-            target_positions[:, 2] = torch.FloatTensor(num_envs).uniform_(0, 2*INIT_Z).to(self.device)
+            target_positions[:, 0] = torch.FloatTensor(num_envs).uniform_(
+                TARGET_POS_MIN_X, TARGET_POS_MAX_X).to(self.device)
+            target_positions[:, 1] = INIT_Y
+            target_positions[:, 2] = torch.FloatTensor(num_envs).uniform_(
+                TARGET_POS_MIN_Z, TARGET_POS_MAX_Z).to(self.device)
         elif INIT_QUAT == HORIZONTAL_PLANE_QUAT:
-            target_positions = torch.FloatTensor(num_envs, NUM_XYZ).uniform_(
-                TARGET_POS_MIN, TARGET_POS_MAX).to(self.device)
+            target_positions[:, 0] = torch.FloatTensor(num_envs).uniform_(
+                TARGET_POS_MIN_X, TARGET_POS_MAX_X).to(self.device)
+            target_positions[:, 1] = torch.FloatTensor(num_envs).uniform_(
+                TARGET_POS_MIN_Y, TARGET_POS_MAX_Y).to(self.device)
             target_positions[:, 2] = INIT_Z
         else:
             raise ValueError(f"Invalid INIT_QUAT = {INIT_QUAT}")
@@ -544,11 +576,6 @@ class Vine(VecTask):
             current_lengths = torch.sum(prismatic_dof_pos, dim=1).to(self.device)
             desired_lengths = (prismatic_raw_actions + 1.) / 2. * torch.sum(self.prismatic_dof_uppers)
             difference_lengths = desired_lengths - current_lengths  # +ve if grow, -ve if shrink
-            print_if(f"prismatic_dof_pos = {prismatic_dof_pos[7]}")
-            print_if(f"prismatic_indexes = {prismatic_indexes[7]}")
-            print_if(f"current_lengths = {current_lengths[7]}")
-            print_if(f"desired_lengths = {desired_lengths[7]}")
-            print_if(f"difference_lengths = {difference_lengths[7]}")
 
             # Compute remainder_lengths, which is length at the prismatic_index
             remainder_lengths = torch.zeros(self.num_envs, device=self.device)
@@ -580,8 +607,19 @@ class Vine(VecTask):
             position_targets = torch.zeros(self.num_envs, self.num_dof, device=self.device)
             position_targets[:, self.revolute_dof_indices] = revolute_actions
             position_targets[:, self.prismatic_dof_indices] = prismatic_actions
-            print_if(f"position_targets = {position_targets[7]}")
-            print_if()
+
+            if self.PRINT_DEBUG:
+                print(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
+                print(f"self.raw_actions = {self.raw_actions[self.PRINT_DEBUG_IDX]}")
+                print(f"prismatic_dof_pos = {prismatic_dof_pos[self.PRINT_DEBUG_IDX]}")
+                print(f"prismatic_indexes = {prismatic_indexes[self.PRINT_DEBUG_IDX]}")
+                print(f"current_lengths = {current_lengths[self.PRINT_DEBUG_IDX]}")
+                print(f"desired_lengths = {desired_lengths[self.PRINT_DEBUG_IDX]}")
+                print(f"difference_lengths = {difference_lengths[self.PRINT_DEBUG_IDX]}")
+                print(f"modified_prismatic_indexes = {modified_prismatic_indexes[self.PRINT_DEBUG_IDX]}")
+                print(f"revolute_actions = {revolute_actions[self.PRINT_DEBUG_IDX]}")
+                print(f"prismatic_actions = {prismatic_actions[self.PRINT_DEBUG_IDX]}")
+                print()
 
             # Apply targets
             self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(position_targets))
