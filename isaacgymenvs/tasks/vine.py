@@ -38,11 +38,14 @@ NUM_STATES = 13  # xyz, quat, v_xyz, w_xyz
 NUM_XYZ = 3
 HORIZONTAL_PLANE_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 VERTICAL_PLANE_QUAT = gymapi.Quat(0.707, 0.0, 0.0, 0.707)
+HANGING_PLANE_QUAT = gymapi.Quat(0.5, 0.5, -0.5, 0.5)
+NORMAL_INIT_XYZ = (0.0, 0.0, 1.5)
+HANGING_INIT_XYZ = (0.0, 0.0, 3.0)
 
 # PARAMETERS
-INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.5
-INIT_QUAT = VERTICAL_PLANE_QUAT
-TARGET_POS_MIN_X, TARGET_POS_MAX_X = 1.0, 3.0
+INIT_X, INIT_Y, INIT_Z = HANGING_INIT_XYZ
+INIT_QUAT = HANGING_PLANE_QUAT
+TARGET_POS_MIN_X, TARGET_POS_MAX_X = -3.0, 3.0
 TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -2.0, 2.0
 TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = 0.0, 3.0
 DOF_MODE = "POSITION"  # "FORCE" OR "POSITION"
@@ -130,6 +133,7 @@ class Vine(VecTask):
         self.event_action_to_key = {
             "RESET": gymapi.KEY_R,
             "PAUSE": gymapi.KEY_P,
+            "VISUALIZE_LINES": gymapi.KEY_L,
             "PRINT_DEBUG": gymapi.KEY_D,
             "PRINT_DEBUG_IDX_UP": gymapi.KEY_K,
             "PRINT_DEBUG_IDX_DOWN": gymapi.KEY_J,
@@ -143,6 +147,7 @@ class Vine(VecTask):
         self.event_action_to_function = {
             "RESET": self._reset_callback,
             "PAUSE": self._pause_callback,
+            "VISUALIZE_LINES": self._visualize_lines_callback,
             "PRINT_DEBUG": self._print_debug_callback,
             "PRINT_DEBUG_IDX_UP": self._print_debug_idx_up_callback,
             "PRINT_DEBUG_IDX_DOWN": self.__print_debug_idx_down_callback,
@@ -154,6 +159,7 @@ class Vine(VecTask):
             "PREV_TURN_IDX": self._prev_turn_idx_callback,
         }
         # Create state variables
+        self.VISUALIZE_LINES = False
         self.PRINT_DEBUG = False
         self.PRINT_DEBUG_IDX = 0
         self.FORCE_ELONGATE = 0
@@ -173,6 +179,10 @@ class Vine(VecTask):
         print("PAUSING")
         import time
         time.sleep(1)
+
+    def _visualize_lines_callback(self):
+        self.VISUALIZE_LINES = not self.VISUALIZE_LINES
+        print(f"self.VISUALIZE_LINES = {self.VISUALIZE_LINES}")
 
     def _print_debug_callback(self):
         self.PRINT_DEBUG = not self.PRINT_DEBUG
@@ -310,15 +320,15 @@ class Vine(VecTask):
         obstacle_pose = gymapi.Transform()
         obstacle_pose.p.x = 1.0
         obstacle_pose.p.y = 0.0
-        obstacle_pose.p.z = INIT_Z
+        obstacle_pose.p.z = NORMAL_INIT_XYZ[2]
         obstacle_pose_2 = gymapi.Transform()
         obstacle_pose_2.p.x = 1.0
         obstacle_pose_2.p.y = 0.0
-        obstacle_pose_2.p.z = INIT_Z + 0.4
+        obstacle_pose_2.p.z = NORMAL_INIT_XYZ[2] + 0.4
         obstacle_pose_3 = gymapi.Transform()
         obstacle_pose_3.p.x = 1.0
         obstacle_pose_3.p.y = 0.0
-        obstacle_pose_3.p.z = INIT_Z - 0.4
+        obstacle_pose_3.p.z = NORMAL_INIT_XYZ[2] - 0.4
         obstacle_poses = [obstacle_pose, obstacle_pose_2, obstacle_pose_3]
         assert(len(obstacle_poses) == N_OBSTACLES)
 
@@ -527,7 +537,7 @@ class Vine(VecTask):
     def sample_target_positions(self, num_envs):
         target_positions = torch.zeros(num_envs, NUM_XYZ, device=self.device)
 
-        if INIT_QUAT == VERTICAL_PLANE_QUAT:
+        if INIT_QUAT == VERTICAL_PLANE_QUAT or INIT_QUAT == HANGING_PLANE_QUAT:
             target_positions[:, 0] = torch.FloatTensor(num_envs).uniform_(
                 TARGET_POS_MIN_X, TARGET_POS_MAX_X).to(self.device)
             target_positions[:, 1] = INIT_Y
@@ -554,10 +564,10 @@ class Vine(VecTask):
             self.raw_actions[:, -1] = -1.0
             self.FORCE_SHORTEN -= 1
         if self.FORCE_TURN_LEFT > 0:
-            self.raw_actions[:, self.FORCE_TURN_IDX] = 1.0
+            self.raw_actions[:, :-1] = 1.0
             self.FORCE_TURN_LEFT -= 1
         if self.FORCE_TURN_RIGHT > 0:
-            self.raw_actions[:, self.FORCE_TURN_IDX] = -1.0
+            self.raw_actions[:, :-1] = -1.0
             self.FORCE_TURN_RIGHT -= 1
 
         # Break into revolute and prismatic action
@@ -694,13 +704,14 @@ class Vine(VecTask):
                 gymutil.draw_lines(visualization_sphere_green, self.gym, self.viewer, self.envs[i], sphere_pose)
 
                 # Draw line between vine robot links
-                _, n_links, _ = self.link_positions.shape  # (n_envs, n_links, NUM_XYZ)
-                for j in range(1, n_links):
-                    pos1, pos2 = self.link_positions[i, j - 1], self.link_positions[i, j]
-                    pos1_vec3 = gymapi.Vec3(pos1[0], pos1[1], pos1[2])
-                    pos2_vec3 = gymapi.Vec3(pos2[0], pos2[1], pos2[2])
-                    red_color = gymapi.Vec3(1, 0, 0)
-                    gymutil.draw_line(pos1_vec3, pos2_vec3, red_color, self.gym, self.viewer, self.envs[i])
+                if self.VISUALIZE_LINES:
+                    _, n_links, _ = self.link_positions.shape  # (n_envs, n_links, NUM_XYZ)
+                    for j in range(1, n_links):
+                        pos1, pos2 = self.link_positions[i, j - 1], self.link_positions[i, j]
+                        pos1_vec3 = gymapi.Vec3(pos1[0], pos1[1], pos1[2])
+                        pos2_vec3 = gymapi.Vec3(pos2[0], pos2[1], pos2[2])
+                        red_color = gymapi.Vec3(1, 0, 0)
+                        gymutil.draw_line(pos1_vec3, pos2_vec3, red_color, self.gym, self.viewer, self.envs[i])
 
 #####################################################################
 ###=========================jit functions=========================###
