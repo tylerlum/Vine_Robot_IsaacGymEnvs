@@ -113,7 +113,10 @@ class Vine(VecTask):
 
         # For now, only care about last link to get tip location
         # rigid_body_names = self.gym.get_asset_rigid_body_dict(self.vine_asset)
-        rigid_body_state_by_env = self.rigid_body_state.view(self.num_envs, self.num_rigid_bodies + N_OBSTACLES, NUM_STATES)
+        rigid_body_state_by_env = self.rigid_body_state.view(
+            self.num_envs, self.num_rigid_bodies + N_OBSTACLES, NUM_STATES)
+        self.obstacle_positions = rigid_body_state_by_env[:, :N_OBSTACLES, 0:3]
+        self.link_positions = rigid_body_state_by_env[:, N_OBSTACLES:, 0:3]
         self.tip_positions = rigid_body_state_by_env[:, -1, 0:3]
 
     def refresh_state_tensors(self):
@@ -248,7 +251,7 @@ class Vine(VecTask):
 
         if "asset" in self.cfg["env"]:
             vine_asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                      self.cfg["env"]["asset"].get("assetRoot", vine_asset_root))
+                                           self.cfg["env"]["asset"].get("assetRoot", vine_asset_root))
             vine_asset_file = self.cfg["env"]["asset"].get("assetFileName", vine_asset_file)
 
         vine_asset_path = os.path.join(vine_asset_root, vine_asset_file)
@@ -292,7 +295,8 @@ class Vine(VecTask):
         obstacle_size = 0.2
         obstacle_asset_options = gymapi.AssetOptions()
         obstacle_asset_options.fix_base_link = True  # Fixed base for obstacle
-        obstacle_asset = self.gym.create_box(self.sim, obstacle_size, obstacle_size, obstacle_size, obstacle_asset_options)
+        obstacle_asset = self.gym.create_box(self.sim, obstacle_size, obstacle_size,
+                                             obstacle_size, obstacle_asset_options)
 
         # Set initial actor poses
         vine_init_pose = gymapi.Transform()
@@ -315,6 +319,8 @@ class Vine(VecTask):
         obstacle_pose_3.p.x = 1.0
         obstacle_pose_3.p.y = 0.0
         obstacle_pose_3.p.z = INIT_Z - 0.4
+        obstacle_poses = [obstacle_pose, obstacle_pose_2, obstacle_pose_3]
+        assert(len(obstacle_poses) == N_OBSTACLES)
 
         self.vine_handles = []
         self.envs = []
@@ -325,10 +331,14 @@ class Vine(VecTask):
                 self.sim, lower, upper, num_per_row
             )
             collision_group, collision_filter, segmentation_id = i, 1, 0
-            obstacle_handle = self.gym.create_actor(env_ptr, obstacle_asset, obstacle_pose, "obstacle", group=collision_group, filter=collision_filter+1, segmentationId=segmentation_id+1)
-            obstacle_handle_2 = self.gym.create_actor(env_ptr, obstacle_asset, obstacle_pose_2, "obstacle", group=collision_group, filter=collision_filter+1, segmentationId=segmentation_id+1)
-            obstacle_handle_3 = self.gym.create_actor(env_ptr, obstacle_asset, obstacle_pose_3, "obstacle", group=collision_group, filter=collision_filter+1, segmentationId=segmentation_id+1)
 
+            # Create obstacles (must be done before adding vine robots)
+            obstacle_handles = [self.gym.create_actor(env_ptr, obstacle_asset, pose, f"obstacle_{i}",
+                                                      group=collision_group, filter=collision_filter+1,
+                                                      segmentationId=segmentation_id+1)
+                                for i, pose in enumerate(obstacle_poses)]
+
+            # Create vine robots
             vine_handle = self.gym.create_actor(
                 env_ptr, self.vine_asset, vine_init_pose, "vine", group=collision_group, filter=collision_filter, segmentationId=segmentation_id)
 
@@ -364,7 +374,7 @@ class Vine(VecTask):
 
             self.envs.append(env_ptr)
             self.vine_handles.append(vine_handle)
-            self.object_handles.extend([obstacle_handle, obstacle_handle_2, obstacle_handle_3])
+            self.object_handles.extend(obstacle_handles)
 
         PRINT_ASSET_INFO = False
         if PRINT_ASSET_INFO:
@@ -506,8 +516,8 @@ class Vine(VecTask):
             self.gym.set_dof_state_tensor(self.sim, gymtorch.unwrap_tensor(self.dof_state))
         else:
             self.gym.set_dof_state_tensor_indexed(self.sim,
-                                                gymtorch.unwrap_tensor(self.dof_state),
-                                                gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
+                                                  gymtorch.unwrap_tensor(self.dof_state),
+                                                  gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
         self.reset_buf[env_ids] = 0
         self.progress_buf[env_ids] = 0
 
@@ -607,7 +617,6 @@ class Vine(VecTask):
             desired_lengths = (prismatic_raw_actions + 1.) / 2. * torch.sum(self.prismatic_dof_uppers)
             difference_lengths = desired_lengths - current_lengths  # +ve if grow, -ve if shrink
 
-
             # Compute remainder_lengths, which is length at the prismatic_index
             remainder_lengths = torch.zeros(self.num_envs, device=self.device)
             for i in range(num_prismatic_joints):
@@ -669,7 +678,6 @@ class Vine(VecTask):
         self.compute_observations()
         self.compute_reward()
 
-
         # Draw debug info
         if self.viewer and self.enable_viewer_sync:
             # Create spheres
@@ -677,13 +685,22 @@ class Vine(VecTask):
             visualization_sphere_green = gymutil.WireframeSphereGeometry(
                 visualization_sphere_radius, 3, 3, color=(0, 1, 0))
 
-            # Draw target
             self.gym.clear_lines(self.viewer)
             for i in range(self.num_envs):
+                # Draw target
                 target_position = self.target_positions[i]
                 sphere_pose = gymapi.Transform(gymapi.Vec3(
                     target_position[0], target_position[1], target_position[2]), r=None)
                 gymutil.draw_lines(visualization_sphere_green, self.gym, self.viewer, self.envs[i], sphere_pose)
+
+                # Draw line between vine robot links
+                _, n_links, _ = self.link_positions.shape  # (n_envs, n_links, NUM_XYZ)
+                for j in range(1, n_links):
+                    pos1, pos2 = self.link_positions[i, j - 1], self.link_positions[i, j]
+                    pos1_vec3 = gymapi.Vec3(pos1[0], pos1[1], pos1[2])
+                    pos2_vec3 = gymapi.Vec3(pos2[0], pos2[1], pos2[2])
+                    red_color = gymapi.Vec3(1, 0, 0)
+                    gymutil.draw_line(pos1_vec3, pos2_vec3, red_color, self.gym, self.viewer, self.envs[i])
 
 #####################################################################
 ###=========================jit functions=========================###
