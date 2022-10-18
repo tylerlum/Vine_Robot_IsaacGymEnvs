@@ -48,7 +48,7 @@
                 <cylinder radius="0.025" length="0.1"/>
             </geometry>
             <origin xyz="0 0 0" rpy="0 1.57 0"/>
-            <material name="black"/>
+            <material name="red"/>
         </visual>
 
     </link>
@@ -97,7 +97,7 @@
                 <cylinder radius="0.025" length="0.1"/>
             </geometry>
             <origin xyz="0 0 0" rpy="0 1.57 0"/>
-            <material name="green"/>
+            <material name="red"/>
         </visual>
     </link>
 
@@ -121,7 +121,7 @@
                 <cylinder radius="0.025" length="0.1"/>
             </geometry>
             <origin xyz="0 0 0" rpy="0 1.57 0"/>
-            <material name="blue"/>
+            <material name="red"/>
         </visual>
     </link>
 
@@ -145,7 +145,7 @@
                 <cylinder radius="0.025" length="0.1"/>
             </geometry>
             <origin xyz="0 0 0" rpy="0 1.57 0"/>
-            <material name="magenta"/>
+            <material name="red"/>
         </visual>
     </link>
 
@@ -169,7 +169,7 @@
                 <cylinder radius="0.025" length="0.1"/>
             </geometry>
             <origin xyz="0 0 0" rpy="0 1.57 0"/>
-            <material name="teal"/>
+            <material name="red"/>
         </visual>
     </link>
 
@@ -193,7 +193,7 @@
                 <cylinder radius="0.025" length="0.1"/>
             </geometry>
             <origin xyz="0 0 0" rpy="0 1.57 0"/>
-            <material name="yellow"/>
+            <material name="red"/>
         </visual>
     </link>
 
