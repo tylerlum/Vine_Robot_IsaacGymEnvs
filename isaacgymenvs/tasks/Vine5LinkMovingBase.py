@@ -71,7 +71,7 @@ class Vine5LinkMovingBase(VecTask):
       * 3 target position
     Action:
       * 7 for joint forces/torques OR
-      * 1 for u pressure
+      * 1 for u pressure and 1 for prismatic joint
     Reward:
       * -Dist to target
     Environment:
@@ -86,7 +86,8 @@ class Vine5LinkMovingBase(VecTask):
 
         # Must set this before continuing
         self.cfg["env"]["numObservations"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ
-        self.cfg["env"]["numActions"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS
+        # self.cfg["env"]["numActions"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS
+        self.cfg["env"]["numActions"] = 2
         self.subscribe_to_keyboard_events()
 
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id,
@@ -436,29 +437,44 @@ class Vine5LinkMovingBase(VecTask):
         self.raw_actions = actions.clone().to(self.device)
 
         if DOF_MODE == "FORCE":
-            REVOLUTE_FORCE_SCALING = 1.0
-            PRISMATIC_FORCE_SCALING = 1000.0
-            dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
+            PD_TARGET_ALL_JOINTS = False
 
-            # Revolute
-            for i in self.revolute_dof_indices:
-                dof_efforts[:, i] = self.raw_actions[:, i] * REVOLUTE_FORCE_SCALING
-            for i in self.prismatic_dof_indices:
-                dof_efforts[:, i] = self.raw_actions[:, i] * PRISMATIC_FORCE_SCALING
-            self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
+            if PD_TARGET_ALL_JOINTS:
+                REVOLUTE_FORCE_SCALING = 1.0
+                PRISMATIC_FORCE_SCALING = 1000.0
+                dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
+
+                # Revolute
+                for i in self.revolute_dof_indices:
+                    dof_efforts[:, i] = self.raw_actions[:, i] * REVOLUTE_FORCE_SCALING
+                for i in self.prismatic_dof_indices:
+                    dof_efforts[:, i] = self.raw_actions[:, i] * PRISMATIC_FORCE_SCALING
+                self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
+            else:
+                u = self.raw_actions[:, 1:2]  # (num_envs, 1)
+                q = self.dof_pos[:, 1:]  # (num_envs, 5)
+                qd = self.dof_vel[:, 1:]  # (num_envs, 5)
+
+                # Loop version for sanity check
+                # A = [diag(q) diag(qd) eye(5) u*eye(5)];
+                # x = [K; C; b; B]
+                # tau = -A*x;
+                K = torch.diag(torch.tensor([1.0822678619473745, 1.3960597815085283, 0.7728716674414156, 0.566602254820747, 0.20000000042282678]))
+                C = torch.diag(torch.tensor([0.010098832804688505, 0.008001446516454621, 0.01352315902253585, 0.021895211325047674, 0.017533205699630634]))
+                b = torch.tensor([-0.002961879962361915, -0.019149230853283454, -0.01339719175569314, -0.011436913019114144, -0.0031035566743229624])
+                B = torch.tensor([-0.02525783894248118 -0.06298872026151316 -0.049676622868418834 -0.029474741498381096 -0.015412936470522515])
+                torques = torch.zeros(self.num_envs, 5)
+                for i in range(self.num_envs):
+                    A = [torch.diag(q[i]), torch.diag(qd[i]), torch.eye(5), u[i] * torch.eye(5)]
+                    x = torch.concatenate([K, C, b, B], dim=-1)
+                    torques[i] = -A@x
+
+                for i, idx in enumerate(self.revolute_dof_indices):
+                    dof_efforts[:, idx] = torques[:, i]
+                dof_efforts[:, self.prismatic_dof_indices[0]] = self.raw_actions[:, 0]
+                self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
         elif DOF_MODE == "POSITION":
-            POSITION_SCALING = 1.0
-            position_targets = torch.zeros(self.num_envs, self.num_dof, device=self.device)
-            position_targets[:] = self.raw_actions * POSITION_SCALING
-
-            if self.PRINT_DEBUG:
-                print(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
-                print(f"self.raw_actions = {self.raw_actions[self.PRINT_DEBUG_IDX]}")
-                print(f"position_targets = {position_targets[self.PRINT_DEBUG_IDX]}")
-                print()
-
-            # Apply targets
-            self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(position_targets))
+            raise ValueError(f"Unable to run with {DOF_MODE}")
         else:
             raise ValueError(f"Invalid DOF_MODE = {DOF_MODE}")
 
