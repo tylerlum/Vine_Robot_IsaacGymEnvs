@@ -36,25 +36,20 @@ from .base.vec_task import VecTask
 # CONSTANTS
 NUM_STATES = 13  # xyz, quat, v_xyz, w_xyz
 NUM_XYZ = 3
-HORIZONTAL_PLANE_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
-VERTICAL_PLANE_QUAT = gymapi.Quat(0.707, 0.0, 0.0, 0.707)
-HANGING_PLANE_QUAT = gymapi.Quat(0.5, 0.5, -0.5, 0.5)
 NORMAL_INIT_XYZ = (0.0, 0.0, 1.5)
-HANGING_INIT_XYZ = (0.0, 0.0, 3.0)
+NORMAL_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 
 # PARAMETERS
 INIT_X, INIT_Y, INIT_Z = NORMAL_INIT_XYZ
-INIT_QUAT = VERTICAL_PLANE_QUAT
-TARGET_POS_MIN_X, TARGET_POS_MAX_X = -3.0, 3.0
+INIT_QUAT = NORMAL_QUAT
+TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0
 TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -2.0, 2.0
 TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = 0.0, 3.0
-DOF_MODE = "POSITION"  # "FORCE" OR "POSITION"
+DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
 N_REVOLUTE_DOFS = 6
-N_PRISMATIC_DOFS = N_REVOLUTE_DOFS
-RANDOMIZE_REVOLUTES = True
-RANDOMIZE_PRISMATICS = True
-JOINT_BUFFER = 0.9
-N_OBSTACLES = 3
+N_PRISMATIC_DOFS = 1
+RANDOMIZE_DOF_INIT = False
+RANDOMIZE_TARGETS = False
 
 # TODO: Investigate if self collision checks work (probably not)
 
@@ -66,21 +61,17 @@ def print_if(text="", should_print=False):
 
 class Vine5LinkMovingBase(VecTask):
     """
-    TODO Redefine this all
-    Let N = 3 revolute joints
-
     State:
-      * 6 Joint positions (3 revolute, 3 prismatic)
+      * 7 Joint positions (6 revolute, 1 prismatic)
     Goal:
       * 1 Target Pos
     Observation:
-      * 6 Cos/Sin of Revolute Joint Positions (3 revolute)
-      * 3 Prismatic Joint Positions
+      * 7 joint positions
       * 3 tip position
       * 3 target position
     Action:
-      * 3 for revolute joint angles (only applies actions to angles that have length)
-      * 1 desired full length
+      * 7 for joint forces/torques OR
+      * 1 for u pressure
     Reward:
       * -Dist to target
     Environment:
@@ -94,8 +85,8 @@ class Vine5LinkMovingBase(VecTask):
         self.max_episode_length = self.cfg["env"]["maxEpisodeLength"]
 
         # Must set this before continuing
-        self.cfg["env"]["numObservations"] = N_REVOLUTE_DOFS * 2 + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ
-        self.cfg["env"]["numActions"] = N_REVOLUTE_DOFS + 1
+        self.cfg["env"]["numObservations"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ
+        self.cfg["env"]["numActions"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS
         self.subscribe_to_keyboard_events()
 
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id,
@@ -118,9 +109,8 @@ class Vine5LinkMovingBase(VecTask):
         # For now, only care about last link to get tip location
         # rigid_body_names = self.gym.get_asset_rigid_body_dict(self.vine_asset)
         rigid_body_state_by_env = self.rigid_body_state.view(
-            self.num_envs, self.num_rigid_bodies + N_OBSTACLES, NUM_STATES)
-        self.obstacle_positions = rigid_body_state_by_env[:, :N_OBSTACLES, 0:3]
-        self.link_positions = rigid_body_state_by_env[:, N_OBSTACLES:, 0:3]
+            self.num_envs, self.num_rigid_bodies, NUM_STATES)
+        self.link_positions = rigid_body_state_by_env[:, :, 0:3]
         self.tip_positions = rigid_body_state_by_env[:, -1, 0:3]
 
     def refresh_state_tensors(self):
@@ -134,40 +124,20 @@ class Vine5LinkMovingBase(VecTask):
         self.event_action_to_key = {
             "RESET": gymapi.KEY_R,
             "PAUSE": gymapi.KEY_P,
-            "VISUALIZE_LINES": gymapi.KEY_L,
             "PRINT_DEBUG": gymapi.KEY_D,
             "PRINT_DEBUG_IDX_UP": gymapi.KEY_K,
             "PRINT_DEBUG_IDX_DOWN": gymapi.KEY_J,
-            "ELONGATE": gymapi.KEY_W,
-            "SHORTEN": gymapi.KEY_S,
-            "TURN_LEFT": gymapi.KEY_LEFT,
-            "TURN_RIGHT": gymapi.KEY_RIGHT,
-            "NEXT_TURN_IDX": gymapi.KEY_UP,
-            "PREV_TURN_IDX": gymapi.KEY_DOWN,
         }
         self.event_action_to_function = {
             "RESET": self._reset_callback,
             "PAUSE": self._pause_callback,
-            "VISUALIZE_LINES": self._visualize_lines_callback,
             "PRINT_DEBUG": self._print_debug_callback,
             "PRINT_DEBUG_IDX_UP": self._print_debug_idx_up_callback,
-            "PRINT_DEBUG_IDX_DOWN": self.__print_debug_idx_down_callback,
-            "ELONGATE": self._elongate_callback,
-            "SHORTEN": self._shorten_callback,
-            "TURN_LEFT": self._turn_left_callback,
-            "TURN_RIGHT": self._turn_right_callback,
-            "NEXT_TURN_IDX": self._next_turn_idx_callback,
-            "PREV_TURN_IDX": self._prev_turn_idx_callback,
+            "PRINT_DEBUG_IDX_DOWN": self._print_debug_idx_down_callback,
         }
         # Create state variables
-        self.VISUALIZE_LINES = False
         self.PRINT_DEBUG = False
         self.PRINT_DEBUG_IDX = 0
-        self.FORCE_ELONGATE = 0
-        self.FORCE_SHORTEN = 0
-        self.FORCE_TURN_LEFT = 0
-        self.FORCE_TURN_RIGHT = 0
-        self.FORCE_TURN_IDX = 0
 
         assert(sorted(list(self.event_action_to_key.keys())) == sorted(list(self.event_action_to_function.keys())))
 
@@ -181,10 +151,6 @@ class Vine5LinkMovingBase(VecTask):
         import time
         time.sleep(1)
 
-    def _visualize_lines_callback(self):
-        self.VISUALIZE_LINES = not self.VISUALIZE_LINES
-        print(f"self.VISUALIZE_LINES = {self.VISUALIZE_LINES}")
-
     def _print_debug_callback(self):
         self.PRINT_DEBUG = not self.PRINT_DEBUG
         print(f"self.PRINT_DEBUG = {self.PRINT_DEBUG}")
@@ -195,45 +161,12 @@ class Vine5LinkMovingBase(VecTask):
             self.PRINT_DEBUG_IDX = self.num_envs - 1
         print(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
 
-    def __print_debug_idx_down_callback(self):
+    def _print_debug_idx_down_callback(self):
         self.PRINT_DEBUG_IDX -= 1
         if self.PRINT_DEBUG_IDX < 0:
             self.PRINT_DEBUG_IDX = 0
         print(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
 
-    def _elongate_callback(self):
-        print("ELONGATING")
-        self.FORCE_ELONGATE = 60
-        self.FORCE_SHORTEN = 0
-
-    def _shorten_callback(self):
-        print("SHORTENING")
-        self.FORCE_SHORTEN = 60
-        self.FORCE_ELONGATE = 0
-
-    def _turn_left_callback(self):
-        print(f"TURNING_LEFT for idx = {self.FORCE_TURN_IDX}")
-        self.FORCE_TURN_LEFT = 60
-        self.FORCE_TURN_RIGHT = 0
-
-    def _turn_right_callback(self):
-        print(f"TURNING_RIGHT for idx = {self.FORCE_TURN_IDX}")
-        self.FORCE_TURN_RIGHT = 60
-        self.FORCE_TURN_LEFT = 0
-
-    def _next_turn_idx_callback(self):
-        print(f"INCREASING TURN IDX")
-        self.FORCE_TURN_IDX += 1
-        if self.FORCE_TURN_IDX >= N_REVOLUTE_DOFS:
-            self.FORCE_TURN_IDX = N_REVOLUTE_DOFS - 1
-        print(f"Now: self.FORCE_TURN_IDX = {self.FORCE_TURN_IDX}")
-
-    def _prev_turn_idx_callback(self):
-        print(f"DECREASING TURN IDX")
-        self.FORCE_TURN_IDX -= 1
-        if self.FORCE_TURN_IDX < 0:
-            self.FORCE_TURN_IDX = 0
-        print(f"NOW: self.FORCE_TURN_IDX = {self.FORCE_TURN_IDX}")
     ##### KEYBOARD EVENT SUBSCRIPTIONS END #####
 
     def create_sim(self):
@@ -258,7 +191,7 @@ class Vine5LinkMovingBase(VecTask):
 
         # Find asset file
         vine_asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
-        vine_asset_file = "urdf/vine.urdf"
+        vine_asset_file = "urdf/Vine5LinkMovingBase.urdf"
 
         if "asset" in self.cfg["env"]:
             vine_asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -279,17 +212,22 @@ class Vine5LinkMovingBase(VecTask):
         self.num_rigid_bodies = self.gym.get_asset_rigid_body_count(self.vine_asset)
 
         # Sanity check
-        dof_dict = self.gym.get_asset_dof_dict(self.vine_asset)
-        num_revolute_dofs = len([name for name, _ in dof_dict.items() if "revolute" in name])
-        num_prismatic_dofs = len([name for name, _ in dof_dict.items() if "prismatic" in name])
-        assert(num_revolute_dofs == num_prismatic_dofs)
+        dof_types = [self.gym.get_asset_dof_type(self.vine_asset, i)
+                     for i in range(self.gym.get_asset_dof_count(self.vine_asset))]
+        num_revolute_dofs = len([dof_type for dof_type in dof_types if dof_type == gymapi.DofType.DOF_ROTATION])
+        num_prismatic_dofs = len([dof_type for dof_type in dof_types if dof_type == gymapi.DofType.DOF_TRANSLATION])
         assert(num_revolute_dofs + num_prismatic_dofs == self.num_dof)
         assert(num_revolute_dofs == N_REVOLUTE_DOFS)
         assert(num_prismatic_dofs == N_PRISMATIC_DOFS)
 
         # Split into revolute and prismatic
-        revolute_dof_names = [name for name, _ in dof_dict.items() if "revolute" in name]
-        prismatic_dof_names = [name for name, _ in dof_dict.items() if "prismatic" in name]
+        dof_names = [self.gym.get_asset_dof_name(self.vine_asset, i)
+                     for i in range(self.gym.get_asset_dof_count(self.vine_asset))]
+        dof_dict = self.gym.get_asset_dof_dict(self.vine_asset)
+        revolute_dof_names = [dof_name for dof_name, dof_type in zip(
+            dof_names, dof_types) if dof_type == gymapi.DofType.DOF_ROTATION]
+        prismatic_dof_names = [dof_name for dof_name, dof_type in zip(
+            dof_names, dof_types) if dof_type == gymapi.DofType.DOF_TRANSLATION]
         self.revolute_dof_indices = sorted([dof_dict[name] for name in revolute_dof_names])
         self.prismatic_dof_indices = sorted([dof_dict[name] for name in prismatic_dof_names])
 
@@ -302,13 +240,6 @@ class Vine5LinkMovingBase(VecTask):
         self.prismatic_dof_lowers = self.dof_lowers[self.prismatic_dof_indices]
         self.prismatic_dof_uppers = self.dof_uppers[self.prismatic_dof_indices]
 
-        # Create obstacle asset
-        obstacle_size = 0.2
-        obstacle_asset_options = gymapi.AssetOptions()
-        obstacle_asset_options.fix_base_link = True  # Fixed base for obstacle
-        obstacle_asset = self.gym.create_box(self.sim, obstacle_size, obstacle_size,
-                                             obstacle_size, obstacle_asset_options)
-
         # Set initial actor poses
         vine_init_pose = gymapi.Transform()
         assert(self.up_axis == 'z')
@@ -316,22 +247,6 @@ class Vine5LinkMovingBase(VecTask):
         vine_init_pose.p.y = INIT_Y
         vine_init_pose.p.z = INIT_Z
         vine_init_pose.r = INIT_QUAT
-
-        # Set obstacle poses
-        obstacle_pose = gymapi.Transform()
-        obstacle_pose.p.x = 1.0
-        obstacle_pose.p.y = 0.0
-        obstacle_pose.p.z = NORMAL_INIT_XYZ[2]
-        obstacle_pose_2 = gymapi.Transform()
-        obstacle_pose_2.p.x = 1.0
-        obstacle_pose_2.p.y = 0.0
-        obstacle_pose_2.p.z = NORMAL_INIT_XYZ[2] + 0.4
-        obstacle_pose_3 = gymapi.Transform()
-        obstacle_pose_3.p.x = 1.0
-        obstacle_pose_3.p.y = 0.0
-        obstacle_pose_3.p.z = NORMAL_INIT_XYZ[2] - 0.4
-        obstacle_poses = [obstacle_pose, obstacle_pose_2, obstacle_pose_3]
-        assert(len(obstacle_poses) == N_OBSTACLES)
 
         self.vine_handles = []
         self.envs = []
@@ -342,12 +257,6 @@ class Vine5LinkMovingBase(VecTask):
                 self.sim, lower, upper, num_per_row
             )
             collision_group, collision_filter, segmentation_id = i, 1, 0
-
-            # Create obstacles (must be done before adding vine robots)
-            obstacle_handles = [self.gym.create_actor(env_ptr, obstacle_asset, pose, f"obstacle_{i}",
-                                                      group=collision_group, filter=collision_filter+1,
-                                                      segmentationId=segmentation_id+1)
-                                for i, pose in enumerate(obstacle_poses)]
 
             # Create vine robots
             vine_handle = self.gym.create_actor(
@@ -385,44 +294,14 @@ class Vine5LinkMovingBase(VecTask):
 
             self.envs.append(env_ptr)
             self.vine_handles.append(vine_handle)
-            self.object_handles.extend(obstacle_handles)
 
-        PRINT_ASSET_INFO = False
+        PRINT_ASSET_INFO = True
         if PRINT_ASSET_INFO:
             self._print_asset_info(self.vine_asset)
 
     def _print_asset_info(self, asset):
         """
-        self.num_dof = 6
-        DOF 0
-        Name:     'revolute_joint_0'
-        Type:     Rotation
-        Properties:  (True, -3.15, 3.15, 0, 3., 10., 0., 0., 0., 0.)
-        DOF 1
-        Name:     'prismatic_joint_0'
-        Type:     Translation
-        Properties:  (True, 0., 0.5, 0, 0.2, 200., 0., 0., 0., 0.)
-        DOF 2
-        Name:     'revolute_joint_1'
-        Type:     Rotation
-        Properties:  (True, -3.15, 3.15, 0, 3., 10., 0., 0., 0., 0.)
-        DOF 3
-        Name:     'prismatic_joint_1'
-        Type:     Translation
-        Properties:  (True, 0., 0.5, 0, 0.2, 200., 0., 0., 0., 0.)
-        DOF 4
-        Name:     'revolute_joint_2'
-        Type:     Rotation
-        Properties:  (True, -3.15, 3.15, 0, 3., 10., 0., 0., 0., 0.)
-        DOF 5
-        Name:     'prismatic_joint_2'
-        Type:     Translation
-        Properties:  (True, 0., 0.5, 0, 0.2, 200., 0., 0., 0., 0.)
-
-        num_rigid_bodies = 7
-        rigid_body_dict = {'base_link': 0, 'base_virtual_link': 1, 'link_0': 2, 'link_1': 4, 'link_2': 6, 'virtual_link_0': 3, 'virtual_link_1': 5}
-        joint_dict = {'prismatic_joint_0': 1, 'prismatic_joint_1': 3, 'prismatic_joint_2': 5, 'revolute_joint_0': 0, 'revolute_joint_1': 2, 'revolute_joint_2': 4}
-        dof_dict = {'prismatic_joint_0': 1, 'prismatic_joint_1': 3, 'prismatic_joint_2': 5, 'revolute_joint_0': 0, 'revolute_joint_1': 2, 'revolute_joint_2': 4}
+        TODO
         """
         # Acquire variables
         dof_names = self.gym.get_asset_dof_names(asset)
@@ -464,54 +343,16 @@ class Vine5LinkMovingBase(VecTask):
         # Refresh tensors
         self.refresh_state_tensors()
 
-        # Split into revolute and prismatic
-        revolute_dof_pos = self.dof_pos[:, self.revolute_dof_indices]
-        prismatic_dof_pos = self.dof_pos[:, self.prismatic_dof_indices]
-
         # Populate obs_buf
-        self.obs_buf[env_ids, 0:N_REVOLUTE_DOFS] = torch.cos(revolute_dof_pos[env_ids, :])
-        self.obs_buf[env_ids, N_REVOLUTE_DOFS:(2 * N_REVOLUTE_DOFS)] = torch.sin(revolute_dof_pos[env_ids, :])
-        self.obs_buf[env_ids, (2 * N_REVOLUTE_DOFS):(2 * N_REVOLUTE_DOFS +
-                                                     N_PRISMATIC_DOFS)] = prismatic_dof_pos[env_ids, :]
+        self.obs_buf[env_ids, 0:(N_REVOLUTE_DOFS+N_PRISMATIC_DOFS)] = self.dof_pos[env_ids]
         self.obs_buf[env_ids, -6:-3] = self.tip_positions
         self.obs_buf[env_ids, -3:] = self.target_positions
 
         return self.obs_buf
 
     def reset_idx(self, env_ids):
-        if RANDOMIZE_PRISMATICS:
-            # Sample random initial lengths
-            min_length, max_length = sum(self.prismatic_dof_lowers), sum(self.prismatic_dof_uppers)
-            initial_lengths = torch.FloatTensor(len(env_ids)).uniform_(min_length, max_length).to(self.device)
-
-            # Set initial prismatic dof positions to match sampled initial lengths
-            current_lengths = initial_lengths.clone()
-            num_prismatic_joints = len(self.prismatic_dof_lowers)
-            for i in range(num_prismatic_joints):
-                # If current_length not reached, then extend to full
-                # Else fill in with current_length
-                self.dof_pos[env_ids, self.prismatic_dof_indices[i]] = torch.where(current_lengths >= self.prismatic_dof_uppers[i],
-                                                                                   self.prismatic_dof_uppers[i],
-                                                                                   current_lengths)
-                # Decrement current_lengths and ensure it says doesn't go below 0
-                current_lengths -= self.prismatic_dof_uppers[i]
-                current_lengths = torch.where(current_lengths < 0.0, 0.0, current_lengths)
-        else:
-            num_prismatic_joints = len(self.prismatic_dof_lowers)
-            for i in range(num_prismatic_joints):
-                self.dof_pos[env_ids, self.prismatic_dof_indices[i]] = 0
-
-        if RANDOMIZE_REVOLUTES:
-            # Set randomized initial revolute dof positions
-            num_revolute_joints = len(self.revolute_dof_lowers)
-            for i in range(num_revolute_joints):
-                self.dof_pos[env_ids, self.revolute_dof_indices[i]] = torch.FloatTensor(len(env_ids)).uniform_(
-                    self.revolute_dof_lowers[i], self.revolute_dof_uppers[i]).to(self.device)
-
-                # Set to 0.0 if length at this index is 0.0
-                self.dof_pos[env_ids, self.revolute_dof_indices[i]] = torch.where(self.dof_pos[env_ids, self.prismatic_dof_indices[i]] == 0.0,
-                                                                                  0.0,
-                                                                                  self.dof_pos[env_ids, self.revolute_dof_indices[i]])
+        if RANDOMIZE_DOF_INIT:
+            print("TODO")
         else:
             num_revolute_joints = len(self.revolute_dof_lowers)
             for i in range(num_revolute_joints):
@@ -537,139 +378,33 @@ class Vine5LinkMovingBase(VecTask):
 
     def sample_target_positions(self, num_envs):
         target_positions = torch.zeros(num_envs, NUM_XYZ, device=self.device)
-
-        if INIT_QUAT == VERTICAL_PLANE_QUAT or INIT_QUAT == HANGING_PLANE_QUAT:
-            target_positions[:, 0] = torch.FloatTensor(num_envs).uniform_(
-                TARGET_POS_MIN_X, TARGET_POS_MAX_X).to(self.device)
-            target_positions[:, 1] = INIT_Y
-            target_positions[:, 2] = torch.FloatTensor(num_envs).uniform_(
-                TARGET_POS_MIN_Z, TARGET_POS_MAX_Z).to(self.device)
-        elif INIT_QUAT == HORIZONTAL_PLANE_QUAT:
-            target_positions[:, 0] = torch.FloatTensor(num_envs).uniform_(
-                TARGET_POS_MIN_X, TARGET_POS_MAX_X).to(self.device)
-            target_positions[:, 1] = torch.FloatTensor(num_envs).uniform_(
-                TARGET_POS_MIN_Y, TARGET_POS_MAX_Y).to(self.device)
-            target_positions[:, 2] = INIT_Z
+        if RANDOMIZE_TARGETS:
+            print("TODO")
         else:
-            raise ValueError(f"Invalid INIT_QUAT = {INIT_QUAT}")
+            target_positions[:, 1] = TARGET_POS_MAX_Y
+            target_positions[:, 2] = TARGET_POS_MIN_Z
+
         return target_positions
 
     def pre_physics_step(self, actions):
         self.raw_actions = actions.clone().to(self.device)
 
-        # Handle forced commands from keyboard
-        if self.FORCE_ELONGATE > 0:
-            self.raw_actions[:, -1] = 1.0
-            self.FORCE_ELONGATE -= 1
-        if self.FORCE_SHORTEN > 0:
-            self.raw_actions[:, -1] = -1.0
-            self.FORCE_SHORTEN -= 1
-        if self.FORCE_TURN_LEFT > 0:
-            self.raw_actions[:, :-1] = 1.0
-            self.FORCE_TURN_LEFT -= 1
-        if self.FORCE_TURN_RIGHT > 0:
-            self.raw_actions[:, :-1] = -1.0
-            self.FORCE_TURN_RIGHT -= 1
-
-        # Break into revolute and prismatic action
-        revolute_raw_actions, prismatic_raw_actions = self.raw_actions[:, :-1], self.raw_actions[:, -1]
-
-        # Compute prismatic indexes (smallest index i such that prismatic_joint_i < prismatic_joint_limit_i, with buffer)
-        # And remainder_lengths (length of prismatic_joint_i)
-        prismatic_dof_pos = self.dof_pos[:, self.prismatic_dof_indices]
-        num_prismatic_joints = len(self.prismatic_dof_lowers)
-        prismatic_indexes = torch.ones(self.num_envs, dtype=torch.int32, device=self.device) * -1
-        for i in range(num_prismatic_joints):
-            JOINT_BUFFER = 0.9
-            prismatic_indexes[(prismatic_dof_pos[:, i] < JOINT_BUFFER * self.prismatic_dof_uppers[i])
-                              & (prismatic_indexes == -1)] = i
-        # If goes to end, then bring it back to before end
-        prismatic_indexes[prismatic_indexes == -1] = num_prismatic_joints - 1
-
-        # TODO: Handle edge cases
-        #   * full extension, then try to grow (do nothing) [SHOULD BE HANDLED]
-        #   * full extension, then try to shrink (shrink) [NOT HANDLED]
-        #   * full retraction, then try to grow (grow)  [SHOULD BE HANDLED]
-        #   * full retraction, then try to shrink (do nothing)  [SHOULD BE HANDLED]
-        #   * try retracting on empty link (need to switch to previous)  [NOT HANDLED]
-        #   * try growing on full link (need to switch to next)  [SHOULD BE HANDLED]
-
         if DOF_MODE == "FORCE":
-            # TODO: IF PREVIOUS LENGTH ALREADY FULL, DO I STILL NEED TO APPLY FORCE? Assume yes
-            REVOLUTE_FORCE_SCALING = 1.0
-            PRISMATIC_FORCE_SCALING = 1.0
+            FORCE_SCALING = 10.0
             dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
 
             # Revolute
-            dof_efforts[:, self.revolute_dof_indices] = revolute_raw_actions * REVOLUTE_FORCE_SCALING
-            for i in range(num_prismatic_joints):
-                dof_efforts[:, self.revolute_dof_indices[i]] = torch.where(
-                    i <= prismatic_indexes, dof_efforts[:, self.revolute_dof_indices[i]], 0)  # TODO: Make it go back to middle
-
-            # Prismatic
-            for i in range(num_prismatic_joints):
-                dof_efforts[:, self.prismatic_dof_indices[i]] = prismatic_raw_actions * REVOLUTE_FORCE_SCALING
-
-                dof_efforts[:, self.prismatic_dof_indices[i]] = torch.where(i < prismatic_indexes, PRISMATIC_FORCE_SCALING,
-                                                                            torch.where(i > prismatic_indexes, -PRISMATIC_FORCE_SCALING,
-                                                                                        PRISMATIC_FORCE_SCALING * prismatic_raw_actions)
-                                                                            )
+            dof_efforts[:] = self.raw_actions * FORCE_SCALING
             self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
         elif DOF_MODE == "POSITION":
-            # Populate revolute targets: Angle is 0 if beyond prismatic joint
-            revolute_actions = (revolute_raw_actions + 1.) / 2. * (self.revolute_dof_uppers -
-                                                                   self.revolute_dof_lowers) + self.revolute_dof_lowers
-            for i in range(num_prismatic_joints):
-                revolute_actions[:, i] = torch.where(i <= prismatic_indexes, revolute_actions[:, i], 0)
-
-            # Populate prismatic targets
-            # Compute difference between desired_lengths and current_lengths to see if we want to grow or shrink
-            current_lengths = torch.sum(prismatic_dof_pos, dim=1).to(self.device)
-            desired_lengths = (prismatic_raw_actions + 1.) / 2. * torch.sum(self.prismatic_dof_uppers)
-            difference_lengths = desired_lengths - current_lengths  # +ve if grow, -ve if shrink
-
-            # Compute remainder_lengths, which is length at the prismatic_index
-            remainder_lengths = torch.zeros(self.num_envs, device=self.device)
-            for i in range(num_prismatic_joints):
-                remainder_lengths[prismatic_indexes == i] = prismatic_dof_pos[prismatic_indexes == i, i]
-
-            # Check if we are at a boundary at which we should go to next or prev joint index
-            # New index allowed to be out of bounds, because we only compare indexes to these values (not use them directly)
-            go_to_next_joint = (difference_lengths > 0) & (remainder_lengths > JOINT_BUFFER *
-                                                           self.prismatic_dof_uppers[prismatic_indexes.long()])
-            go_to_prev_joint = (difference_lengths < 0) & (remainder_lengths < (
-                1 - JOINT_BUFFER) * self.prismatic_dof_uppers[prismatic_indexes.long()] + self.prismatic_dof_lowers[prismatic_indexes.long()])
-            modified_prismatic_indexes = torch.where(go_to_next_joint, prismatic_indexes + 1,
-                                                     torch.where(go_to_prev_joint, prismatic_indexes - 1,
-                                                                 prismatic_indexes))
-
-            # If below prismatic_index, go to max length
-            # If above prismatic_index, go to min length
-            # If at prismatic_index, go to desired length (clamped to valid range)
-            prismatic_actions = torch.zeros(self.num_envs, num_prismatic_joints, device=self.device)
-            for i in range(num_prismatic_joints):
-                prismatic_actions[:, i] = torch.where(i < modified_prismatic_indexes, self.prismatic_dof_uppers[i],
-                                                      torch.where(i > modified_prismatic_indexes, self.prismatic_dof_lowers[i],
-                                                                  torch.clamp(prismatic_dof_pos[:, i] + difference_lengths,
-                                                                              min=self.prismatic_dof_lowers[i],
-                                                                              max=self.prismatic_dof_uppers[i])))
-
-            # Fill in position targets
+            POSITION_SCALING = 10.0
             position_targets = torch.zeros(self.num_envs, self.num_dof, device=self.device)
-            position_targets[:, self.revolute_dof_indices] = revolute_actions
-            position_targets[:, self.prismatic_dof_indices] = prismatic_actions
+            position_targets[:] = self.raw_actions * POSITION_SCALING
 
             if self.PRINT_DEBUG:
                 print(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
                 print(f"self.raw_actions = {self.raw_actions[self.PRINT_DEBUG_IDX]}")
-                print(f"prismatic_dof_pos = {prismatic_dof_pos[self.PRINT_DEBUG_IDX]}")
-                print(f"prismatic_indexes = {prismatic_indexes[self.PRINT_DEBUG_IDX]}")
-                print(f"current_lengths = {current_lengths[self.PRINT_DEBUG_IDX]}")
-                print(f"desired_lengths = {desired_lengths[self.PRINT_DEBUG_IDX]}")
-                print(f"difference_lengths = {difference_lengths[self.PRINT_DEBUG_IDX]}")
-                print(f"modified_prismatic_indexes = {modified_prismatic_indexes[self.PRINT_DEBUG_IDX]}")
-                print(f"revolute_actions = {revolute_actions[self.PRINT_DEBUG_IDX]}")
-                print(f"prismatic_actions = {prismatic_actions[self.PRINT_DEBUG_IDX]}")
+                print(f"position_targets = {position_targets[self.PRINT_DEBUG_IDX]}")
                 print()
 
             # Apply targets
@@ -703,16 +438,6 @@ class Vine5LinkMovingBase(VecTask):
                 sphere_pose = gymapi.Transform(gymapi.Vec3(
                     target_position[0], target_position[1], target_position[2]), r=None)
                 gymutil.draw_lines(visualization_sphere_green, self.gym, self.viewer, self.envs[i], sphere_pose)
-
-                # Draw line between vine robot links
-                if self.VISUALIZE_LINES:
-                    _, n_links, _ = self.link_positions.shape  # (n_envs, n_links, NUM_XYZ)
-                    for j in range(1, n_links):
-                        pos1, pos2 = self.link_positions[i, j - 1], self.link_positions[i, j]
-                        pos1_vec3 = gymapi.Vec3(pos1[0], pos1[1], pos1[2])
-                        pos2_vec3 = gymapi.Vec3(pos2[0], pos2[1], pos2[2])
-                        red_color = gymapi.Vec3(1, 0, 0)
-                        gymutil.draw_line(pos1_vec3, pos2_vec3, red_color, self.gym, self.viewer, self.envs[i])
 
 #####################################################################
 ###=========================jit functions=========================###
