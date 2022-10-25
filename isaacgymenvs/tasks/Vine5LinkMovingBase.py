@@ -48,8 +48,8 @@ TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = 0.0, 3.0
 DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
 N_REVOLUTE_DOFS = 6
 N_PRISMATIC_DOFS = 1
-RANDOMIZE_DOF_INIT = False
-RANDOMIZE_TARGETS = False
+RANDOMIZE_DOF_INIT = True
+RANDOMIZE_TARGETS = True
 
 # TODO: Investigate if self collision checks work (probably not)
 
@@ -256,7 +256,10 @@ class Vine5LinkMovingBase(VecTask):
             env_ptr = self.gym.create_env(
                 self.sim, lower, upper, num_per_row
             )
-            collision_group, collision_filter, segmentation_id = i, 1, 0
+
+            # Different collision_groups so that different envs don't interact
+            # collision_filter = 0 for enabled self-collision, collision_filter > 0 disable self-collisions
+            collision_group, collision_filter, segmentation_id = i, 0, 0
 
             # Create vine robots
             vine_handle = self.gym.create_actor(
@@ -269,17 +272,16 @@ class Vine5LinkMovingBase(VecTask):
                 dof_type = self.gym.get_asset_dof_type(self.vine_asset, j)
 
                 # Dof type specific params
-                # HACK: Decrease dof props by order of magnitude as we move along because masses decrease at that rate
                 if dof_type == gymapi.DofType.DOF_ROTATION:
                     if j == 0:  # First revolute is different
-                        dof_props['stiffness'][j] = 10.0 / (10**(j//2))  # TODO: Tune
-                        dof_props['damping'][j] = 1.0 / (10**(j//2))  # TODO: Tune
+                        dof_props['stiffness'][j] = 10.0  # TODO: Tune
+                        dof_props['damping'][j] = 1.0  # TODO: Tune
                     else:
-                        dof_props['stiffness'][j] = 10.0 / (10**(j//2))  # TODO: Tune
-                        dof_props['damping'][j] = 1.0 / (10**(j//2))  # TODO: Tune
+                        dof_props['stiffness'][j] = 10.0  # TODO: Tune
+                        dof_props['damping'][j] = 1.0  # TODO: Tune
                 elif dof_type == gymapi.DofType.DOF_TRANSLATION:
-                    dof_props['stiffness'][j] = 100.0 / (10**(j//2))  # TODO: Tune
-                    dof_props['damping'][j] = 1.0 / (10**(j//2))  # TODO: Tune
+                    dof_props['stiffness'][j] = 100.0  # TODO: Tune
+                    dof_props['damping'][j] = 1.0   # TODO: Tune
                 else:
                     raise ValueError(f"Invalid dof_type = {dof_type}")
 
@@ -301,7 +303,40 @@ class Vine5LinkMovingBase(VecTask):
 
     def _print_asset_info(self, asset):
         """
-        TODO
+        self.num_dof = 7
+        DOF 0
+        Name:     'slider_to_cart'
+        Type:     Translation
+        Properties:  (True, -4., 4., 0, 8., 10000., 0., 0., 0., 0.)
+        DOF 1
+        Name:     'cart_to_link_0'
+        Type:     Rotation
+        Properties:  (True, -0.52, 0.52, 0, 8., 10000., 0., 0., 0., 0.)
+        DOF 2
+        Name:     'link_0_to_link_1'
+        Type:     Rotation
+        Properties:  (True, -0.52, 0.52, 0, 8., 10000., 0., 0., 0., 0.)
+        DOF 3
+        Name:     'link_1_to_link_2'
+        Type:     Rotation
+        Properties:  (True, -0.52, 0.52, 0, 8., 10000., 0., 0., 0., 0.)
+        DOF 4
+        Name:     'link_2_to_link_3'
+        Type:     Rotation
+        Properties:  (True, -0.52, 0.52, 0, 8., 10000., 0., 0., 0., 0.)
+        DOF 5
+        Name:     'link_3_to_link_4'
+        Type:     Rotation
+        Properties:  (True, -0.52, 0.52, 0, 8., 10000., 0., 0., 0., 0.)
+        DOF 6
+        Name:     'link_4_to_link_5'
+        Type:     Rotation
+        Properties:  (True, -0.52, 0.52, 0, 8., 10000., 0., 0., 0., 0.)
+        self.num_rigid_bodies = 8
+        rigid_body_dict = {'cart': 1, 'link_0': 2, 'link_1': 3, 'link_2': 4, 'link_3': 5, 'link_4': 6, 'link_5': 7, 'slider': 0}
+        joint_dict = {'cart_to_link_0': 1, 'link_0_to_link_1': 2, 'link_1_to_link_2': 3, 'link_2_to_link_3': 4, 'link_3_to_link_4': 5, 'link_4_to_link_5': 6, 'slider_to_cart': 0}
+    dof_dict = {'cart_to_link_0': 1, 'link_0_to_link_1': 2, 'link_1_to_link_2': 3, 'link_2_to_link_3': 4, 'link_3_to_link_4': 5, 'link_4_to_link_5': 6, 'slider_to_cart': 0}
+    Box(-1.0, 1.0, (7,), float32) Box(-inf, inf, (13,), float32)
         """
         # Acquire variables
         dof_names = self.gym.get_asset_dof_names(asset)
@@ -352,11 +387,17 @@ class Vine5LinkMovingBase(VecTask):
 
     def reset_idx(self, env_ids):
         if RANDOMIZE_DOF_INIT:
-            print("TODO")
-        else:
             num_revolute_joints = len(self.revolute_dof_lowers)
             for i in range(num_revolute_joints):
-                self.dof_pos[env_ids, self.revolute_dof_indices[i]] = 0
+                self.dof_pos[env_ids, self.revolute_dof_indices[i]] = torch.FloatTensor(len(env_ids)).uniform_(
+                    self.revolute_dof_lowers[i], self.revolute_dof_uppers[i]).to(self.device)
+
+            num_prismatic_joints = len(self.prismatic_dof_lowers)
+            for i in range(num_prismatic_joints):
+                self.dof_pos[env_ids, self.prismatic_dof_indices[i]] = torch.FloatTensor(len(env_ids)).uniform_(
+                    self.prismatic_dof_lowers[i], self.prismatic_dof_uppers[i]).to(self.device)
+        else:
+            self.dof_pos[env_ids, :] = 0
 
         # Set dof velocities to 0
         self.dof_pos[env_ids, :] = 0.0
@@ -379,7 +420,12 @@ class Vine5LinkMovingBase(VecTask):
     def sample_target_positions(self, num_envs):
         target_positions = torch.zeros(num_envs, NUM_XYZ, device=self.device)
         if RANDOMIZE_TARGETS:
-            print("TODO")
+            target_positions[:, 0] = torch.FloatTensor(num_envs).uniform_(
+                TARGET_POS_MIN_X, TARGET_POS_MAX_X).to(self.device)
+            target_positions[:, 1] = torch.FloatTensor(num_envs).uniform_(
+                TARGET_POS_MIN_Y, TARGET_POS_MAX_Y).to(self.device)
+            target_positions[:, 2] = torch.FloatTensor(num_envs).uniform_(
+                TARGET_POS_MIN_Z, TARGET_POS_MAX_Z).to(self.device)
         else:
             target_positions[:, 1] = TARGET_POS_MAX_Y
             target_positions[:, 2] = TARGET_POS_MIN_Z
@@ -390,14 +436,18 @@ class Vine5LinkMovingBase(VecTask):
         self.raw_actions = actions.clone().to(self.device)
 
         if DOF_MODE == "FORCE":
-            FORCE_SCALING = 10.0
+            REVOLUTE_FORCE_SCALING = 1.0
+            PRISMATIC_FORCE_SCALING = 1000.0
             dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
 
             # Revolute
-            dof_efforts[:] = self.raw_actions * FORCE_SCALING
+            for i in self.revolute_dof_indices:
+                dof_efforts[:, i] = self.raw_actions[:, i] * REVOLUTE_FORCE_SCALING
+            for i in self.prismatic_dof_indices:
+                dof_efforts[:, i] = self.raw_actions[:, i] * PRISMATIC_FORCE_SCALING
             self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
         elif DOF_MODE == "POSITION":
-            POSITION_SCALING = 10.0
+            POSITION_SCALING = 1.0
             position_targets = torch.zeros(self.num_envs, self.num_dof, device=self.device)
             position_targets[:] = self.raw_actions * POSITION_SCALING
 
