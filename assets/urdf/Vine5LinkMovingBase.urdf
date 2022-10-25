@@ -1,0 +1,34 @@
+<?xml version="1.0" ?>
+<robot name="vine_robot">
+    <!-- MATERIALS -->
+    <material name="white">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+    </material>
+    <material name="black">
+        <color rgba="0.0 0.0 0.0 1.0"/>
+    </material>
+    <material name="red">
+        <color rgba="1.0 0.0 0.0 1.0"/>
+    </material>
+    <material name="green">
+        <color rgba="0.0 1.0 0.0 0.0"/>
+    </material>
+    <material name="blue">
+        <color rgba="0.0 0.0 1.0 0.0"/>
+    </material>
+    <material name="magenta">
+        <color rgba="1.0 0.0 1.0 0.0"/>
+    </material>
+    <material name="teal">
+        <color rgba="0.0 1.0 1.0 0.0"/>
+    </material>
+    <material name="yellow">
+        <color rgba="1.0 1.0 0.0 0.0"/>
+    </material>
+
+    <!-- LINKS -->
+    <!-- TODO -->
+
+    <!--JOINTS -->
+    <!-- TODO -->
+</robot>

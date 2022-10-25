@@ -47,6 +47,7 @@ from .shadow_hand import ShadowHand
 from .allegro_hand import AllegroHand
 from .trifinger import Trifinger
 from .vine import Vine
+from .Vine5LinkMovingBase import Vine5LinkMovingBase
 
 # Mappings from strings to environments
 isaacgym_task_map = {
@@ -56,6 +57,7 @@ isaacgym_task_map = {
     "AnymalTerrain": AnymalTerrain,
     "BallBalance": BallBalance,
     "Vine": Vine,
+    "Vine5LinkMovingBase": Vine5LinkMovingBase,
     "FactoryTaskGears": FactoryTaskGears,
     "FactoryTaskInsertion": FactoryTaskInsertion,
     "FactoryTaskNutBoltPick": FactoryTaskNutBoltPick,
