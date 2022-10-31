@@ -33,11 +33,13 @@
     <!-- 1 slider link, 1 cart link, and 5 cylindrical links -->
 
     <!-- SLIDER -->
-    <!-- Long box arbitrary dimensions -->
+    <!-- length=0.8m (technically 1m, but round down to be safe) -->
+    <!-- arbitrary other dims = 0.03 -->
+    <!-- assume no mass, will be fixed base -->
     <link name="slider">
         <visual>
             <geometry>
-                <box size="0.03 8 0.03" />
+                <box size="0.03 0.8 0.03" />
             </geometry>
             <material name="iron" />
         </visual>
@@ -49,27 +51,27 @@
     </link>
 
     <!-- CART -->
-    <!-- Thick box arbitrary dimensions -->
+    <!-- dimensions = 7cm x 10cm x 2cm (length parallel to rail is 10cm) -->
+    <!-- mass ~= 0.4kg -->
     <link name="cart">
         <visual>
             <geometry>
-                <box size="0.2 0.25 0.2" />
+                <box size="0.07 0.1 0.02" />
             </geometry>
             <material name="black" />
         </visual>
         <collision>
             <geometry>
-                <box size="0.2 0.25 0.2" />
+                <box size="0.07 0.1 0.02" />
             </geometry>
         </collision>
         <inertia>
-            <mass value="0.1" />
+            <mass value="0.4" />
         </inertia>
     </link>
 
     <!-- CYLINDERS -->
-    <!-- TODO: Define radius -->
-    <!-- Each link has radius = ?0.05? length = 0.0885 -->
+    <!-- Each link has radius = 0.0381 m  length = 0.0885 m -->
     <!-- First 4 are "shells" with mass 0.005 -->
     <!--                      with inertia ixx = 6.89246e-6, iyy = 6.89246e-6, izz = 7.25805e-6 (others 0)-->
     <!-- Last 1 is full cylinder with mass 0.1 -->
@@ -82,14 +84,14 @@
         <visual>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.05" length="0.0885" />
+                <cylinder radius="0.0381" length="0.0885" />
             </geometry>
             <material name="blue" />
         </visual>
         <collision>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.05" length="0.0885" />
+                <cylinder radius="0.0381" length="0.0885" />
             </geometry>
         </collision>
     </link>
@@ -101,14 +103,14 @@
         <visual>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.05" length="0.0885" />
+                <cylinder radius="0.0381" length="0.0885" />
             </geometry>
             <material name="blue" />
         </visual>
         <collision>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.05" length="0.0885" />
+                <cylinder radius="0.0381" length="0.0885" />
             </geometry>
         </collision>
     </link>
@@ -120,14 +122,14 @@
         <visual>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.05" length="0.0885" />
+                <cylinder radius="0.0381" length="0.0885" />
             </geometry>
             <material name="blue" />
         </visual>
         <collision>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.05" length="0.0885" />
+                <cylinder radius="0.0381" length="0.0885" />
             </geometry>
         </collision>
     </link>
@@ -139,37 +141,18 @@
         <visual>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.05" length="0.0885" />
+                <cylinder radius="0.0381" length="0.0885" />
             </geometry>
             <material name="blue" />
         </visual>
         <collision>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.05" length="0.0885" />
+                <cylinder radius="0.0381" length="0.0885" />
             </geometry>
         </collision>
     </link>
     <link name="link_4">
-        <inertial>
-            <mass value="0.005" />
-            <inertia ixx="0.00000689246" ixy="0.0" ixz="0.0" iyy="0.00000689246" iyz="0.0" izz="0.00000725805" />
-        </inertial>
-        <visual>
-            <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
-            <geometry>
-                <cylinder radius="0.05" length="0.0885" />
-            </geometry>
-            <material name="blue" />
-        </visual>
-        <collision>
-            <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
-            <geometry>
-                <cylinder radius="0.05" length="0.0885" />
-            </geometry>
-        </collision>
-    </link>
-    <link name="link_5">
         <inertial>
             <mass value="0.1" />
             <inertia ixx="0.000101559" ixy="0.0" ixz="0.0" iyy="0.000101559" iyz="0.0" izz="0.0000725805" />
@@ -177,67 +160,73 @@
         <visual>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.05" length="0.0885" />
+                <cylinder radius="0.0381" length="0.0885" />
             </geometry>
             <material name="blue" />
         </visual>
         <collision>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.05" length="0.0885" />
+                <cylinder radius="0.0381" length="0.0885" />
             </geometry>
         </collision>
     </link>
 
     <!-- JOINTS -->
-    <!-- TODO: Set better joint limits -->
+    <!-- 1 slider joint, 5 revolute joints -->
+
+    <!-- PRSIMATIC -->
+    <!-- conservative values: effort=1N, velocity=0.5m/s  -->
+    <!-- length=0.8m (technically 1m, but round down to be safe), so limits are halfway in each dir -->
     <joint name="slider_to_cart" type="prismatic">
         <axis xyz="0.0 1.0 0.0" />
-        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+
+        <!-- Change z to set relative position of cart wrt slider-->
+        <origin xyz="0.0 0.0 -0.025" rpy="0.0 0.0 0.0" />
+
         <parent link="slider" />
         <child link="cart" />
-        <limit lower="-4.0" upper="4.0" effort="10000" velocity="8" />
+        <limit lower="-0.4" upper="0.4" effort="1" velocity="0.5" />
     </joint>
+
+    <!-- REVOLUTE -->
+    <!-- TODO: Do not need to enforce limits because the model SHOULD handle it, but for now still add 30deg limit-->
     <joint name="cart_to_link_0" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
-        <origin xyz="0.0 0.0 -0.1" rpy="3.1415 0.0 0.0" />
+
+        <!-- Change z to set relative position of link wrt cart -->
+        <origin xyz="0.0 0.0 -0.01" rpy="3.1415 0.0 0.0" />
+
         <parent link="cart" />
         <child link="link_0" />
-        <limit lower="-0.52" upper="0.52" effort="10000" velocity="8" />
+        <limit lower="-0.523599" upper="0.523599" />
     </joint>
     <joint name="link_0_to_link_1" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
         <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_0" />
         <child link="link_1" />
-        <limit lower="-0.52" upper="0.52" effort="10000" velocity="8" />
+        <limit lower="-0.523599" upper="0.523599" />
     </joint>
     <joint name="link_1_to_link_2" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
         <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_1" />
         <child link="link_2" />
-        <limit lower="-0.52" upper="0.52" effort="10000" velocity="8" />
+        <limit lower="-0.523599" upper="0.523599" />
     </joint>
     <joint name="link_2_to_link_3" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
         <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_2" />
         <child link="link_3" />
-        <limit lower="-0.52" upper="0.52" effort="10000" velocity="8" />
+        <limit lower="-0.523599" upper="0.523599" />
     </joint>
     <joint name="link_3_to_link_4" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
         <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_3" />
         <child link="link_4" />
-        <limit lower="-0.52" upper="0.52" effort="10000" velocity="8" />
-    </joint>
-    <joint name="link_4_to_link_5" type="revolute">
-        <axis xyz="1.0 0.0 0.0" />
-        <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
-        <parent link="link_4" />
-        <child link="link_5" />
-        <limit lower="-0.52" upper="0.52" effort="10000" velocity="8" />
+        <limit lower="-0.523599" upper="0.523599" />
     </joint>
 </robot>

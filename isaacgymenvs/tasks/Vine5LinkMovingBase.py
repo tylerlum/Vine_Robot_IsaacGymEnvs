@@ -44,14 +44,12 @@ INIT_X, INIT_Y, INIT_Z = NORMAL_INIT_XYZ
 INIT_QUAT = NORMAL_QUAT
 TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0
 TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -2.0, 2.0
-TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = 0.0, 3.0
+TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = 0.0, INIT_Z
 DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
-N_REVOLUTE_DOFS = 6
+N_REVOLUTE_DOFS = 5
 N_PRISMATIC_DOFS = 1
 RANDOMIZE_DOF_INIT = True
 RANDOMIZE_TARGETS = True
-
-# TODO: Investigate if self collision checks work (probably not)
 
 
 def print_if(text="", should_print=False):
@@ -62,16 +60,16 @@ def print_if(text="", should_print=False):
 class Vine5LinkMovingBase(VecTask):
     """
     State:
-      * 7 Joint positions (6 revolute, 1 prismatic)
+      * 6 Joint positions (5 revolute, 1 prismatic)
     Goal:
       * 1 Target Pos
     Observation:
-      * 7 joint positions
+      * 6 joint positions
       * 3 tip position
       * 3 target position
     Action:
-      * 7 for joint forces/torques OR
-      * 1 for u pressure and 1 for prismatic joint
+      * 1 for u pressure
+      * 1 for prismatic joint
     Reward:
       * -Dist to target
     Environment:
@@ -140,7 +138,7 @@ class Vine5LinkMovingBase(VecTask):
         self.PRINT_DEBUG = False
         self.PRINT_DEBUG_IDX = 0
 
-        assert(sorted(list(self.event_action_to_key.keys())) == sorted(list(self.event_action_to_function.keys())))
+        assert (sorted(list(self.event_action_to_key.keys())) == sorted(list(self.event_action_to_function.keys())))
 
     def _reset_callback(self):
         print("RESETTING")
@@ -217,9 +215,9 @@ class Vine5LinkMovingBase(VecTask):
                      for i in range(self.gym.get_asset_dof_count(self.vine_asset))]
         num_revolute_dofs = len([dof_type for dof_type in dof_types if dof_type == gymapi.DofType.DOF_ROTATION])
         num_prismatic_dofs = len([dof_type for dof_type in dof_types if dof_type == gymapi.DofType.DOF_TRANSLATION])
-        assert(num_revolute_dofs + num_prismatic_dofs == self.num_dof)
-        assert(num_revolute_dofs == N_REVOLUTE_DOFS)
-        assert(num_prismatic_dofs == N_PRISMATIC_DOFS)
+        assert (num_revolute_dofs + num_prismatic_dofs == self.num_dof)
+        assert (num_revolute_dofs == N_REVOLUTE_DOFS)
+        assert (num_prismatic_dofs == N_PRISMATIC_DOFS)
 
         # Split into revolute and prismatic
         dof_names = [self.gym.get_asset_dof_name(self.vine_asset, i)
@@ -243,7 +241,7 @@ class Vine5LinkMovingBase(VecTask):
 
         # Set initial actor poses
         vine_init_pose = gymapi.Transform()
-        assert(self.up_axis == 'z')
+        assert (self.up_axis == 'z')
         vine_init_pose.p.x = INIT_X
         vine_init_pose.p.y = INIT_Y
         vine_init_pose.p.z = INIT_Z
@@ -459,10 +457,14 @@ class Vine5LinkMovingBase(VecTask):
                 # A = [diag(q) diag(qd) eye(5) u*eye(5)];
                 # x = [K; C; b; B]
                 # tau = -A*x;
-                K = torch.diag(torch.tensor([1.0822678619473745, 1.3960597815085283, 0.7728716674414156, 0.566602254820747, 0.20000000042282678]))
-                C = torch.diag(torch.tensor([0.010098832804688505, 0.008001446516454621, 0.01352315902253585, 0.021895211325047674, 0.017533205699630634]))
-                b = torch.tensor([-0.002961879962361915, -0.019149230853283454, -0.01339719175569314, -0.011436913019114144, -0.0031035566743229624])
-                B = torch.tensor([-0.02525783894248118 -0.06298872026151316 -0.049676622868418834 -0.029474741498381096 -0.015412936470522515])
+                K = torch.diag(torch.tensor([1.0822678619473745, 1.3960597815085283,
+                               0.7728716674414156, 0.566602254820747, 0.20000000042282678]))
+                C = torch.diag(torch.tensor([0.010098832804688505, 0.008001446516454621,
+                               0.01352315902253585, 0.021895211325047674, 0.017533205699630634]))
+                b = torch.tensor([-0.002961879962361915, -0.019149230853283454, -
+                                 0.01339719175569314, -0.011436913019114144, -0.0031035566743229624])
+                B = torch.tensor([-0.02525783894248118 - 0.06298872026151316 -
+                                 0.049676622868418834 - 0.029474741498381096 - 0.015412936470522515])
                 torques = torch.zeros(self.num_envs, 5)
                 for i in range(self.num_envs):
                     A = [torch.diag(q[i]), torch.diag(qd[i]), torch.eye(5), u[i] * torch.eye(5)]
@@ -506,7 +508,7 @@ class Vine5LinkMovingBase(VecTask):
                 gymutil.draw_lines(visualization_sphere_green, self.gym, self.viewer, self.envs[i], sphere_pose)
 
 #####################################################################
-###=========================jit functions=========================###
+### =========================jit functions=========================###
 #####################################################################
 
 
