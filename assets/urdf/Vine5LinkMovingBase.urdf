@@ -177,24 +177,24 @@
 
     <!-- PRSIMATIC -->
     <!-- conservative values: effort=1N, velocity=0.5m/s  -->
-    <!-- length=0.8m (technically 1m, but round down to be safe), so limits are halfway in each dir -->
+    <!-- length=0.8m (technically 1m, but round down to be safe), so limits are halfway in each dir, minus cart size -->
     <joint name="slider_to_cart" type="prismatic">
         <axis xyz="0.0 1.0 0.0" />
 
-        <!-- Change z to set relative position of cart wrt slider-->
+        <!-- Change z to set relative position of cart wrt slider (half rail and half cart height) -->
         <origin xyz="0.0 0.0 -0.025" rpy="0.0 0.0 0.0" />
 
         <parent link="slider" />
         <child link="cart" />
-        <limit lower="-0.4" upper="0.4" effort="1" velocity="0.5" />
+        <limit lower="-0.35" upper="0.35" effort="1" velocity="0.5" />
     </joint>
 
     <!-- REVOLUTE -->
-    <!-- TODO: Do not need to enforce limits because the model SHOULD handle it, but for now still add 30deg limit-->
+    <!-- Do not need to enforce limits because the model SHOULD handle it, but for now still add 30deg limit -->
     <joint name="cart_to_link_0" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
 
-        <!-- Change z to set relative position of link wrt cart -->
+        <!-- Change z to set relative position of link wrt cart (half cart height) -->
         <origin xyz="0.0 0.0 -0.01" rpy="3.1415 0.0 0.0" />
 
         <parent link="cart" />
