@@ -38,18 +38,21 @@ NUM_STATES = 13  # xyz, quat, v_xyz, w_xyz
 NUM_XYZ = 3
 NORMAL_INIT_XYZ = (0.0, 0.0, 1.5)
 NORMAL_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
+LENGTH_RAIL = 0.8
+LENGTH_PER_LINK = 0.0885
+N_REVOLUTE_DOFS = 5
+N_PRISMATIC_DOFS = 1
 
 # PARAMETERS
 INIT_X, INIT_Y, INIT_Z = NORMAL_INIT_XYZ
 INIT_QUAT = NORMAL_QUAT
-TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0
-TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -2.0, 2.0
-TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = 0.0, INIT_Z
+TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
+TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL, LENGTH_RAIL  # Set to length of rail
+TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - LENGTH_PER_LINK * N_REVOLUTE_DOFS, INIT_Z
 DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
-N_REVOLUTE_DOFS = 5
-N_PRISMATIC_DOFS = 1
 RANDOMIZE_DOF_INIT = True
 RANDOMIZE_TARGETS = True
+PD_TARGET_ALL_JOINTS = True
 
 
 def print_if(text="", should_print=False):
@@ -84,8 +87,11 @@ class Vine5LinkMovingBase(VecTask):
 
         # Must set this before continuing
         self.cfg["env"]["numObservations"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ
-        # self.cfg["env"]["numActions"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS
-        self.cfg["env"]["numActions"] = 2
+        if PD_TARGET_ALL_JOINTS:
+            self.cfg["env"]["numActions"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS
+        else:
+            self.cfg["env"]["numActions"] = 2
+
         self.subscribe_to_keyboard_events()
 
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id,
@@ -296,7 +302,7 @@ class Vine5LinkMovingBase(VecTask):
             self.envs.append(env_ptr)
             self.vine_handles.append(vine_handle)
 
-        PRINT_ASSET_INFO = True
+        PRINT_ASSET_INFO = False
         if PRINT_ASSET_INFO:
             self._print_asset_info(self.vine_asset)
 
@@ -433,18 +439,16 @@ class Vine5LinkMovingBase(VecTask):
         self.raw_actions = actions.clone().to(self.device)
 
         if DOF_MODE == "FORCE":
-            PD_TARGET_ALL_JOINTS = False
-
             if PD_TARGET_ALL_JOINTS:
                 REVOLUTE_FORCE_SCALING = 1.0
                 PRISMATIC_FORCE_SCALING = 1000.0
                 dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
 
                 # Revolute
-                for i in self.revolute_dof_indices:
-                    dof_efforts[:, i] = self.raw_actions[:, i] * REVOLUTE_FORCE_SCALING
-                for i in self.prismatic_dof_indices:
-                    dof_efforts[:, i] = self.raw_actions[:, i] * PRISMATIC_FORCE_SCALING
+                for idx in self.revolute_dof_indices:
+                    dof_efforts[:, idx] = self.raw_actions[:, idx] * REVOLUTE_FORCE_SCALING
+                for idx in self.prismatic_dof_indices:
+                    dof_efforts[:, idx] = self.raw_actions[:, idx] * PRISMATIC_FORCE_SCALING
                 self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
             else:
                 u = self.raw_actions[:, 1:2]  # (num_envs, 1)
