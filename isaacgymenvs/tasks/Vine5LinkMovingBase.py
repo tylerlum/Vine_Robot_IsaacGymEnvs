@@ -52,7 +52,7 @@ TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - LENGTH_PER_LINK * N_REVOLUTE_DOFS,
 DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
 RANDOMIZE_DOF_INIT = True
 RANDOMIZE_TARGETS = True
-PD_TARGET_ALL_JOINTS = True
+PD_TARGET_ALL_JOINTS = False
 
 
 def print_if(text="", should_print=False):
@@ -71,8 +71,8 @@ class Vine5LinkMovingBase(VecTask):
       * 3 tip position
       * 3 target position
     Action:
+      * 1 for dp prismatic joint
       * 1 for u pressure
-      * 1 for prismatic joint
     Reward:
       * -Dist to target
     Environment:
@@ -235,6 +235,10 @@ class Vine5LinkMovingBase(VecTask):
             dof_names, dof_types) if dof_type == gymapi.DofType.DOF_TRANSLATION]
         self.revolute_dof_indices = sorted([dof_dict[name] for name in revolute_dof_names])
         self.prismatic_dof_indices = sorted([dof_dict[name] for name in prismatic_dof_names])
+
+        # Sanity check ordering of indices
+        assert (self.prismatic_dof_indices == [0])
+        assert (self.revolute_dof_indices == [i+1 for i in range(N_REVOLUTE_DOFS)])
 
         # Store limits
         self.dof_props = self.gym.get_asset_dof_properties(self.vine_asset)
@@ -451,7 +455,13 @@ class Vine5LinkMovingBase(VecTask):
                     dof_efforts[:, idx] = self.raw_actions[:, idx] * PRISMATIC_FORCE_SCALING
                 self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
             else:
+                # Break apart actions
+                dp = self.raw_actions[:, 0:1]  # (num_envs, 1)
                 u = self.raw_actions[:, 1:2]  # (num_envs, 1)
+
+                # Break apart angles
+                # x = self.dof_pos[:, 0:1]  # (num_envs, 1)
+                # xd = self.dof_vel[:, 0:1]  # (num_envs, 1)
                 q = self.dof_pos[:, 1:]  # (num_envs, 5)
                 qd = self.dof_vel[:, 1:]  # (num_envs, 5)
 
@@ -460,18 +470,48 @@ class Vine5LinkMovingBase(VecTask):
                 # x = [K; C; b; B]
                 # tau = -A*x;
                 K = torch.diag(torch.tensor([1.0822678619473745, 1.3960597815085283,
-                               0.7728716674414156, 0.566602254820747, 0.20000000042282678]))
+                               0.7728716674414156, 0.566602254820747, 0.20000000042282678], device=self.device))
                 C = torch.diag(torch.tensor([0.010098832804688505, 0.008001446516454621,
-                               0.01352315902253585, 0.021895211325047674, 0.017533205699630634]))
-                b = torch.tensor([-0.002961879962361915, -0.019149230853283454, -
-                                 0.01339719175569314, -0.011436913019114144, -0.0031035566743229624])
-                B = torch.tensor([-0.02525783894248118 - 0.06298872026151316 -
-                                 0.049676622868418834 - 0.029474741498381096 - 0.015412936470522515])
-                torques = torch.zeros(self.num_envs, 5)
+                               0.01352315902253585, 0.021895211325047674, 0.017533205699630634], device=self.device))
+                b = torch.tensor([-0.002961879962361915, -0.019149230853283454, -0.01339719175569314, -0.011436913019114144, -0.0031035566743229624], device=self.device)
+                B = torch.tensor([-0.02525783894248118, -0.06298872026151316, -0.049676622868418834, -0.029474741498381096, -0.015412936470522515], device=self.device)
+                torques0 = torch.zeros(self.num_envs, 5)
+                import time
+                s0 = time.time()
                 for i in range(self.num_envs):
-                    A = [torch.diag(q[i]), torch.diag(qd[i]), torch.eye(5), u[i] * torch.eye(5)]
-                    x = torch.concatenate([K, C, b, B], dim=-1)
-                    torques[i] = -A@x
+                    torques0[i] = -K@q[i] - C@qd[i] - b - u[i] * B
+                e0 = time.time()
+                print(f"(e0 - s0) * 1000 = {(e0 - s0) * 1000}")
+
+                torques1 = torch.zeros(self.num_envs, 5)
+                s1 = time.time()
+                for i in range(self.num_envs):
+                    x = torch.cat([q[i], qd[i], torch.ones(5, device=self.device), u[i] * torch.ones(5, device=self.device)], dim=0)
+                    A = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)
+                    torques1[i] = -A@x
+                e1 = time.time()
+                print(f"(e1 - s1) * 1000 = {(e1 - s1) * 1000}")
+                print(f"torch.sum(torques0 - torques1) = {torch.sum(torques0 - torques1)}")
+
+                s2 = time.time()
+                A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)
+                A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)
+                print(f"A.shape = {A.shape}")
+                print(f"A.device = {A.device}")
+                # x.shape = (num_envs, 5)
+                print(q.shape)
+                print(qd.shape)
+                print(torch.ones(self.num_envs, 5, device=self.device).shape)
+                print((u * torch.ones(self.num_envs, 5, device=self.device)).shape)
+                x = torch.cat([q, qd, torch.ones(self.num_envs, 5, device=self.device), u * torch.ones(self.num_envs, 5, device=self.device)], dim=1)[..., None]
+                print(f"x.shape = {x.shape}")
+                print(f"x.device = {x.device}")
+                torques2 = -torch.matmul(A, x).squeeze().cpu()
+                e2 = time.time()
+                print(f"(e2 - s2) * 1000 = {(e2 - s2) * 1000}")
+                print(f"torch.sum(torques0 - torques2) = {torch.sum(torques0 - torques2)}")
+
+                assert(False)
 
                 for i, idx in enumerate(self.revolute_dof_indices):
                     dof_efforts[:, idx] = torques[:, i]
