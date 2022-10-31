@@ -302,40 +302,38 @@ class Vine5LinkMovingBase(VecTask):
 
     def _print_asset_info(self, asset):
         """
-        self.num_dof = 7
+        self.num_dof = 6
         DOF 0
-        Name:     'slider_to_cart'
-        Type:     Translation
-        Properties:  (True, -4., 4., 0, 8., 10000., 0., 0., 0., 0.)
+          Name:     'slider_to_cart'
+          Type:     Translation
+          Properties:  (True, -0.35, 0.35, 0, 0.5, 1., 0., 0., 0., 0.)
         DOF 1
-        Name:     'cart_to_link_0'
-        Type:     Rotation
-        Properties:  (True, -0.52, 0.52, 0, 8., 10000., 0., 0., 0., 0.)
+          Name:     'cart_to_link_0'
+          Type:     Rotation
+          Properties:  (True, -0.52, 0.52, 0, 3.4e+38, 3.4e+38, 0., 0., 0., 0.)
         DOF 2
-        Name:     'link_0_to_link_1'
-        Type:     Rotation
-        Properties:  (True, -0.52, 0.52, 0, 8., 10000., 0., 0., 0., 0.)
+          Name:     'link_0_to_link_1'
+          Type:     Rotation
+          Properties:  (True, -0.52, 0.52, 0, 3.4e+38, 3.4e+38, 0., 0., 0., 0.)
         DOF 3
-        Name:     'link_1_to_link_2'
-        Type:     Rotation
-        Properties:  (True, -0.52, 0.52, 0, 8., 10000., 0., 0., 0., 0.)
+          Name:     'link_1_to_link_2'
+          Type:     Rotation
+          Properties:  (True, -0.52, 0.52, 0, 3.4e+38, 3.4e+38, 0., 0., 0., 0.)
         DOF 4
-        Name:     'link_2_to_link_3'
-        Type:     Rotation
-        Properties:  (True, -0.52, 0.52, 0, 8., 10000., 0., 0., 0., 0.)
+          Name:     'link_2_to_link_3'
+          Type:     Rotation
+          Properties:  (True, -0.52, 0.52, 0, 3.4e+38, 3.4e+38, 0., 0., 0., 0.)
         DOF 5
-        Name:     'link_3_to_link_4'
-        Type:     Rotation
-        Properties:  (True, -0.52, 0.52, 0, 8., 10000., 0., 0., 0., 0.)
-        DOF 6
-        Name:     'link_4_to_link_5'
-        Type:     Rotation
-        Properties:  (True, -0.52, 0.52, 0, 8., 10000., 0., 0., 0., 0.)
-        self.num_rigid_bodies = 8
-        rigid_body_dict = {'cart': 1, 'link_0': 2, 'link_1': 3, 'link_2': 4, 'link_3': 5, 'link_4': 6, 'link_5': 7, 'slider': 0}
-        joint_dict = {'cart_to_link_0': 1, 'link_0_to_link_1': 2, 'link_1_to_link_2': 3, 'link_2_to_link_3': 4, 'link_3_to_link_4': 5, 'link_4_to_link_5': 6, 'slider_to_cart': 0}
-    dof_dict = {'cart_to_link_0': 1, 'link_0_to_link_1': 2, 'link_1_to_link_2': 3, 'link_2_to_link_3': 4, 'link_3_to_link_4': 5, 'link_4_to_link_5': 6, 'slider_to_cart': 0}
-    Box(-1.0, 1.0, (7,), float32) Box(-inf, inf, (13,), float32)
+          Name:     'link_3_to_link_4'
+          Type:     Rotation
+          Properties:  (True, -0.52, 0.52, 0, 3.4e+38, 3.4e+38, 0., 0., 0., 0.)
+
+        self.num_rigid_bodies = 7
+        rigid_body_dict = {'cart': 1, 'link_0': 2, 'link_1': 3, 'link_2': 4, 'link_3': 5, 'link_4': 6, 'slider': 0}
+        joint_dict = {'cart_to_link_0': 1, 'link_0_to_link_1': 2, 'link_1_to_link_2': 3, 'link_2_to_link_3': 4, 'link_3_to_link_4': 5, 'slider_to_cart': 0}
+        dof_dict = {'cart_to_link_0': 1, 'link_0_to_link_1': 2, 'link_1_to_link_2': 3, 'link_2_to_link_3': 4, 'link_3_to_link_4': 5, 'slider_to_cart': 0}
+
+        Box(-1.0, 1.0, (2,), float32) Box(-inf, inf, (12,), float32)
         """
         # Acquire variables
         dof_names = self.gym.get_asset_dof_names(asset)
