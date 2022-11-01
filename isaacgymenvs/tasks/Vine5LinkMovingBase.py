@@ -152,10 +152,10 @@ class Vine5LinkMovingBase(VecTask):
         # Create state variables
         self.PRINT_DEBUG = False
         self.PRINT_DEBUG_IDX = 0
-        self.MOVE_LEFT = False
-        self.MOVE_RIGHT = False
-        self.MAX_PRESSURE = False
-        self.MIN_PRESSURE = False
+        self.MOVE_LEFT_COUNTER = 0
+        self.MOVE_RIGHT_COUNTER = 0
+        self.MAX_PRESSURE_COUNTER = 0
+        self.MIN_PRESSURE_COUNTER = 0
 
         assert (sorted(list(self.event_action_to_key.keys())) == sorted(list(self.event_action_to_function.keys())))
 
@@ -186,20 +186,24 @@ class Vine5LinkMovingBase(VecTask):
         print(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
 
     def _move_left_callback(self):
-        self.MOVE_LEFT = True
-        print(f"self.MOVE_LEFT = {self.MOVE_LEFT}")
+        self.MOVE_LEFT_COUNTER = 100
+        self.MOVE_RIGHT_COUNTER = 0
+        print(f"self.MOVE_LEFT = {self.MOVE_LEFT_COUNTER}")
 
     def _move_right_callback(self):
-        self.MOVE_RIGHT = True
-        print(f"self.MOVE_RIGHT = {self.MOVE_RIGHT}")
+        self.MOVE_RIGHT_COUNTER = 100
+        self.MOVE_LEFT_COUNTER = 0
+        print(f"self.MOVE_RIGHT = {self.MOVE_RIGHT_COUNTER}")
 
     def _max_pressure_callback(self):
-        self.MAX_PRESSURE = True
-        print(f"self.MAX_PRESSURE = {self.MAX_PRESSURE}")
+        self.MAX_PRESSURE_COUNTER = 100
+        self.MIN_PRESSURE_COUNTER = 0
+        print(f"self.MAX_PRESSURE = {self.MAX_PRESSURE_COUNTER}")
 
     def _min_pressure_callback(self):
-        self.MIN_PRESSURE = True
-        print(f"self.MIN_PRESSURE = {self.MIN_PRESSURE}")
+        self.MIN_PRESSURE_COUNTER = 100
+        self.MAX_PRESSURE_COUNTER = 0
+        print(f"self.MIN_PRESSURE = {self.MIN_PRESSURE_COUNTER}")
 
     ##### KEYBOARD EVENT SUBSCRIPTIONS END #####
 
@@ -494,19 +498,19 @@ class Vine5LinkMovingBase(VecTask):
                 u = (self.raw_actions[:, 1:2] + 1.0) / 2.0 * (U_MAX-U_MIN) + U_MIN # (num_envs, 1) rescale
 
                 # Manual intervention
-                if self.MOVE_LEFT:
+                if self.MOVE_LEFT_COUNTER > 0:
                     dp[:] = -RAIL_FORCE_SCALE
-                    self.MOVE_LEFT = False
-                elif self.MOVE_RIGHT:
+                    self.MOVE_LEFT_COUNTER -= 1
+                if self.MOVE_RIGHT_COUNTER > 0:
                     dp[:] = RAIL_FORCE_SCALE
-                    self.MOVE_RIGHT = False
+                    self.MOVE_RIGHT_COUNTER -= 1
 
-                if self.MAX_PRESSURE:
+                if self.MAX_PRESSURE_COUNTER > 0:
                     u[:] = U_MAX
-                    self.MAX_PRESSURE = False
-                elif self.MIN_PRESSURE:
+                    self.MAX_PRESSURE_COUNTER -= 1
+                if self.MIN_PRESSURE_COUNTER > 0:
                     u[:] = U_MIN
-                    self.MIN_PRESSURE = False
+                    self.MIN_PRESSURE_COUNTER -= 1
 
                 # Break apart angles
                 # x = self.dof_pos[:, 0:1]  # (num_envs, 1)
