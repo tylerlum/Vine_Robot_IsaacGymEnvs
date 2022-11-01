@@ -99,6 +99,7 @@ class Vine5LinkMovingBase(VecTask):
 
         self.initialize_state_tensors()
         self.target_positions = self.sample_target_positions(self.num_envs)
+        self.A = None
 
     def initialize_state_tensors(self):
         # Store dof state tensor, and get pos and vel
@@ -132,6 +133,10 @@ class Vine5LinkMovingBase(VecTask):
             "PRINT_DEBUG": gymapi.KEY_D,
             "PRINT_DEBUG_IDX_UP": gymapi.KEY_K,
             "PRINT_DEBUG_IDX_DOWN": gymapi.KEY_J,
+            "MOVE_LEFT": gymapi.KEY_LEFT,
+            "MOVE_RIGHT": gymapi.KEY_RIGHT,
+            "MAX_PRESSURE": gymapi.KEY_UP,
+            "MIN_PRESSURE": gymapi.KEY_DOWN,
         }
         self.event_action_to_function = {
             "RESET": self._reset_callback,
@@ -139,10 +144,18 @@ class Vine5LinkMovingBase(VecTask):
             "PRINT_DEBUG": self._print_debug_callback,
             "PRINT_DEBUG_IDX_UP": self._print_debug_idx_up_callback,
             "PRINT_DEBUG_IDX_DOWN": self._print_debug_idx_down_callback,
+            "MOVE_LEFT": self._move_left_callback,
+            "MOVE_RIGHT": self._move_right_callback,
+            "MAX_PRESSURE": self._max_pressure_callback,
+            "MIN_PRESSURE": self._min_pressure_callback,
         }
         # Create state variables
         self.PRINT_DEBUG = False
         self.PRINT_DEBUG_IDX = 0
+        self.MOVE_LEFT = False
+        self.MOVE_RIGHT = False
+        self.MAX_PRESSURE = False
+        self.MIN_PRESSURE = False
 
         assert (sorted(list(self.event_action_to_key.keys())) == sorted(list(self.event_action_to_function.keys())))
 
@@ -171,6 +184,22 @@ class Vine5LinkMovingBase(VecTask):
         if self.PRINT_DEBUG_IDX < 0:
             self.PRINT_DEBUG_IDX = 0
         print(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
+
+    def _move_left_callback(self):
+        self.MOVE_LEFT = True
+        print(f"self.MOVE_LEFT = {self.MOVE_LEFT}")
+
+    def _move_right_callback(self):
+        self.MOVE_RIGHT = True
+        print(f"self.MOVE_RIGHT = {self.MOVE_RIGHT}")
+
+    def _max_pressure_callback(self):
+        self.MAX_PRESSURE = True
+        print(f"self.MAX_PRESSURE = {self.MAX_PRESSURE}")
+
+    def _min_pressure_callback(self):
+        self.MIN_PRESSURE = True
+        print(f"self.MIN_PRESSURE = {self.MIN_PRESSURE}")
 
     ##### KEYBOARD EVENT SUBSCRIPTIONS END #####
 
@@ -457,11 +486,27 @@ class Vine5LinkMovingBase(VecTask):
             else:
                 dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
 
-                U_MIN, U_MAX = -0.1, 3.0
-                RAIL_FORCE_SCALE = 10.0
+                U_MIN, U_MAX = -0.1, 5.0
+                RAIL_FORCE_SCALE = 1000.0
+
                 # Break apart actions
                 dp = self.raw_actions[:, 0:1] * RAIL_FORCE_SCALE # (num_envs, 1)
                 u = (self.raw_actions[:, 1:2] + 1.0) / 2.0 * (U_MAX-U_MIN) + U_MIN # (num_envs, 1) rescale
+
+                # Manual intervention
+                if self.MOVE_LEFT:
+                    dp[:] = -RAIL_FORCE_SCALE
+                    self.MOVE_LEFT = False
+                elif self.MOVE_RIGHT:
+                    dp[:] = RAIL_FORCE_SCALE
+                    self.MOVE_RIGHT = False
+
+                if self.MAX_PRESSURE:
+                    u[:] = U_MAX
+                    self.MAX_PRESSURE = False
+                elif self.MIN_PRESSURE:
+                    u[:] = U_MIN
+                    self.MIN_PRESSURE = False
 
                 # Break apart angles
                 # x = self.dof_pos[:, 0:1]  # (num_envs, 1)
@@ -469,50 +514,27 @@ class Vine5LinkMovingBase(VecTask):
                 q = self.dof_pos[:, 1:]  # (num_envs, 5)
                 qd = self.dof_vel[:, 1:]  # (num_envs, 5)
 
-                # Loop version for sanity check
-                # A = [diag(q) diag(qd) eye(5) u*eye(5)];
-                # x = [K; C; b; B]
-                # tau = -A*x;
-                K = torch.diag(torch.tensor([1.0822678619473745, 1.3960597815085283,
-                               0.7728716674414156, 0.566602254820747, 0.20000000042282678], device=self.device))
-                C = torch.diag(torch.tensor([0.010098832804688505, 0.008001446516454621,
-                               0.01352315902253585, 0.021895211325047674, 0.017533205699630634], device=self.device))
-                b = torch.tensor([-0.002961879962361915, -0.019149230853283454, -0.01339719175569314, -0.011436913019114144, -0.0031035566743229624], device=self.device)
-                B = torch.tensor([-0.02525783894248118, -0.06298872026151316, -0.049676622868418834, -0.029474741498381096, -0.015412936470522515], device=self.device)
-                # torques0 = torch.zeros(self.num_envs, 5)
-                # import time
-                # s0 = time.time()
-                # for i in range(self.num_envs):
-                #     torques0[i] = -K@q[i] - C@qd[i] - b - u[i] * B
-                # e0 = time.time()
-                # print(f"(e0 - s0) * 1000 = {(e0 - s0) * 1000}")
+                if self.A is None:
+                    # torque = - Kq - Cqd - b - Bu;
+                    #        = - [K C diag(b) diag(B)] @ [q; qd; ones(5), u*ones(5)]
+                    #        = - A @ x
+                    K = torch.diag(torch.tensor([1.0822678619473745, 1.3960597815085283,
+                                0.7728716674414156, 0.566602254820747, 0.20000000042282678], device=self.device))
+                    C = torch.diag(torch.tensor([0.010098832804688505, 0.008001446516454621,
+                                0.01352315902253585, 0.021895211325047674, 0.017533205699630634], device=self.device))
+                    b = torch.tensor([-0.002961879962361915, -0.019149230853283454, -0.01339719175569314, -0.011436913019114144, -0.0031035566743229624], device=self.device)
+                    B = torch.tensor([-0.02525783894248118, -0.06298872026151316, -0.049676622868418834, -0.029474741498381096, -0.015412936470522515], device=self.device)
+                    A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)
+                    self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)
 
-                # torques1 = torch.zeros(self.num_envs, 5)
-                # s1 = time.time()
-                # for i in range(self.num_envs):
-                #     x = torch.cat([q[i], qd[i], torch.ones(5, device=self.device), u[i] * torch.ones(5, device=self.device)], dim=0)
-                #     A = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)
-                #     torques1[i] = -A@x
-                # e1 = time.time()
-                # print(f"(e1 - s1) * 1000 = {(e1 - s1) * 1000}")
-                # print(f"torch.sum(torques0 - torques1) = {torch.sum(torques0 - torques1)}")
-
-                # s2 = time.time()
-                A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)
-                A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)
                 x = torch.cat([q, qd, torch.ones(self.num_envs, 5, device=self.device), u * torch.ones(self.num_envs, 5, device=self.device)], dim=1)[..., None]
-                torques = -torch.matmul(A, x).squeeze().cpu()
-                # e2 = time.time()
-                # print(f"(e2 - s2) * 1000 = {(e2 - s2) * 1000}")
-                # print(f"torch.sum(torques0 - torques) = {torch.sum(torques0 - torques)}")
+                torques = -torch.matmul(self.A, x).squeeze().cpu()
 
-                # assert(False)
-
-                # for i, idx in enumerate(self.revolute_dof_indices):
-                #     dof_efforts[:, idx] = torques[:, i]
+                # Set efforts
                 dof_efforts[:, 1:] = torques
                 dof_efforts[:, 0:1] = dp
                 self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
+
         elif DOF_MODE == "POSITION":
             raise ValueError(f"Unable to run with {DOF_MODE}")
         else:
