@@ -178,15 +178,12 @@
     <!-- PRSIMATIC -->
     <!-- conservative values: effort=1N, velocity=0.5m/s  -->
     <!-- length=0.8m (technically 1m, but round down to be safe), so limits are halfway in each dir, minus cart size -->
-    <joint name="slider_to_cart" type="prismatic">
-        <axis xyz="0.0 1.0 0.0" />
-
+    <joint name="slider_to_cart" type="fixed">
         <!-- Change z to set relative position of cart wrt slider (half rail and half cart height) -->
         <origin xyz="0.0 0.0 -0.025" rpy="0.0 0.0 0.0" />
 
         <parent link="slider" />
         <child link="cart" />
-        <limit lower="-0.05" upper="0.05" />
         <!-- <limit lower="-0.35" upper="0.35" effort="1" velocity="0.5" /> -->
         <!-- <limit lower="-0.35" upper="0.35" /> -->
     </joint>
@@ -201,34 +198,34 @@
 
         <parent link="cart" />
         <child link="link_0" />
-        <limit lower="-0.523599" upper="0.523599" />
+        <limit lower="-1.0" upper="1.0" />
     </joint>
     <joint name="link_0_to_link_1" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
         <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_0" />
         <child link="link_1" />
-        <limit lower="-0.523599" upper="0.523599" />
+        <limit lower="-1.0" upper="1.0" />
     </joint>
     <joint name="link_1_to_link_2" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
         <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_1" />
         <child link="link_2" />
-        <limit lower="-0.523599" upper="0.523599" />
+        <limit lower="-1.0" upper="1.0" />
     </joint>
     <joint name="link_2_to_link_3" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
         <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_2" />
         <child link="link_3" />
-        <limit lower="-0.523599" upper="0.523599" />
+        <limit lower="-1.0" upper="1.0" />
     </joint>
     <joint name="link_3_to_link_4" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
         <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_3" />
         <child link="link_4" />
-        <limit lower="-0.523599" upper="0.523599" />
+        <limit lower="-1.0" upper="1.0" />
     </joint>
 </robot>

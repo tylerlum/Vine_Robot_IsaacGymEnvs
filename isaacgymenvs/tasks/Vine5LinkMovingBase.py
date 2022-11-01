@@ -42,7 +42,7 @@ NORMAL_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 LENGTH_RAIL = 0.8
 LENGTH_PER_LINK = 0.0885
 N_REVOLUTE_DOFS = 5
-N_PRISMATIC_DOFS = 1
+N_PRISMATIC_DOFS = 0
 
 # PARAMETERS
 INIT_X, INIT_Y, INIT_Z = NORMAL_INIT_XYZ
@@ -54,8 +54,8 @@ VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -math.sin(MAX_EFFECTIVE_ANGLE)*VINE_LENGTH, math.sin(MAX_EFFECTIVE_ANGLE)* VINE_LENGTH  # Set to length of rail
 TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - (1-math.cos(MAX_EFFECTIVE_ANGLE)) * VINE_LENGTH
 DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
-RANDOMIZE_DOF_INIT = True
-RANDOMIZE_TARGETS = True
+RANDOMIZE_DOF_INIT = False
+RANDOMIZE_TARGETS = False
 PD_TARGET_ALL_JOINTS = False
 
 
@@ -274,8 +274,8 @@ class Vine5LinkMovingBase(VecTask):
         self.prismatic_dof_indices = sorted([dof_dict[name] for name in prismatic_dof_names])
 
         # Sanity check ordering of indices
-        assert (self.prismatic_dof_indices == [0])
-        assert (self.revolute_dof_indices == [i+1 for i in range(N_REVOLUTE_DOFS)])
+        # assert (self.prismatic_dof_indices == [0])
+        # assert (self.revolute_dof_indices == [i+1 for i in range(N_REVOLUTE_DOFS)])
 
         # Store limits
         self.dof_props = self.gym.get_asset_dof_properties(self.vine_asset)
@@ -409,10 +409,9 @@ class Vine5LinkMovingBase(VecTask):
         # retrieve environment observations from buffer
         tip_positions = self.obs_buf[:, -6:-3]
         target_positions = self.obs_buf[:, -3:]
-        dist_tip_to_target = torch.linalg.norm(tip_positions - target_positions, dim=-1)
 
         self.rew_buf[:], self.reset_buf[:] = compute_vine_reward(
-            dist_tip_to_target, self.reset_buf, self.progress_buf, self.max_episode_length
+            tip_positions, target_positions, self.reset_buf, self.progress_buf, self.max_episode_length, INIT_Z - VINE_LENGTH
         )
 
     def compute_observations(self, env_ids=None):
@@ -519,8 +518,10 @@ class Vine5LinkMovingBase(VecTask):
                 # Break apart angles
                 # x = self.dof_pos[:, 0:1]  # (num_envs, 1)
                 # xd = self.dof_vel[:, 0:1]  # (num_envs, 1)
-                q = self.dof_pos[:, 1:]  # (num_envs, 5)
-                qd = self.dof_vel[:, 1:]  # (num_envs, 5)
+                # q = self.dof_pos[:, 1:]  # (num_envs, 5)
+                # qd = self.dof_vel[:, 1:]  # (num_envs, 5)
+                q = self.dof_pos[:]  # (num_envs, 5)
+                qd = self.dof_vel[:]  # (num_envs, 5)
 
                 if self.A is None:
                     # torque = - Kq - Cqd - b - Bu;
@@ -537,10 +538,12 @@ class Vine5LinkMovingBase(VecTask):
 
                 x = torch.cat([q, qd, torch.ones(self.num_envs, 5, device=self.device), u * torch.ones(self.num_envs, 5, device=self.device)], dim=1)[..., None]
                 torques = -torch.matmul(self.A, x).squeeze().cpu()
+                print(f"torch.max(torques) = {torch.max(torques)}")
 
                 # Set efforts
-                dof_efforts[:, 1:] = torques
-                dof_efforts[:, 0:1] = dp
+                dof_efforts[:] = torques
+                # dof_efforts[:, 1:] = torques
+                # dof_efforts[:, 0:1] = dp
                 self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
 
         elif DOF_MODE == "POSITION":
@@ -581,17 +584,23 @@ class Vine5LinkMovingBase(VecTask):
 
 
 @torch.jit.script
-def compute_vine_reward(dist_to_target, reset_buf, progress_buf, max_episode_length):
-    # type: (Tensor, Tensor, Tensor, float) -> Tuple[Tensor, Tensor]
+def compute_vine_reward(tip_positions, target_positions, reset_buf, progress_buf, max_episode_length, lowest_tip_z):
+    # type: (Tensor, Tensor, Tensor, Tensor, float, float) -> Tuple[Tensor, Tensor]
+
+    # dist_to_target = torch.linalg.norm(tip_positions - target_positions, dim=-1)
 
     # reward is punishing dist_to_target
-    reward = -dist_to_target  # TODO: Improve with reward shaping, eg. reduce control action or length
+    # reward = -dist_to_target  # TODO: Improve with reward shaping, eg. reduce control action or length
+
+    # reward is maximizing absolute y and z position
+    # reward = torch.square(tip_positions[:, 1]) + torch.square(tip_positions[:, 2])
+    reward = torch.square(tip_positions[:, 2] - lowest_tip_z)
     reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset_buf)
 
     # Reward bonus and reset for reaching target
-    SUCCESS_DIST = 0.1
-    REWARD_BONUS = 100
-    reward = torch.where(dist_to_target < SUCCESS_DIST, reward + REWARD_BONUS, reward)
-    reset = torch.where(dist_to_target < SUCCESS_DIST, torch.ones_like(reset), reset)
+    # SUCCESS_DIST = 0.1
+    # REWARD_BONUS = 100
+    # reward = torch.where(dist_to_target < SUCCESS_DIST, reward + REWARD_BONUS, reward)
+    # reset = torch.where(dist_to_target < SUCCESS_DIST, torch.ones_like(reset), reset)
 
     return reward, reset
