@@ -455,9 +455,13 @@ class Vine5LinkMovingBase(VecTask):
                     dof_efforts[:, idx] = self.raw_actions[:, idx] * PRISMATIC_FORCE_SCALING
                 self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
             else:
+                dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
+
+                U_MIN, U_MAX = -0.1, 3.0
+                RAIL_FORCE_SCALE = 10.0
                 # Break apart actions
-                dp = self.raw_actions[:, 0:1]  # (num_envs, 1)
-                u = self.raw_actions[:, 1:2]  # (num_envs, 1)
+                dp = self.raw_actions[:, 0:1] * RAIL_FORCE_SCALE # (num_envs, 1)
+                u = (self.raw_actions[:, 1:2] + 1.0) / 2.0 * (U_MAX-U_MIN) + U_MIN # (num_envs, 1) rescale
 
                 # Break apart angles
                 # x = self.dof_pos[:, 0:1]  # (num_envs, 1)
@@ -475,47 +479,39 @@ class Vine5LinkMovingBase(VecTask):
                                0.01352315902253585, 0.021895211325047674, 0.017533205699630634], device=self.device))
                 b = torch.tensor([-0.002961879962361915, -0.019149230853283454, -0.01339719175569314, -0.011436913019114144, -0.0031035566743229624], device=self.device)
                 B = torch.tensor([-0.02525783894248118, -0.06298872026151316, -0.049676622868418834, -0.029474741498381096, -0.015412936470522515], device=self.device)
-                torques0 = torch.zeros(self.num_envs, 5)
-                import time
-                s0 = time.time()
-                for i in range(self.num_envs):
-                    torques0[i] = -K@q[i] - C@qd[i] - b - u[i] * B
-                e0 = time.time()
-                print(f"(e0 - s0) * 1000 = {(e0 - s0) * 1000}")
+                # torques0 = torch.zeros(self.num_envs, 5)
+                # import time
+                # s0 = time.time()
+                # for i in range(self.num_envs):
+                #     torques0[i] = -K@q[i] - C@qd[i] - b - u[i] * B
+                # e0 = time.time()
+                # print(f"(e0 - s0) * 1000 = {(e0 - s0) * 1000}")
 
-                torques1 = torch.zeros(self.num_envs, 5)
-                s1 = time.time()
-                for i in range(self.num_envs):
-                    x = torch.cat([q[i], qd[i], torch.ones(5, device=self.device), u[i] * torch.ones(5, device=self.device)], dim=0)
-                    A = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)
-                    torques1[i] = -A@x
-                e1 = time.time()
-                print(f"(e1 - s1) * 1000 = {(e1 - s1) * 1000}")
-                print(f"torch.sum(torques0 - torques1) = {torch.sum(torques0 - torques1)}")
+                # torques1 = torch.zeros(self.num_envs, 5)
+                # s1 = time.time()
+                # for i in range(self.num_envs):
+                #     x = torch.cat([q[i], qd[i], torch.ones(5, device=self.device), u[i] * torch.ones(5, device=self.device)], dim=0)
+                #     A = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)
+                #     torques1[i] = -A@x
+                # e1 = time.time()
+                # print(f"(e1 - s1) * 1000 = {(e1 - s1) * 1000}")
+                # print(f"torch.sum(torques0 - torques1) = {torch.sum(torques0 - torques1)}")
 
-                s2 = time.time()
+                # s2 = time.time()
                 A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)
                 A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)
-                print(f"A.shape = {A.shape}")
-                print(f"A.device = {A.device}")
-                # x.shape = (num_envs, 5)
-                print(q.shape)
-                print(qd.shape)
-                print(torch.ones(self.num_envs, 5, device=self.device).shape)
-                print((u * torch.ones(self.num_envs, 5, device=self.device)).shape)
                 x = torch.cat([q, qd, torch.ones(self.num_envs, 5, device=self.device), u * torch.ones(self.num_envs, 5, device=self.device)], dim=1)[..., None]
-                print(f"x.shape = {x.shape}")
-                print(f"x.device = {x.device}")
-                torques2 = -torch.matmul(A, x).squeeze().cpu()
-                e2 = time.time()
-                print(f"(e2 - s2) * 1000 = {(e2 - s2) * 1000}")
-                print(f"torch.sum(torques0 - torques2) = {torch.sum(torques0 - torques2)}")
+                torques = -torch.matmul(A, x).squeeze().cpu()
+                # e2 = time.time()
+                # print(f"(e2 - s2) * 1000 = {(e2 - s2) * 1000}")
+                # print(f"torch.sum(torques0 - torques) = {torch.sum(torques0 - torques)}")
 
-                assert(False)
+                # assert(False)
 
-                for i, idx in enumerate(self.revolute_dof_indices):
-                    dof_efforts[:, idx] = torques[:, i]
-                dof_efforts[:, self.prismatic_dof_indices[0]] = self.raw_actions[:, 0]
+                # for i, idx in enumerate(self.revolute_dof_indices):
+                #     dof_efforts[:, idx] = torques[:, i]
+                dof_efforts[:, 1:] = torques
+                dof_efforts[:, 0:1] = dp
                 self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
         elif DOF_MODE == "POSITION":
             raise ValueError(f"Unable to run with {DOF_MODE}")
