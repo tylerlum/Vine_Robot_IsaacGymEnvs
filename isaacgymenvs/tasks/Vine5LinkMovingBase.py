@@ -29,6 +29,7 @@
 import numpy as np
 import os
 import torch
+import math
 
 from isaacgym import gymutil, gymtorch, gymapi
 from .base.vec_task import VecTask
@@ -38,20 +39,24 @@ NUM_STATES = 13  # xyz, quat, v_xyz, w_xyz
 NUM_XYZ = 3
 NORMAL_INIT_XYZ = (0.0, 0.0, 1.5)
 NORMAL_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
+LENGTH_RAIL = 0.8
+LENGTH_PER_LINK = 0.0885
+N_REVOLUTE_DOFS = 5
+N_PRISMATIC_DOFS = 1
 
 # PARAMETERS
 INIT_X, INIT_Y, INIT_Z = NORMAL_INIT_XYZ
 INIT_QUAT = NORMAL_QUAT
-TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0
-TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -2.0, 2.0
-TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = 0.0, 3.0
+TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
+MAX_EFFECTIVE_ANGLE = math.radians(45)
+# TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, LENGTH_RAIL/2  # Set to length of rail
+VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
+TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -math.sin(MAX_EFFECTIVE_ANGLE)*VINE_LENGTH, math.sin(MAX_EFFECTIVE_ANGLE)* VINE_LENGTH  # Set to length of rail
+TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - (1-math.cos(MAX_EFFECTIVE_ANGLE)) * VINE_LENGTH
 DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
-N_REVOLUTE_DOFS = 6
-N_PRISMATIC_DOFS = 1
 RANDOMIZE_DOF_INIT = True
 RANDOMIZE_TARGETS = True
-
-# TODO: Investigate if self collision checks work (probably not)
+PD_TARGET_ALL_JOINTS = False
 
 
 def print_if(text="", should_print=False):
@@ -62,15 +67,15 @@ def print_if(text="", should_print=False):
 class Vine5LinkMovingBase(VecTask):
     """
     State:
-      * 7 Joint positions (6 revolute, 1 prismatic)
+      * 6 Joint positions (5 revolute, 1 prismatic)
     Goal:
       * 1 Target Pos
     Observation:
-      * 7 joint positions
+      * 6 joint positions
       * 3 tip position
       * 3 target position
     Action:
-      * 7 for joint forces/torques OR
+      * 1 for dp prismatic joint
       * 1 for u pressure
     Reward:
       * -Dist to target
@@ -86,7 +91,11 @@ class Vine5LinkMovingBase(VecTask):
 
         # Must set this before continuing
         self.cfg["env"]["numObservations"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ
-        self.cfg["env"]["numActions"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS
+        if PD_TARGET_ALL_JOINTS:
+            self.cfg["env"]["numActions"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS
+        else:
+            self.cfg["env"]["numActions"] = 2
+
         self.subscribe_to_keyboard_events()
 
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id,
@@ -94,6 +103,7 @@ class Vine5LinkMovingBase(VecTask):
 
         self.initialize_state_tensors()
         self.target_positions = self.sample_target_positions(self.num_envs)
+        self.A = None
 
     def initialize_state_tensors(self):
         # Store dof state tensor, and get pos and vel
@@ -127,6 +137,10 @@ class Vine5LinkMovingBase(VecTask):
             "PRINT_DEBUG": gymapi.KEY_D,
             "PRINT_DEBUG_IDX_UP": gymapi.KEY_K,
             "PRINT_DEBUG_IDX_DOWN": gymapi.KEY_J,
+            "MOVE_LEFT": gymapi.KEY_LEFT,
+            "MOVE_RIGHT": gymapi.KEY_RIGHT,
+            "MAX_PRESSURE": gymapi.KEY_UP,
+            "MIN_PRESSURE": gymapi.KEY_DOWN,
         }
         self.event_action_to_function = {
             "RESET": self._reset_callback,
@@ -134,12 +148,20 @@ class Vine5LinkMovingBase(VecTask):
             "PRINT_DEBUG": self._print_debug_callback,
             "PRINT_DEBUG_IDX_UP": self._print_debug_idx_up_callback,
             "PRINT_DEBUG_IDX_DOWN": self._print_debug_idx_down_callback,
+            "MOVE_LEFT": self._move_left_callback,
+            "MOVE_RIGHT": self._move_right_callback,
+            "MAX_PRESSURE": self._max_pressure_callback,
+            "MIN_PRESSURE": self._min_pressure_callback,
         }
         # Create state variables
         self.PRINT_DEBUG = False
         self.PRINT_DEBUG_IDX = 0
+        self.MOVE_LEFT_COUNTER = 0
+        self.MOVE_RIGHT_COUNTER = 0
+        self.MAX_PRESSURE_COUNTER = 0
+        self.MIN_PRESSURE_COUNTER = 0
 
-        assert(sorted(list(self.event_action_to_key.keys())) == sorted(list(self.event_action_to_function.keys())))
+        assert (sorted(list(self.event_action_to_key.keys())) == sorted(list(self.event_action_to_function.keys())))
 
     def _reset_callback(self):
         print("RESETTING")
@@ -166,6 +188,26 @@ class Vine5LinkMovingBase(VecTask):
         if self.PRINT_DEBUG_IDX < 0:
             self.PRINT_DEBUG_IDX = 0
         print(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
+
+    def _move_left_callback(self):
+        self.MOVE_LEFT_COUNTER = 100
+        self.MOVE_RIGHT_COUNTER = 0
+        print(f"self.MOVE_LEFT = {self.MOVE_LEFT_COUNTER}")
+
+    def _move_right_callback(self):
+        self.MOVE_RIGHT_COUNTER = 100
+        self.MOVE_LEFT_COUNTER = 0
+        print(f"self.MOVE_RIGHT = {self.MOVE_RIGHT_COUNTER}")
+
+    def _max_pressure_callback(self):
+        self.MAX_PRESSURE_COUNTER = 100
+        self.MIN_PRESSURE_COUNTER = 0
+        print(f"self.MAX_PRESSURE = {self.MAX_PRESSURE_COUNTER}")
+
+    def _min_pressure_callback(self):
+        self.MIN_PRESSURE_COUNTER = 100
+        self.MAX_PRESSURE_COUNTER = 0
+        print(f"self.MIN_PRESSURE = {self.MIN_PRESSURE_COUNTER}")
 
     ##### KEYBOARD EVENT SUBSCRIPTIONS END #####
 
@@ -216,9 +258,9 @@ class Vine5LinkMovingBase(VecTask):
                      for i in range(self.gym.get_asset_dof_count(self.vine_asset))]
         num_revolute_dofs = len([dof_type for dof_type in dof_types if dof_type == gymapi.DofType.DOF_ROTATION])
         num_prismatic_dofs = len([dof_type for dof_type in dof_types if dof_type == gymapi.DofType.DOF_TRANSLATION])
-        assert(num_revolute_dofs + num_prismatic_dofs == self.num_dof)
-        assert(num_revolute_dofs == N_REVOLUTE_DOFS)
-        assert(num_prismatic_dofs == N_PRISMATIC_DOFS)
+        assert (num_revolute_dofs + num_prismatic_dofs == self.num_dof)
+        assert (num_revolute_dofs == N_REVOLUTE_DOFS)
+        assert (num_prismatic_dofs == N_PRISMATIC_DOFS)
 
         # Split into revolute and prismatic
         dof_names = [self.gym.get_asset_dof_name(self.vine_asset, i)
@@ -231,6 +273,10 @@ class Vine5LinkMovingBase(VecTask):
         self.revolute_dof_indices = sorted([dof_dict[name] for name in revolute_dof_names])
         self.prismatic_dof_indices = sorted([dof_dict[name] for name in prismatic_dof_names])
 
+        # Sanity check ordering of indices
+        assert (self.prismatic_dof_indices == [0])
+        assert (self.revolute_dof_indices == [i+1 for i in range(N_REVOLUTE_DOFS)])
+
         # Store limits
         self.dof_props = self.gym.get_asset_dof_properties(self.vine_asset)
         self.dof_lowers = torch.from_numpy(self.dof_props["lower"]).to(self.device)
@@ -242,7 +288,7 @@ class Vine5LinkMovingBase(VecTask):
 
         # Set initial actor poses
         vine_init_pose = gymapi.Transform()
-        assert(self.up_axis == 'z')
+        assert (self.up_axis == 'z')
         vine_init_pose.p.x = INIT_X
         vine_init_pose.p.y = INIT_Y
         vine_init_pose.p.z = INIT_Z
@@ -297,46 +343,44 @@ class Vine5LinkMovingBase(VecTask):
             self.envs.append(env_ptr)
             self.vine_handles.append(vine_handle)
 
-        PRINT_ASSET_INFO = True
+        PRINT_ASSET_INFO = False
         if PRINT_ASSET_INFO:
             self._print_asset_info(self.vine_asset)
 
     def _print_asset_info(self, asset):
         """
-        self.num_dof = 7
+        self.num_dof = 6
         DOF 0
-        Name:     'slider_to_cart'
-        Type:     Translation
-        Properties:  (True, -4., 4., 0, 8., 10000., 0., 0., 0., 0.)
+          Name:     'slider_to_cart'
+          Type:     Translation
+          Properties:  (True, -0.35, 0.35, 0, 0.5, 1., 0., 0., 0., 0.)
         DOF 1
-        Name:     'cart_to_link_0'
-        Type:     Rotation
-        Properties:  (True, -0.52, 0.52, 0, 8., 10000., 0., 0., 0., 0.)
+          Name:     'cart_to_link_0'
+          Type:     Rotation
+          Properties:  (True, -0.52, 0.52, 0, 3.4e+38, 3.4e+38, 0., 0., 0., 0.)
         DOF 2
-        Name:     'link_0_to_link_1'
-        Type:     Rotation
-        Properties:  (True, -0.52, 0.52, 0, 8., 10000., 0., 0., 0., 0.)
+          Name:     'link_0_to_link_1'
+          Type:     Rotation
+          Properties:  (True, -0.52, 0.52, 0, 3.4e+38, 3.4e+38, 0., 0., 0., 0.)
         DOF 3
-        Name:     'link_1_to_link_2'
-        Type:     Rotation
-        Properties:  (True, -0.52, 0.52, 0, 8., 10000., 0., 0., 0., 0.)
+          Name:     'link_1_to_link_2'
+          Type:     Rotation
+          Properties:  (True, -0.52, 0.52, 0, 3.4e+38, 3.4e+38, 0., 0., 0., 0.)
         DOF 4
-        Name:     'link_2_to_link_3'
-        Type:     Rotation
-        Properties:  (True, -0.52, 0.52, 0, 8., 10000., 0., 0., 0., 0.)
+          Name:     'link_2_to_link_3'
+          Type:     Rotation
+          Properties:  (True, -0.52, 0.52, 0, 3.4e+38, 3.4e+38, 0., 0., 0., 0.)
         DOF 5
-        Name:     'link_3_to_link_4'
-        Type:     Rotation
-        Properties:  (True, -0.52, 0.52, 0, 8., 10000., 0., 0., 0., 0.)
-        DOF 6
-        Name:     'link_4_to_link_5'
-        Type:     Rotation
-        Properties:  (True, -0.52, 0.52, 0, 8., 10000., 0., 0., 0., 0.)
-        self.num_rigid_bodies = 8
-        rigid_body_dict = {'cart': 1, 'link_0': 2, 'link_1': 3, 'link_2': 4, 'link_3': 5, 'link_4': 6, 'link_5': 7, 'slider': 0}
-        joint_dict = {'cart_to_link_0': 1, 'link_0_to_link_1': 2, 'link_1_to_link_2': 3, 'link_2_to_link_3': 4, 'link_3_to_link_4': 5, 'link_4_to_link_5': 6, 'slider_to_cart': 0}
-    dof_dict = {'cart_to_link_0': 1, 'link_0_to_link_1': 2, 'link_1_to_link_2': 3, 'link_2_to_link_3': 4, 'link_3_to_link_4': 5, 'link_4_to_link_5': 6, 'slider_to_cart': 0}
-    Box(-1.0, 1.0, (7,), float32) Box(-inf, inf, (13,), float32)
+          Name:     'link_3_to_link_4'
+          Type:     Rotation
+          Properties:  (True, -0.52, 0.52, 0, 3.4e+38, 3.4e+38, 0., 0., 0., 0.)
+
+        self.num_rigid_bodies = 7
+        rigid_body_dict = {'cart': 1, 'link_0': 2, 'link_1': 3, 'link_2': 4, 'link_3': 5, 'link_4': 6, 'slider': 0}
+        joint_dict = {'cart_to_link_0': 1, 'link_0_to_link_1': 2, 'link_1_to_link_2': 3, 'link_2_to_link_3': 4, 'link_3_to_link_4': 5, 'slider_to_cart': 0}
+        dof_dict = {'cart_to_link_0': 1, 'link_0_to_link_1': 2, 'link_1_to_link_2': 3, 'link_2_to_link_3': 4, 'link_3_to_link_4': 5, 'slider_to_cart': 0}
+
+        Box(-1.0, 1.0, (2,), float32) Box(-inf, inf, (12,), float32)
         """
         # Acquire variables
         dof_names = self.gym.get_asset_dof_names(asset)
@@ -436,29 +480,71 @@ class Vine5LinkMovingBase(VecTask):
         self.raw_actions = actions.clone().to(self.device)
 
         if DOF_MODE == "FORCE":
-            REVOLUTE_FORCE_SCALING = 1.0
-            PRISMATIC_FORCE_SCALING = 1000.0
-            dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
+            if PD_TARGET_ALL_JOINTS:
+                REVOLUTE_FORCE_SCALING = 1.0
+                PRISMATIC_FORCE_SCALING = 1000.0
+                dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
 
-            # Revolute
-            for i in self.revolute_dof_indices:
-                dof_efforts[:, i] = self.raw_actions[:, i] * REVOLUTE_FORCE_SCALING
-            for i in self.prismatic_dof_indices:
-                dof_efforts[:, i] = self.raw_actions[:, i] * PRISMATIC_FORCE_SCALING
-            self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
+                # Revolute
+                for idx in self.revolute_dof_indices:
+                    dof_efforts[:, idx] = self.raw_actions[:, idx] * REVOLUTE_FORCE_SCALING
+                for idx in self.prismatic_dof_indices:
+                    dof_efforts[:, idx] = self.raw_actions[:, idx] * PRISMATIC_FORCE_SCALING
+                self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
+            else:
+                dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
+
+                U_MIN, U_MAX = -0.1, 5.0
+                RAIL_FORCE_SCALE = 1000.0
+
+                # Break apart actions
+                dp = self.raw_actions[:, 0:1] * RAIL_FORCE_SCALE # (num_envs, 1)
+                u = (self.raw_actions[:, 1:2] + 1.0) / 2.0 * (U_MAX-U_MIN) + U_MIN # (num_envs, 1) rescale
+
+                # Manual intervention
+                if self.MOVE_LEFT_COUNTER > 0:
+                    dp[:] = -RAIL_FORCE_SCALE
+                    self.MOVE_LEFT_COUNTER -= 1
+                if self.MOVE_RIGHT_COUNTER > 0:
+                    dp[:] = RAIL_FORCE_SCALE
+                    self.MOVE_RIGHT_COUNTER -= 1
+
+                if self.MAX_PRESSURE_COUNTER > 0:
+                    u[:] = U_MAX
+                    self.MAX_PRESSURE_COUNTER -= 1
+                if self.MIN_PRESSURE_COUNTER > 0:
+                    u[:] = U_MIN
+                    self.MIN_PRESSURE_COUNTER -= 1
+
+                # Break apart angles
+                # x = self.dof_pos[:, 0:1]  # (num_envs, 1)
+                # xd = self.dof_vel[:, 0:1]  # (num_envs, 1)
+                q = self.dof_pos[:, 1:]  # (num_envs, 5)
+                qd = self.dof_vel[:, 1:]  # (num_envs, 5)
+
+                if self.A is None:
+                    # torque = - Kq - Cqd - b - Bu;
+                    #        = - [K C diag(b) diag(B)] @ [q; qd; ones(5), u*ones(5)]
+                    #        = - A @ x
+                    K = torch.diag(torch.tensor([1.0822678619473745, 1.3960597815085283,
+                                0.7728716674414156, 0.566602254820747, 0.20000000042282678], device=self.device))
+                    C = torch.diag(torch.tensor([0.010098832804688505, 0.008001446516454621,
+                                0.01352315902253585, 0.021895211325047674, 0.017533205699630634], device=self.device))
+                    b = torch.tensor([-0.002961879962361915, -0.019149230853283454, -0.01339719175569314, -0.011436913019114144, -0.0031035566743229624], device=self.device)
+                    B = torch.tensor([-0.02525783894248118, -0.06298872026151316, -0.049676622868418834, -0.029474741498381096, -0.015412936470522515], device=self.device)
+                    A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)
+                    self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)
+
+                x = torch.cat([q, qd, torch.ones(self.num_envs, 5, device=self.device), u * torch.ones(self.num_envs, 5, device=self.device)], dim=1)[..., None]
+                torques = -torch.matmul(self.A, x).squeeze().cpu()
+
+                # Set efforts
+                dof_efforts[:, 1:] = torques
+                dof_efforts[:, 0:1] = dp
+                self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
+
         elif DOF_MODE == "POSITION":
-            POSITION_SCALING = 1.0
-            position_targets = torch.zeros(self.num_envs, self.num_dof, device=self.device)
-            position_targets[:] = self.raw_actions * POSITION_SCALING
-
-            if self.PRINT_DEBUG:
-                print(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
-                print(f"self.raw_actions = {self.raw_actions[self.PRINT_DEBUG_IDX]}")
-                print(f"position_targets = {position_targets[self.PRINT_DEBUG_IDX]}")
-                print()
-
-            # Apply targets
-            self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(position_targets))
+            raise ValueError(f"Unable to run with {DOF_MODE}")
         else:
             raise ValueError(f"Invalid DOF_MODE = {DOF_MODE}")
 
@@ -490,7 +576,7 @@ class Vine5LinkMovingBase(VecTask):
                 gymutil.draw_lines(visualization_sphere_green, self.gym, self.viewer, self.envs[i], sphere_pose)
 
 #####################################################################
-###=========================jit functions=========================###
+### =========================jit functions=========================###
 #####################################################################
 
 
@@ -501,5 +587,11 @@ def compute_vine_reward(dist_to_target, reset_buf, progress_buf, max_episode_len
     # reward is punishing dist_to_target
     reward = -dist_to_target  # TODO: Improve with reward shaping, eg. reduce control action or length
     reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset_buf)
+
+    # Reward bonus and reset for reaching target
+    SUCCESS_DIST = 0.1
+    REWARD_BONUS = 100
+    reward = torch.where(dist_to_target < SUCCESS_DIST, reward + REWARD_BONUS, reward)
+    reset = torch.where(dist_to_target < SUCCESS_DIST, torch.ones_like(reset), reset)
 
     return reward, reset
