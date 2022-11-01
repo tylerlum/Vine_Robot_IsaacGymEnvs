@@ -48,7 +48,7 @@ N_PRISMATIC_DOFS = 1
 INIT_X, INIT_Y, INIT_Z = NORMAL_INIT_XYZ
 INIT_QUAT = NORMAL_QUAT
 TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
-MAX_EFFECTIVE_ANGLE = math.radians(45)
+MAX_EFFECTIVE_ANGLE = math.radians(20)
 # TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, LENGTH_RAIL/2  # Set to length of rail
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -math.sin(MAX_EFFECTIVE_ANGLE)*VINE_LENGTH, math.sin(MAX_EFFECTIVE_ANGLE)* VINE_LENGTH  # Set to length of rail
@@ -495,7 +495,7 @@ class Vine5LinkMovingBase(VecTask):
                 dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
 
                 U_MIN, U_MAX = -0.1, 5.0
-                RAIL_FORCE_SCALE = 1000.0
+                RAIL_FORCE_SCALE = 0.0
 
                 # Break apart actions
                 dp = self.raw_actions[:, 0:1] * RAIL_FORCE_SCALE # (num_envs, 1)
