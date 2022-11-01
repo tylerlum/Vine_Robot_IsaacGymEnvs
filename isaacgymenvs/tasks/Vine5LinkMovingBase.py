@@ -584,4 +584,10 @@ def compute_vine_reward(dist_to_target, reset_buf, progress_buf, max_episode_len
     reward = -dist_to_target  # TODO: Improve with reward shaping, eg. reduce control action or length
     reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset_buf)
 
+    # Reward bonus and reset for reaching target
+    SUCCESS_DIST = 0.1
+    REWARD_BONUS = 100
+    reward = torch.where(dist_to_target < SUCCESS_DIST, reward + REWARD_BONUS, reward)
+    reset = torch.where(dist_to_target < SUCCESS_DIST, torch.ones_like(reset), reset)
+
     return reward, reset
