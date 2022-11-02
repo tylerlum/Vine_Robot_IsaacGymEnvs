@@ -175,19 +175,14 @@
     <!-- JOINTS -->
     <!-- 1 slider joint, 5 revolute joints -->
 
-    <!-- PRISMATIC -->
-    <!-- conservative values: effort=1N, velocity=0.5m/s  -->
+    <!-- FIXED -->
     <!-- length=0.8m (technically 1m, but round down to be safe), so limits are halfway in each dir, minus cart size -->
-    <joint name="slider_to_cart" type="prismatic">
-        <axis xyz="0.0 1.0 0.0" />
-
+    <joint name="slider_to_cart" type="fixed">
         <!-- Change z to set relative position of cart wrt slider (half rail and half cart height) -->
         <origin xyz="0.0 0.0 -0.025" rpy="0.0 0.0 0.0" />
 
         <parent link="slider" />
         <child link="cart" />
-        <limit lower="-0.35" upper="0.35" effort="1" velocity="0.5" />
-        <!-- <limit lower="-0.35" upper="0.35" /> -->
     </joint>
 
     <!-- REVOLUTE -->

@@ -14,10 +14,6 @@ env:
 
   maxEpisodeLength: 1000
 
-  asset:
-    assetRoot: "../../assets"
-    assetFileName: "urdf/Vine5LinkMovingBase.urdf"
-
   # set to True if you use camera sensors in the environment
   enableCameraSensors: False
 

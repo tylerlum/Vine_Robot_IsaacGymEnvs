@@ -34,30 +34,33 @@ import math
 from isaacgym import gymutil, gymtorch, gymapi
 from .base.vec_task import VecTask
 
-# CONSTANTS
+# CONSTANTS (RARELY CHANGE)
 NUM_STATES = 13  # xyz, quat, v_xyz, w_xyz
 NUM_XYZ = 3
-NORMAL_INIT_XYZ = (0.0, 0.0, 1.5)
-NORMAL_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 LENGTH_RAIL = 0.8
 LENGTH_PER_LINK = 0.0885
 N_REVOLUTE_DOFS = 5
-N_PRISMATIC_DOFS = 1
+N_PRESSURE_ACTIONS = 1
 
-# PARAMETERS
-INIT_X, INIT_Y, INIT_Z = NORMAL_INIT_XYZ
-INIT_QUAT = NORMAL_QUAT
-TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
-MAX_EFFECTIVE_ANGLE = math.radians(45)
-# TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, LENGTH_RAIL/2  # Set to length of rail
+# PARAMETERS (OFTEN CHANGE)
+USE_MOVING_BASE = False
+N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
+INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
+INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.5
+
+MAX_EFFECTIVE_ANGLE = math.radians(25)
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
-TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -math.sin(MAX_EFFECTIVE_ANGLE)*VINE_LENGTH, math.sin(MAX_EFFECTIVE_ANGLE)* VINE_LENGTH  # Set to length of rail
-TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - (1-math.cos(MAX_EFFECTIVE_ANGLE)) * VINE_LENGTH
+
+TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
+# TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, LENGTH_RAIL/2  # Set to length of rail
+TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MAX_EFFECTIVE_ANGLE)*VINE_LENGTH,
+                                      math.sin(MAX_EFFECTIVE_ANGLE) * VINE_LENGTH)
+TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MAX_EFFECTIVE_ANGLE) * VINE_LENGTH
+
 DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
 RANDOMIZE_DOF_INIT = True
 RANDOMIZE_TARGETS = True
 PD_TARGET_ALL_JOINTS = False
-
 
 def print_if(text="", should_print=False):
     if should_print:
@@ -94,7 +97,7 @@ class Vine5LinkMovingBase(VecTask):
         if PD_TARGET_ALL_JOINTS:
             self.cfg["env"]["numActions"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS
         else:
-            self.cfg["env"]["numActions"] = 2
+            self.cfg["env"]["numActions"] = N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
 
         self.subscribe_to_keyboard_events()
 
@@ -233,12 +236,7 @@ class Vine5LinkMovingBase(VecTask):
 
         # Find asset file
         vine_asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
-        vine_asset_file = "urdf/Vine5LinkMovingBase.urdf"
-
-        if "asset" in self.cfg["env"]:
-            vine_asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                           self.cfg["env"]["asset"].get("assetRoot", vine_asset_root))
-            vine_asset_file = self.cfg["env"]["asset"].get("assetFileName", vine_asset_file)
+        vine_asset_file = "urdf/Vine5LinkMovingBase.urdf" if USE_MOVING_BASE else "urdf/Vine5LinkFixedBase.urdf"
 
         vine_asset_path = os.path.join(vine_asset_root, vine_asset_file)
         vine_asset_root = os.path.dirname(vine_asset_path)
@@ -274,8 +272,14 @@ class Vine5LinkMovingBase(VecTask):
         self.prismatic_dof_indices = sorted([dof_dict[name] for name in prismatic_dof_names])
 
         # Sanity check ordering of indices
-        assert (self.prismatic_dof_indices == [0])
-        assert (self.revolute_dof_indices == [i+1 for i in range(N_REVOLUTE_DOFS)])
+        if N_PRISMATIC_DOFS == 1:
+            assert (self.prismatic_dof_indices == [0])
+            assert (self.revolute_dof_indices == [i+1 for i in range(N_REVOLUTE_DOFS)])
+        elif N_PRISMATIC_DOFS == 0:
+            assert (self.prismatic_dof_indices == [])
+            assert (self.revolute_dof_indices == [i for i in range(N_REVOLUTE_DOFS)])
+        else:
+            raise ValueError(f"Can't have N_PRISMATIC_DOFS = {N_PRISMATIC_DOFS}")
 
         # Store limits
         self.dof_props = self.gym.get_asset_dof_properties(self.vine_asset)
@@ -497,9 +501,19 @@ class Vine5LinkMovingBase(VecTask):
                 U_MIN, U_MAX = -0.1, 5.0
                 RAIL_FORCE_SCALE = 1000.0
 
-                # Break apart actions
-                dp = self.raw_actions[:, 0:1] * RAIL_FORCE_SCALE # (num_envs, 1)
-                u = (self.raw_actions[:, 1:2] + 1.0) / 2.0 * (U_MAX-U_MIN) + U_MIN # (num_envs, 1) rescale
+                # Break apart actions and states
+                if N_PRISMATIC_DOFS == 1:
+                    dp = self.raw_actions[:, 0:1] * RAIL_FORCE_SCALE  # (num_envs, 1)
+                    u = (self.raw_actions[:, 1:2] + 1.0) / 2.0 * (U_MAX-U_MIN) + U_MIN  # (num_envs, 1) rescale
+                    q = self.dof_pos[:, 1:]  # (num_envs, 5)
+                    qd = self.dof_vel[:, 1:]  # (num_envs, 5)
+                elif N_PRISMATIC_DOFS == 0:
+                    dp = torch.zeros_like(self.raw_actions[:, 0:1], device=self.device)  # (num_envs, 1)
+                    u = (self.raw_actions + 1.0) / 2.0 * (U_MAX-U_MIN) + U_MIN  # (num_envs, 1) rescale
+                    q = self.dof_pos[:]  # (num_envs, 5)
+                    qd = self.dof_vel[:]  # (num_envs, 5)
+                else:
+                    raise ValueError(f"Can't have N_PRISMATIC_DOFS = {N_PRISMATIC_DOFS}")
 
                 # Manual intervention
                 if self.MOVE_LEFT_COUNTER > 0:
@@ -516,31 +530,31 @@ class Vine5LinkMovingBase(VecTask):
                     u[:] = U_MIN
                     self.MIN_PRESSURE_COUNTER -= 1
 
-                # Break apart angles
-                # x = self.dof_pos[:, 0:1]  # (num_envs, 1)
-                # xd = self.dof_vel[:, 0:1]  # (num_envs, 1)
-                q = self.dof_pos[:, 1:]  # (num_envs, 5)
-                qd = self.dof_vel[:, 1:]  # (num_envs, 5)
-
                 if self.A is None:
                     # torque = - Kq - Cqd - b - Bu;
                     #        = - [K C diag(b) diag(B)] @ [q; qd; ones(5), u*ones(5)]
                     #        = - A @ x
                     K = torch.diag(torch.tensor([1.0822678619473745, 1.3960597815085283,
-                                0.7728716674414156, 0.566602254820747, 0.20000000042282678], device=self.device))
+                                                 0.7728716674414156, 0.566602254820747, 0.20000000042282678], device=self.device))
                     C = torch.diag(torch.tensor([0.010098832804688505, 0.008001446516454621,
-                                0.01352315902253585, 0.021895211325047674, 0.017533205699630634], device=self.device))
-                    b = torch.tensor([-0.002961879962361915, -0.019149230853283454, -0.01339719175569314, -0.011436913019114144, -0.0031035566743229624], device=self.device)
-                    B = torch.tensor([-0.02525783894248118, -0.06298872026151316, -0.049676622868418834, -0.029474741498381096, -0.015412936470522515], device=self.device)
-                    A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)
-                    self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)
+                                                 0.01352315902253585, 0.021895211325047674, 0.017533205699630634], device=self.device))
+                    b = torch.tensor([-0.002961879962361915, -0.019149230853283454, -0.01339719175569314, -
+                                     0.011436913019114144, -0.0031035566743229624], device=self.device)
+                    B = torch.tensor([-0.02525783894248118, -0.06298872026151316, -0.049676622868418834, -
+                                     0.029474741498381096, -0.015412936470522515], device=self.device)
+                    A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
+                    self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
 
-                x = torch.cat([q, qd, torch.ones(self.num_envs, 5, device=self.device), u * torch.ones(self.num_envs, 5, device=self.device)], dim=1)[..., None]
-                torques = -torch.matmul(self.A, x).squeeze().cpu()
+                x = torch.cat([q, qd, torch.ones(self.num_envs, 5, device=self.device), u *
+                              torch.ones(self.num_envs, 5, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
+                torques = -torch.matmul(self.A, x).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
 
                 # Set efforts
-                dof_efforts[:, 1:] = torques
-                dof_efforts[:, 0:1] = dp
+                if N_PRISMATIC_DOFS == 1:
+                    dof_efforts[:, 0:1] = dp
+                    dof_efforts[:, 1:] = torques
+                elif N_PRISMATIC_DOFS == 0:
+                    dof_efforts[:, :] = torques
                 self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
 
         elif DOF_MODE == "POSITION":
@@ -585,7 +599,9 @@ def compute_vine_reward(dist_to_target, reset_buf, progress_buf, max_episode_len
     # type: (Tensor, Tensor, Tensor, float) -> Tuple[Tensor, Tensor]
 
     # reward is punishing dist_to_target
-    reward = -dist_to_target  # TODO: Improve with reward shaping, eg. reduce control action or length
+    # reward = -dist_to_target  # TODO: Improve with reward shaping, eg. reduce control action or length
+    # TODO: Improve with reward shaping, eg. reduce control action or length
+    reward = torch.zeros_like(dist_to_target, device=dist_to_target.device)
     reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset_buf)
 
     # Reward bonus and reset for reaching target
