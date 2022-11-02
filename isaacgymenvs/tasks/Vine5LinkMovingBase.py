@@ -44,6 +44,7 @@ N_PRESSURE_ACTIONS = 1
 
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = False
+USE_DENSE_REWARD = False
 N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.5
@@ -416,7 +417,7 @@ class Vine5LinkMovingBase(VecTask):
         dist_tip_to_target = torch.linalg.norm(tip_positions - target_positions, dim=-1)
 
         self.rew_buf[:], self.reset_buf[:] = compute_vine_reward(
-            dist_tip_to_target, self.reset_buf, self.progress_buf, self.max_episode_length
+            dist_tip_to_target, self.reset_buf, self.progress_buf, self.max_episode_length, USE_DENSE_REWARD
         )
 
     def compute_observations(self, env_ids=None):
@@ -595,13 +596,15 @@ class Vine5LinkMovingBase(VecTask):
 
 
 @torch.jit.script
-def compute_vine_reward(dist_to_target, reset_buf, progress_buf, max_episode_length):
-    # type: (Tensor, Tensor, Tensor, float) -> Tuple[Tensor, Tensor]
+def compute_vine_reward(dist_to_target, reset_buf, progress_buf, max_episode_length, USE_DENSE_REWARD):
+    # type: (Tensor, Tensor, Tensor, float, bool) -> Tuple[Tensor, Tensor]
 
-    # reward is punishing dist_to_target
-    # reward = -dist_to_target  # TODO: Improve with reward shaping, eg. reduce control action or length
     # TODO: Improve with reward shaping, eg. reduce control action or length
     reward = torch.zeros_like(dist_to_target, device=dist_to_target.device)
+
+    # reward is punishing dist_to_target
+    if USE_DENSE_REWARD:
+        reward -= dist_to_target
     reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset_buf)
 
     # Reward bonus and reset for reaching target
