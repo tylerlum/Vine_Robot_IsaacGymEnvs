@@ -109,6 +109,7 @@ class Vine5LinkMovingBase(VecTask):
         self.initialize_state_tensors()
         self.target_positions = self.sample_target_positions(self.num_envs)
         self.A = None
+        self.STAY = False
 
     def initialize_state_tensors(self):
         # Store dof state tensor, and get pos and vel
@@ -433,6 +434,57 @@ class Vine5LinkMovingBase(VecTask):
         self.obs_buf[env_ids, -6:-3] = self.tip_positions
         self.obs_buf[env_ids, -3:] = self.target_positions
 
+        print(f"torch.max(self.dof_pos) = {torch.max(self.dof_pos)}")
+        print(f"torch.min(self.dof_pos) = {torch.min(self.dof_pos)}")
+        print(f"torch.max(self.dof_vel) = {torch.max(self.dof_vel)}")
+        print(f"torch.min(self.dof_vel) = {torch.min(self.dof_vel)}")
+        print(f"torch.max(self.tip_positions) = {torch.max(self.tip_positions)}")
+        print(f"torch.min(self.tip_positions) = {torch.min(self.tip_positions)}")
+        print(f"torch.max(self.target_positions) = {torch.max(self.target_positions)}")
+        print(f"torch.min(self.target_positions) = {torch.min(self.target_positions)}")
+        print(f"torch.max(self.obs_buf) = {torch.max(self.obs_buf)}")
+        print(f"torch.min(self.obs_buf) = {torch.min(self.obs_buf)}")
+        YS = self.tip_positions[:, 1]
+        ANGLES = torch.rad2deg(torch.asin(YS / VINE_LENGTH))
+        print(f"torch.max(YS) = {torch.max(YS)}")
+        print(f"torch.min(YS) = {torch.min(YS)}")
+        print(f"torch.max(ANGLES) = {torch.max(ANGLES)}")
+        print(f"torch.min(ANGLES) = {torch.min(ANGLES)}")
+
+        print(f"torch.isnan(self.dof_pos).any() = {torch.isnan(self.dof_pos).any()}")
+        print(f"torch.isnan(self.dof_vel).any() = {torch.isnan(self.dof_vel).any()}")
+        print(f"torch.isnan(self.tip_positions).any() = {torch.isnan(self.tip_positions).any()}")
+        print(f"torch.isnan(self.target_positions).any() = {torch.isnan(self.target_positions).any()}")
+        print(f"torch.isnan(self.obs_buf).any() = {torch.isnan(self.obs_buf).any()}")
+        print("-----")
+
+
+        # if self.progress_buf[0] < self.max_episode_length / 2:
+        #     cam_pos = gymapi.Vec3(20.0, 3.0, 25.0)
+        #     cam_target = gymapi.Vec3(10.0, 0.0, 15.0)
+        # else:
+        #     cam_pos = gymapi.Vec3(0.0, 3.0, 25.0)
+        #     cam_target = gymapi.Vec3(10.0, 0.0, 150.0)
+        # print(f"cam_pos + cam_target = {cam_pos} + {cam_target} = {cam_pos + cam_target}")
+        # print(f"self.progress_buf[0] = {self.progress_buf[0]}")
+        abs_dof_vel = torch.abs(self.dof_vel)
+        INDEX_OF_MAX_VEL = (abs_dof_vel == torch.max(abs_dof_vel)).nonzero()[0][0]
+        if not self.STAY and torch.max(abs_dof_vel[INDEX_OF_MAX_VEL]) > 500:
+            print(f"abs_dof_vel[INDEX_OF_MAX_VEL] = {abs_dof_vel[INDEX_OF_MAX_VEL]}")
+            print(f"SOMETHING CRAZY IS HAPPENING")
+            import time
+            time.sleep(10)
+
+        if not self.STAY and (self.progress_buf[0] % 10 == 0 or torch.max(abs_dof_vel[INDEX_OF_MAX_VEL]) > 500):
+            print(f"INDEX_OF_MAX_VEL = {INDEX_OF_MAX_VEL}")
+            cam_target = self.gym.get_env_origin(self.envs[INDEX_OF_MAX_VEL])
+            cam_pos = cam_target + gymapi.Vec3(3.0, 0.0, 0.0)
+
+            self.gym.viewer_camera_look_at(
+                self.viewer, None, cam_pos, cam_target)
+            if torch.max(abs_dof_vel[INDEX_OF_MAX_VEL]) > 500:
+                self.STAY = True
+
         return self.obs_buf
 
     def reset_idx(self, env_ids):
@@ -558,6 +610,22 @@ class Vine5LinkMovingBase(VecTask):
                 elif N_PRISMATIC_DOFS == 0:
                     dof_efforts[:, :] = torques
                 self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
+
+                # TODO: Debug prints
+                print(f"torch.max(self.dof_pos) = {torch.max(self.dof_pos)}")
+                print(f"torch.min(self.dof_pos) = {torch.min(self.dof_pos)}")
+                print(f"torch.max(self.dof_vel) = {torch.max(self.dof_vel)}")
+                print(f"torch.min(self.dof_vel) = {torch.min(self.dof_vel)}")
+                print(f"torch.max(torques) = {torch.max(torques)}")
+                print(f"torch.min(torques) = {torch.min(torques)}")
+                print(f"torch.max(self.raw_actions) = {torch.max(self.raw_actions)}")
+                print(f"torch.min(self.raw_actions) = {torch.min(self.raw_actions)}")
+
+                print(f"torch.isnan(self.dof_pos).any() = {torch.isnan(self.dof_pos).any()}")
+                print(f"torch.isnan(self.dof_vel).any() = {torch.isnan(self.dof_vel).any()}")
+                print(f"torch.isnan(torques).any() = {torch.isnan(torques).any()}")
+                print(f"torch.isnan(self.raw_actions).any() = {torch.isnan(self.raw_actions).any()}")
+                print()
 
         elif DOF_MODE == "POSITION":
             raise ValueError(f"Unable to run with {DOF_MODE}")
