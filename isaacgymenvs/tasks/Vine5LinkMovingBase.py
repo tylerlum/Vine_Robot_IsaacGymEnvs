@@ -41,11 +41,18 @@ LENGTH_RAIL = 0.8
 LENGTH_PER_LINK = 0.0885
 N_REVOLUTE_DOFS = 5
 N_PRESSURE_ACTIONS = 1
+START_POS_IDX, END_POS_IDX = 0, 3
+START_QUAT_IDX, END_QUAT_IDX = 3, 7
+START_LIN_VEL_IDX, END_LIN_VEL_IDX = 7, 10
+START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = False
 USE_DENSE_REWARD = True
 USE_CONST_NEGATIVE_REWARD = True
+USE_SUCCESS_REWARD = True
+USE_VELOCITY_REWARD = True
+
 N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.5
@@ -64,6 +71,7 @@ RANDOMIZE_DOF_INIT = False
 RANDOMIZE_TARGETS = True
 PD_TARGET_ALL_JOINTS = False
 
+
 def print_if(text="", should_print=False):
     if should_print:
         print(text)
@@ -77,7 +85,9 @@ class Vine5LinkMovingBase(VecTask):
       * 1 Target Pos
     Observation:
       * 6 joint positions
+      * 6 joint velocities
       * 3 tip position
+      * 3 tip velocity
       * 3 target position
     Action:
       * 1 for dp prismatic joint
@@ -95,7 +105,7 @@ class Vine5LinkMovingBase(VecTask):
         self.max_episode_length = self.cfg["env"]["maxEpisodeLength"]
 
         # Must set this before continuing
-        self.cfg["env"]["numObservations"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ
+        self.cfg["env"]["numObservations"] = 2 * N_REVOLUTE_DOFS + 2 * N_PRISMATIC_DOFS + 2 * NUM_XYZ + NUM_XYZ
         if PD_TARGET_ALL_JOINTS:
             self.cfg["env"]["numActions"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS
         else:
@@ -125,8 +135,11 @@ class Vine5LinkMovingBase(VecTask):
         # rigid_body_names = self.gym.get_asset_rigid_body_dict(self.vine_asset)
         rigid_body_state_by_env = self.rigid_body_state.view(
             self.num_envs, self.num_rigid_bodies, NUM_STATES)
-        self.link_positions = rigid_body_state_by_env[:, :, 0:3]
-        self.tip_positions = rigid_body_state_by_env[:, -1, 0:3]
+
+        self.link_positions = rigid_body_state_by_env[:, :, START_POS_IDX:END_POS_IDX]
+        self.tip_positions = rigid_body_state_by_env[:, -1, START_POS_IDX:END_POS_IDX]
+        self.link_velocities = rigid_body_state_by_env[:, :, START_LIN_VEL_IDX:END_LIN_VEL_IDX]
+        self.tip_velocities = rigid_body_state_by_env[:, -1, START_LIN_VEL_IDX:END_LIN_VEL_IDX]
 
     def refresh_state_tensors(self):
         self.gym.refresh_dof_state_tensor(self.sim)
@@ -418,7 +431,7 @@ class Vine5LinkMovingBase(VecTask):
         dist_tip_to_target = torch.linalg.norm(tip_positions - target_positions, dim=-1)
 
         self.rew_buf[:], self.reset_buf[:] = compute_vine_reward(
-            dist_tip_to_target, self.reset_buf, self.progress_buf, self.max_episode_length, USE_DENSE_REWARD, USE_CONST_NEGATIVE_REWARD
+            dist_tip_to_target, self.tip_velocities, self.reset_buf, self.progress_buf, self.max_episode_length, USE_DENSE_REWARD, USE_CONST_NEGATIVE_REWARD, USE_SUCCESS_REWARD, USE_VELOCITY_REWARD
         )
 
     def compute_observations(self, env_ids=None):
@@ -429,9 +442,14 @@ class Vine5LinkMovingBase(VecTask):
         self.refresh_state_tensors()
 
         # Populate obs_buf
-        self.obs_buf[env_ids, 0:(N_REVOLUTE_DOFS+N_PRISMATIC_DOFS)] = self.dof_pos[env_ids]
-        self.obs_buf[env_ids, -6:-3] = self.tip_positions
-        self.obs_buf[env_ids, -3:] = self.target_positions
+        tensors_to_add = [self.dof_pos, self.dof_vel, self.tip_positions,
+                          self.tip_velocities, self.target_positions]  # Must all be (num_envs, X)
+        start_idx = 0
+        for tensor_to_add in tensors_to_add:
+            num_elements = tensor_to_add.shape[1]
+            end_idx = start_idx + num_elements
+            self.obs_buf[env_ids, start_idx:end_idx] = tensor_to_add[env_ids]
+            start_idx = end_idx
 
         return self.obs_buf
 
@@ -597,8 +615,8 @@ class Vine5LinkMovingBase(VecTask):
 
 
 @torch.jit.script
-def compute_vine_reward(dist_to_target, reset_buf, progress_buf, max_episode_length, USE_DENSE_REWARD, USE_CONST_NEGATIVE_REWARD):
-    # type: (Tensor, Tensor, Tensor, float, bool, bool) -> Tuple[Tensor, Tensor]
+def compute_vine_reward(dist_to_target, tip_velocities, reset_buf, progress_buf, max_episode_length, USE_DENSE_REWARD, USE_CONST_NEGATIVE_REWARD, USE_SUCCESS_REWARD, USE_VELOCITY_REWARD):
+    # type: (Tensor, Tensor, Tensor, Tensor, float, bool, bool, bool, bool) -> Tuple[Tensor, Tensor]
 
     # TODO: Improve with reward shaping, eg. reduce control action or length
     reward = torch.zeros_like(dist_to_target, device=dist_to_target.device)
@@ -606,14 +624,22 @@ def compute_vine_reward(dist_to_target, reset_buf, progress_buf, max_episode_len
     # reward is punishing dist_to_target
     if USE_DENSE_REWARD:
         reward -= dist_to_target
+
+    # reward is punishing not succeeding
     if USE_CONST_NEGATIVE_REWARD:
         reward -= 1
-    reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset_buf)
+
+    # reward is rewarding high speed movement
+    if USE_VELOCITY_REWARD:
+        reward += torch.abs(torch.norm(tip_velocities, dim=-1))
 
     # Reward bonus and reset for reaching target
     SUCCESS_DIST = 0.1
-    REWARD_BONUS = 100
-    reward = torch.where(dist_to_target < SUCCESS_DIST, reward + REWARD_BONUS, reward)
+    REWARD_BONUS = 1000
+    if USE_SUCCESS_REWARD:
+        reward = torch.where(dist_to_target < SUCCESS_DIST, reward + REWARD_BONUS, reward)
+
+    reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset_buf)
     reset = torch.where(dist_to_target < SUCCESS_DIST, torch.ones_like(reset), reset)
 
     return reward, reset
