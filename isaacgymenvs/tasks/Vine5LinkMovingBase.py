@@ -44,12 +44,13 @@ N_PRESSURE_ACTIONS = 1
 
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = False
-USE_DENSE_REWARD = False
+USE_DENSE_REWARD = True
+USE_CONST_NEGATIVE_REWARD = True
 N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.5
 
-MAX_EFFECTIVE_ANGLE = math.radians(45)
+MAX_EFFECTIVE_ANGLE = math.radians(35)
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 
 TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
@@ -59,7 +60,7 @@ TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MAX_EFFECTIVE_ANGLE)*VINE_LENGTH
 TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MAX_EFFECTIVE_ANGLE) * VINE_LENGTH
 
 DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
-RANDOMIZE_DOF_INIT = True
+RANDOMIZE_DOF_INIT = False
 RANDOMIZE_TARGETS = True
 PD_TARGET_ALL_JOINTS = False
 
@@ -417,7 +418,7 @@ class Vine5LinkMovingBase(VecTask):
         dist_tip_to_target = torch.linalg.norm(tip_positions - target_positions, dim=-1)
 
         self.rew_buf[:], self.reset_buf[:] = compute_vine_reward(
-            dist_tip_to_target, self.reset_buf, self.progress_buf, self.max_episode_length, USE_DENSE_REWARD
+            dist_tip_to_target, self.reset_buf, self.progress_buf, self.max_episode_length, USE_DENSE_REWARD, USE_CONST_NEGATIVE_REWARD
         )
 
     def compute_observations(self, env_ids=None):
@@ -596,8 +597,8 @@ class Vine5LinkMovingBase(VecTask):
 
 
 @torch.jit.script
-def compute_vine_reward(dist_to_target, reset_buf, progress_buf, max_episode_length, USE_DENSE_REWARD):
-    # type: (Tensor, Tensor, Tensor, float, bool) -> Tuple[Tensor, Tensor]
+def compute_vine_reward(dist_to_target, reset_buf, progress_buf, max_episode_length, USE_DENSE_REWARD, USE_CONST_NEGATIVE_REWARD):
+    # type: (Tensor, Tensor, Tensor, float, bool, bool) -> Tuple[Tensor, Tensor]
 
     # TODO: Improve with reward shaping, eg. reduce control action or length
     reward = torch.zeros_like(dist_to_target, device=dist_to_target.device)
@@ -605,6 +606,8 @@ def compute_vine_reward(dist_to_target, reset_buf, progress_buf, max_episode_len
     # reward is punishing dist_to_target
     if USE_DENSE_REWARD:
         reward -= dist_to_target
+    if USE_CONST_NEGATIVE_REWARD:
+        reward -= 1
     reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset_buf)
 
     # Reward bonus and reset for reaching target
