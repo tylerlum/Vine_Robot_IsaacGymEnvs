@@ -50,16 +50,21 @@ START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = False
 
+U_MIN, U_MAX = -0.1, 3.0
+RAIL_FORCE_SCALE = 1000.0
+
 # Rewards
-REWARD_NAMES = ["Dense", "Const Negative", "Position Success", "Velocity Success", "Velocity", "Control"]
-DENSE_REWARD_WEIGHT = 1.0
-CONST_NEGATIVE_REWARD_WEIGHT = 1.0
-POSITION_SUCCESS_REWARD_WEIGHT = 1.0
-VELOCITY_SUCCESS_REWARD_WEIGHT = 1.0
+REWARD_NAMES = ["Dense", "Const Negative", "Position Success",
+                "Velocity Success", "Velocity", "Rail Force Control", "U Control"]
+DENSE_REWARD_WEIGHT = 0.0
+CONST_NEGATIVE_REWARD_WEIGHT = 0.0
+POSITION_SUCCESS_REWARD_WEIGHT = 0.0
+VELOCITY_SUCCESS_REWARD_WEIGHT = 0.0
 VELOCITY_REWARD_WEIGHT = 1.0
-CONTROL_REWARD_WEIGHT = 1.0
+RAIL_FORCE_CONTROL_REWARD_WEIGHT = 0.1
+U_CONTROL_REWARD_WEIGHT = 0.1
 REWARD_WEIGHTS = [DENSE_REWARD_WEIGHT, CONST_NEGATIVE_REWARD_WEIGHT, POSITION_SUCCESS_REWARD_WEIGHT,
-                  VELOCITY_SUCCESS_REWARD_WEIGHT, VELOCITY_REWARD_WEIGHT, CONTROL_REWARD_WEIGHT]
+                  VELOCITY_SUCCESS_REWARD_WEIGHT, VELOCITY_REWARD_WEIGHT, RAIL_FORCE_CONTROL_REWARD_WEIGHT, U_CONTROL_REWARD_WEIGHT]
 
 N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
@@ -101,7 +106,7 @@ class Vine5LinkMovingBase(VecTask):
       * 3 tip velocity
       * 3 target position
     Action:
-      * 1 for dp prismatic joint
+      * 1 for rail_force prismatic joint
       * 1 for u pressure
     Reward:
       * -Dist to target
@@ -473,14 +478,15 @@ class Vine5LinkMovingBase(VecTask):
             "max_abs_tip_y": tip_positions[:, 1].abs().max().item(),
             "max_tip_z": tip_positions[:, 2].max().item(),
             "tip_velocities": torch.norm(self.tip_velocities, dim=-1).mean().item(),
-            "raw_actions": torch.norm(self.raw_actions, dim=-1).mean().item(),
+            "rail_force": torch.norm(self.rail_force, dim=-1).mean().item(),
+            "u": torch.norm(self.u, dim=-1).mean().item(),
             "target_reached": target_reached.float().mean().item(),
             "target_reached_max": target_reached.float().max().item(),
             "tip_velocities_max": torch.norm(self.tip_velocities, dim=-1).max().item(),
         })
 
         self.rew_buf[:], reward_matrix = compute_reward_jit(
-            dist_tip_to_target, target_reached, self.tip_velocities, self.target_velocities, self.raw_actions, self.reward_weights
+            dist_tip_to_target, target_reached, self.tip_velocities, self.target_velocities, self.rail_force, self.u, self.reward_weights
         )
 
         for i, reward_name in enumerate(REWARD_NAMES):
@@ -581,18 +587,15 @@ class Vine5LinkMovingBase(VecTask):
             else:
                 dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
 
-                U_MIN, U_MAX = -0.1, 5.0
-                RAIL_FORCE_SCALE = 1000.0
-
                 # Break apart actions and states
                 if N_PRISMATIC_DOFS == 1:
-                    dp = self.raw_actions[:, 0:1] * RAIL_FORCE_SCALE  # (num_envs, 1)
-                    u = (self.raw_actions[:, 1:2] + 1.0) / 2.0 * (U_MAX-U_MIN) + U_MIN  # (num_envs, 1) rescale
+                    self.rail_force = rescale_to_rail_force(self.raw_actions[:, 0:1])  # (num_envs, 1)
+                    self.u = rescale_to_u(self.raw_actions[:, 1:2])  # (num_envs, 1)
                     q = self.dof_pos[:, 1:]  # (num_envs, 5)
                     qd = self.dof_vel[:, 1:]  # (num_envs, 5)
                 elif N_PRISMATIC_DOFS == 0:
-                    dp = torch.zeros_like(self.raw_actions[:, 0:1], device=self.device)  # (num_envs, 1)
-                    u = (self.raw_actions + 1.0) / 2.0 * (U_MAX-U_MIN) + U_MIN  # (num_envs, 1) rescale
+                    self.rail_force = torch.zeros_like(self.raw_actions[:, 0:1], device=self.device)  # (num_envs, 1)
+                    self.u = rescale_to_u(self.raw_actions)  # (num_envs, 1)
                     q = self.dof_pos[:]  # (num_envs, 5)
                     qd = self.dof_vel[:]  # (num_envs, 5)
                 else:
@@ -600,17 +603,17 @@ class Vine5LinkMovingBase(VecTask):
 
                 # Manual intervention
                 if self.MOVE_LEFT_COUNTER > 0:
-                    dp[:] = -RAIL_FORCE_SCALE
+                    self.rail_force[:] = -RAIL_FORCE_SCALE
                     self.MOVE_LEFT_COUNTER -= 1
                 if self.MOVE_RIGHT_COUNTER > 0:
-                    dp[:] = RAIL_FORCE_SCALE
+                    self.rail_force[:] = RAIL_FORCE_SCALE
                     self.MOVE_RIGHT_COUNTER -= 1
 
                 if self.MAX_PRESSURE_COUNTER > 0:
-                    u[:] = U_MAX
+                    self.u[:] = U_MAX
                     self.MAX_PRESSURE_COUNTER -= 1
                 if self.MIN_PRESSURE_COUNTER > 0:
-                    u[:] = U_MIN
+                    self.u[:] = U_MIN
                     self.MIN_PRESSURE_COUNTER -= 1
 
                 if self.A is None:
@@ -628,13 +631,13 @@ class Vine5LinkMovingBase(VecTask):
                     A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
                     self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
 
-                x = torch.cat([q, qd, torch.ones(self.num_envs, 5, device=self.device), u *
+                x = torch.cat([q, qd, torch.ones(self.num_envs, 5, device=self.device), self.u *
                               torch.ones(self.num_envs, 5, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
                 torques = -torch.matmul(self.A, x).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
 
                 # Set efforts
                 if N_PRISMATIC_DOFS == 1:
-                    dof_efforts[:, 0:1] = dp
+                    dof_efforts[:, 0:1] = self.rail_force
                     dof_efforts[:, 1:] = torques
                 elif N_PRISMATIC_DOFS == 0:
                     dof_efforts[:, :] = torques
@@ -675,14 +678,22 @@ class Vine5LinkMovingBase(VecTask):
                     target_position[0], target_position[1], target_position[2]), r=None)
                 gymutil.draw_lines(visualization_sphere_green, self.gym, self.viewer, self.envs[i], sphere_pose)
 
+
+def rescale_to_u(u):
+    return (u + 1.0) / 2.0 * (U_MAX-U_MIN) + U_MIN
+
+
+def rescale_to_rail_force(rail_force):
+    return rail_force * RAIL_FORCE_SCALE
+
 #####################################################################
 ### =========================jit functions=========================###
 #####################################################################
 
 
 @torch.jit.script
-def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_velocities, raw_actions, reward_weights):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
+def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_velocities, rail_force, u, reward_weights):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
     # reward = sum(w_i * r_i) with various reward function r_i and weights w_i
 
     # dense_reward = -dist_to_target [Try to reach target]
@@ -690,7 +701,8 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
     # position_success_reward = REWARD_BONUS if dist_to_target < SUCCESS_DISTANCE else 0 [Succeed if close enough]
     # velocity_success_reward = -norm(tip_velocity - desired_tip_velocity) if dist_to_target < SUCCESS_DISTANCE else 0 [Succeed if close enough and moving at the right speed]
     # velocity_reward = norm(tip_velocity) [Try to move fast]
-    # control_reward = -action^2 [Punish for using too much actuation]
+    # rail_force_control_reward = -norm(rail_force) [Punish for using too much actuation]
+    # u_control_reward = -norm(rail_force) [Punish for using too much actuation]
     N_REWARDS = torch.numel(reward_weights)
     N_ENVS = dist_to_target.shape[0]
 
@@ -703,7 +715,8 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
     reward_matrix[:, 2] += torch.where(target_reached, REWARD_BONUS, 0.0)
     reward_matrix[:, 3] += torch.where(target_reached, torch.norm(tip_velocities - target_velocities).double(), 0.0)
     reward_matrix[:, 4] += torch.norm(tip_velocities, dim=-1)
-    reward_matrix[:, 5] -= torch.norm(raw_actions, dim=-1)
+    reward_matrix[:, 5] -= torch.norm(rail_force, dim=-1)
+    reward_matrix[:, 6] -= torch.norm(u, dim=-1)
 
     total_reward = torch.sum(reward_matrix * reward_weights, dim=-1)
 
