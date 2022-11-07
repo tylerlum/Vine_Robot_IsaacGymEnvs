@@ -78,6 +78,7 @@
     <!--                         with inertia ixx = 0.000101559, iyy = 0.000101559, izz = 7.25805e-5 (others 0)-->
     <link name="link_0">
         <inertial>
+            <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <mass value="0.005" />
             <inertia ixx="0.00000689246" ixy="0.0" ixz="0.0" iyy="0.00000689246" iyz="0.0" izz="0.00000725805" />
         </inertial>
@@ -97,6 +98,7 @@
     </link>
     <link name="link_1">
         <inertial>
+            <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <mass value="0.005" />
             <inertia ixx="0.00000689246" ixy="0.0" ixz="0.0" iyy="0.00000689246" iyz="0.0" izz="0.00000725805" />
         </inertial>
@@ -116,6 +118,7 @@
     </link>
     <link name="link_2">
         <inertial>
+            <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <mass value="0.005" />
             <inertia ixx="0.00000689246" ixy="0.0" ixz="0.0" iyy="0.00000689246" iyz="0.0" izz="0.00000725805" />
         </inertial>
@@ -135,6 +138,7 @@
     </link>
     <link name="link_3">
         <inertial>
+            <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <mass value="0.005" />
             <inertia ixx="0.00000689246" ixy="0.0" ixz="0.0" iyy="0.00000689246" iyz="0.0" izz="0.00000725805" />
         </inertial>
@@ -154,6 +158,7 @@
     </link>
     <link name="link_4">
         <inertial>
+            <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <mass value="0.1" />
             <inertia ixx="0.000101559" ixy="0.0" ixz="0.0" iyy="0.000101559" iyz="0.0" izz="0.0000725805" />
         </inertial>
@@ -190,7 +195,7 @@
     </joint>
 
     <!-- REVOLUTE -->
-    <!-- Do not need to enforce limits because the model SHOULD handle it, but for now still add 30deg limit -->
+    <!-- Do not need to enforce limits because the model SHOULD handle it, in fact adding 30 deg limit caused some instabilities -->
     <joint name="cart_to_link_0" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
 
@@ -199,34 +204,34 @@
 
         <parent link="cart" />
         <child link="link_0" />
-        <limit lower="-0.523599" upper="0.523599" />
+        <!-- <limit lower="-0.523599" upper="0.523599" /> -->
     </joint>
     <joint name="link_0_to_link_1" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
         <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_0" />
         <child link="link_1" />
-        <limit lower="-0.523599" upper="0.523599" />
+        <!-- <limit lower="-0.523599" upper="0.523599" /> -->
     </joint>
     <joint name="link_1_to_link_2" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
         <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_1" />
         <child link="link_2" />
-        <limit lower="-0.523599" upper="0.523599" />
+        <!-- <limit lower="-0.523599" upper="0.523599" /> -->
     </joint>
     <joint name="link_2_to_link_3" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
         <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_2" />
         <child link="link_3" />
-        <limit lower="-0.523599" upper="0.523599" />
+        <!-- <limit lower="-0.523599" upper="0.523599" /> -->
     </joint>
     <joint name="link_3_to_link_4" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
         <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_3" />
         <child link="link_4" />
-        <limit lower="-0.523599" upper="0.523599" />
+        <!-- <limit lower="-0.523599" upper="0.523599" /> -->
     </joint>
 </robot>
