@@ -458,6 +458,10 @@ class Vine5LinkMovingBase(VecTask):
         tip_positions = self.obs_buf[:, -6:-3]
         target_positions = self.obs_buf[:, -3:]
         dist_tip_to_target = torch.linalg.norm(tip_positions - target_positions, dim=-1)
+
+        SUCCESS_DIST = 0.1
+        target_reached = dist_tip_to_target < SUCCESS_DIST
+
         self.wandb_dict.update({
             "dist_tip_to_target": dist_tip_to_target.mean().item(),
             "abs_tip_y": tip_positions[:, 1].abs().mean().item(),
@@ -466,9 +470,11 @@ class Vine5LinkMovingBase(VecTask):
             "max_tip_z": tip_positions[:, 2].max().item(),
             "tip_velocities": torch.norm(self.tip_velocities, dim=-1).mean().item(),
             "raw_actions": torch.norm(self.raw_actions, dim=-1).mean().item(),
+            "target_reached": target_reached.float().mean().item(),
         })
 
-        self.rew_buf[:], self.reset_buf[:] = compute_vine_reward(
+        # Break up reward into components and log
+        self.rew_buf[:], self.reset_buf[:] = compute_total_reward(
             dist_tip_to_target, self.tip_velocities, self.raw_actions, self.target_velocities, self.reset_buf, self.progress_buf, self.max_episode_length, USE_DENSE_REWARD, USE_CONST_NEGATIVE_REWARD, USE_VELOCITY_REWARD, USE_POSITION_SUCCESS_REWARD, USE_VELOCITY_SUCCESS_REWARD, USE_CONTROL_REWARD
         )
 
@@ -661,7 +667,33 @@ class Vine5LinkMovingBase(VecTask):
 
 
 @torch.jit.script
-def compute_vine_reward(dist_to_target, tip_velocities, raw_actions, target_velocities, reset_buf, progress_buf, max_episode_length, USE_DENSE_REWARD, USE_CONST_NEGATIVE_REWARD, USE_VELOCITY_REWARD, USE_POSITION_SUCCESS_REWARD, USE_VELOCITY_SUCCESS_REWARD, USE_CONTROL_REWARD):
+def compute_dense_reward(dist_to_target):
+    # type: (Tensor) -> Tensor
+    return -dist_to_target
+
+@torch.jit.script
+def compute_const_negative_reward():
+    # type: () -> float
+    return -1.0
+
+@torch.jit.script
+def compute_velocity_reward(tip_velocities):
+    # type: (Tensor) -> Tensor
+    return torch.norm(tip_velocities, dim=-1)
+
+@torch.jit.script
+def compute_position_success_reward(target_reached):
+    # type: (Tensor) -> Tensor
+    REWARD_BONUS = 1000.0
+    return torch.where(target_reached, REWARD_BONUS, 0.0)
+
+@torch.jit.script
+def compute_velocity_success_reward(target_reached, tip_velocity, desired_tip_velocity):
+    # type: (Tensor) -> Tensor
+    return torch.where(target_reached, torch.norm(tip_velocities - target_velocities).double(), 0.0)
+
+@torch.jit.script
+def compute_total_reward(dist_to_target, tip_velocities, raw_actions, target_velocities, reset_buf, progress_buf, max_episode_length, USE_DENSE_REWARD, USE_CONST_NEGATIVE_REWARD, USE_VELOCITY_REWARD, USE_POSITION_SUCCESS_REWARD, USE_VELOCITY_SUCCESS_REWARD, USE_CONTROL_REWARD):
     # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float, bool, bool, bool, bool, bool, bool) -> Tuple[Tensor, Tensor]
     # reward = sum(w_i * r_i) with various reward function r_i and weights w_i
 
