@@ -122,7 +122,7 @@ class Vine5LinkMovingBase(VecTask):
 
         self.initialize_state_tensors()
         self.target_positions = self.sample_target_positions(self.num_envs)
-        self.target_velocities = torch.zeros_like(self.target_positions, device=self.device)
+        self.target_velocities = self.sample_target_velocities(self.num_envs)
         self.A = None  # Cache this matrix
 
         # Setup viewer camera
@@ -496,6 +496,7 @@ class Vine5LinkMovingBase(VecTask):
 
         # New target positions
         self.target_positions[env_ids, :] = self.sample_target_positions(len(env_ids))
+        self.target_velocities[env_ids, :] = self.sample_target_velocities(len(env_ids))
 
     def sample_target_positions(self, num_envs):
         target_positions = torch.zeros(num_envs, NUM_XYZ, device=self.device)
@@ -511,6 +512,10 @@ class Vine5LinkMovingBase(VecTask):
             target_positions[:, 2] = TARGET_POS_MIN_Z
 
         return target_positions
+
+    def sample_target_velocities(self, num_envs):
+        # TODO
+        return torch.zeros(num_envs, NUM_XYZ, device=self.device)
 
     def pre_physics_step(self, actions):
         self.raw_actions = actions.clone().to(self.device)
