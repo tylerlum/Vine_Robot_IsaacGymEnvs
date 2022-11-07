@@ -70,6 +70,7 @@ DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
 RANDOMIZE_DOF_INIT = False
 RANDOMIZE_TARGETS = True
 PD_TARGET_ALL_JOINTS = False
+QS = []
 
 
 def print_if(text="", should_print=False):
@@ -501,6 +502,15 @@ class Vine5LinkMovingBase(VecTask):
         return target_positions
 
     def pre_physics_step(self, actions):
+        QS.append(torch.clone(self.dof_pos[0]))
+        if len(QS) > 200:
+        # if False:
+            import pickle
+            with open('VINE_ROBOT_TEST.pickle', 'wb') as handle:
+                pickle.dump(QS, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            assert(False)
+
+
         self.raw_actions = actions.clone().to(self.device)
 
         if DOF_MODE == "FORCE":
@@ -550,6 +560,8 @@ class Vine5LinkMovingBase(VecTask):
                     u[:] = U_MIN
                     self.MIN_PRESSURE_COUNTER -= 1
 
+                u[:] = U_MAX
+
                 if self.A is None:
                     # torque = - Kq - Cqd - b - Bu;
                     #        = - [K C diag(b) diag(B)] @ [q; qd; ones(5), u*ones(5)]
@@ -564,35 +576,6 @@ class Vine5LinkMovingBase(VecTask):
                                      0.029474741498381096, -0.015412936470522515], device=self.device)
                     A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
                     self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
-
-                TEST_Q = torch.zeros(self.num_envs, 5, device=self.device)
-                TEST_QD = torch.zeros(self.num_envs, 5, device=self.device)
-                # TEST_Q = torch.tensor([0.05762569, 0.12572397, 0.15844386, 0.11710363, 0.1638493], device=self.device)[None, ...].repeat_interleave(self.num_envs, dim=0)
-                # TEST_QD = torch.tensor([0.22546462, 0.1221349, 0.17091408, 0.15636652, 0.17276788], device=self.device)[None, ...].repeat_interleave(self.num_envs, dim=0)
-                # TEST_Q = torch.tensor([-0.09057265,  0.04870124,  0.07705427,  0.05063146,  0.05872636], device=self.device)[None, ...].repeat_interleave(self.num_envs, dim=0)
-                # TEST_QD = torch.tensor([0.21137058, -0.02916099,  0.04117841,  0.5062463,   1.15865642], device=self.device)[None, ...].repeat_interleave(self.num_envs, dim=0)
-
-                TEST_U = torch.ones(self.num_envs, 1, device=self.device) * U_MAX
-                MANUAL_TORQUE = -K @ TEST_Q[0] - C @ TEST_QD[0] - b - B * TEST_U[0]
-                print(f"K = {K}")
-                print(f"TEST_Q[0] = {TEST_Q[0]}")
-                print(f"-K @ TEST_Q[0] = {-K @ TEST_Q[0]}")
-                print(f"C = {C}")
-                print(f"TEST_QD[0] = {TEST_QD[0]}")
-                print(f"-C @ TEST_QD[0] = {-C @ TEST_QD[0]}")
-                print(f"b = {b}")
-                print(f"B = {B}")
-                print(f"TEST_U[0] = {TEST_U[0]}")
-                print(f"-B * TEST_U[0] = {-B * TEST_U[0]}")
-
-                TESTX = torch.cat([TEST_Q, TEST_QD, torch.ones(self.num_envs, 5, device=self.device), TEST_U *
-                              torch.ones(self.num_envs, 5, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
-                TEST_TORQUES = -torch.matmul(self.A, TESTX).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
-                print(f"MANUAL_TORQUE = {MANUAL_TORQUE}")
-                print(f"TEST_TORQUES = {TEST_TORQUES}")
-                assert(False)
-
-
 
                 x = torch.cat([q, qd, torch.ones(self.num_envs, 5, device=self.device), u *
                               torch.ones(self.num_envs, 5, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)

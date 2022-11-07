@@ -12,14 +12,14 @@ env:
   clipObservations: 5.0
   clipActions: 1.0
 
-  maxEpisodeLength: 1000
+  maxEpisodeLength: 1_000_000
 
   # set to True if you use camera sensors in the environment
   enableCameraSensors: False
 
 sim:
   dt: 0.01 # 1/100 s
-  substeps: 2
+  substeps: 10
   up_axis: "z"
   use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
   gravity: [0.0, 0.0, -9.81]
