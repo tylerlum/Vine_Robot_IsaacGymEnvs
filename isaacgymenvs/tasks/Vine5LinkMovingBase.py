@@ -48,10 +48,14 @@ START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = False
+
+# Rewards
 USE_DENSE_REWARD = True
 USE_CONST_NEGATIVE_REWARD = True
-USE_SUCCESS_REWARD = True
 USE_VELOCITY_REWARD = True
+USE_POSITION_SUCCESS_REWARD = True
+USE_VELOCITY_SUCCESS_REWARD = True
+USE_CONTROL_REWARD = True
 
 N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
@@ -118,6 +122,7 @@ class Vine5LinkMovingBase(VecTask):
 
         self.initialize_state_tensors()
         self.target_positions = self.sample_target_positions(self.num_envs)
+        self.target_velocities = torch.zeros_like(self.target_positions, device=self.device)
         self.A = None
 
     def initialize_state_tensors(self):
@@ -431,7 +436,7 @@ class Vine5LinkMovingBase(VecTask):
         dist_tip_to_target = torch.linalg.norm(tip_positions - target_positions, dim=-1)
 
         self.rew_buf[:], self.reset_buf[:] = compute_vine_reward(
-            dist_tip_to_target, self.tip_velocities, self.reset_buf, self.progress_buf, self.max_episode_length, USE_DENSE_REWARD, USE_CONST_NEGATIVE_REWARD, USE_SUCCESS_REWARD, USE_VELOCITY_REWARD
+            dist_tip_to_target, self.tip_velocities, self.raw_actions, self.target_velocities, self.reset_buf, self.progress_buf, self.max_episode_length, USE_DENSE_REWARD, USE_CONST_NEGATIVE_REWARD, USE_VELOCITY_REWARD, USE_POSITION_SUCCESS_REWARD, USE_VELOCITY_SUCCESS_REWARD, USE_CONTROL_REWARD
         )
 
     def compute_observations(self, env_ids=None):
@@ -615,31 +620,41 @@ class Vine5LinkMovingBase(VecTask):
 
 
 @torch.jit.script
-def compute_vine_reward(dist_to_target, tip_velocities, reset_buf, progress_buf, max_episode_length, USE_DENSE_REWARD, USE_CONST_NEGATIVE_REWARD, USE_SUCCESS_REWARD, USE_VELOCITY_REWARD):
-    # type: (Tensor, Tensor, Tensor, Tensor, float, bool, bool, bool, bool) -> Tuple[Tensor, Tensor]
+def compute_vine_reward(dist_to_target, tip_velocities, raw_actions, target_velocities, reset_buf, progress_buf, max_episode_length, USE_DENSE_REWARD, USE_CONST_NEGATIVE_REWARD, USE_VELOCITY_REWARD, USE_POSITION_SUCCESS_REWARD, USE_VELOCITY_SUCCESS_REWARD, USE_CONTROL_REWARD):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float, bool, bool, bool, bool, bool, bool) -> Tuple[Tensor, Tensor]
+    # reward = sum(w_i * r_i) with various reward function r_i and weights w_i
 
-    # TODO: Improve with reward shaping, eg. reduce control action or length
+    # dense_reward = -dist_to_target [Try to reach target]
+    # const_negative_reward = -1 [Punish for not succeeding]
+    # velocity_reward = norm(tip_velocity) [Try to move fast]
+    # position_success_reward = REWARD_BONUS if dist_to_target < SUCCESS_DISTANCE else 0 [Succeed if close enough]
+    # velocity_success_reward = -norm(tip_velocity - desired_tip_velocity) if dist_to_target < SUCCESS_DISTANCE else 0 [Succeed if close enough and moving at the right speed]
+    # control_reward = -action^2 [Punish for using too much actuation]
+
     reward = torch.zeros_like(dist_to_target, device=dist_to_target.device)
 
-    # reward is punishing dist_to_target
     if USE_DENSE_REWARD:
         reward -= dist_to_target
 
-    # reward is punishing not succeeding
     if USE_CONST_NEGATIVE_REWARD:
         reward -= 1
 
-    # reward is rewarding high speed movement
     if USE_VELOCITY_REWARD:
-        reward += torch.abs(torch.norm(tip_velocities, dim=-1))
+        reward += torch.norm(tip_velocities, dim=-1)
 
-    # Reward bonus and reset for reaching target
     SUCCESS_DIST = 0.1
     REWARD_BONUS = 1000
-    if USE_SUCCESS_REWARD:
-        reward = torch.where(dist_to_target < SUCCESS_DIST, reward + REWARD_BONUS, reward)
+    target_reached = dist_to_target < SUCCESS_DIST
+    if USE_POSITION_SUCCESS_REWARD:
+        reward += torch.where(target_reached, REWARD_BONUS, 0)
+
+    if USE_VELOCITY_SUCCESS_REWARD:
+        reward += torch.where(target_reached, torch.norm(tip_velocities - target_velocities), 0)
+
+    if USE_CONTROL_REWARD:
+        reward += torch.norm(raw_actions, dim=-1)
 
     reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset_buf)
-    reset = torch.where(dist_to_target < SUCCESS_DIST, torch.ones_like(reset), reset)
+    reset = torch.where(target_reached, torch.ones_like(reset), reset)
 
     return reward, reset
