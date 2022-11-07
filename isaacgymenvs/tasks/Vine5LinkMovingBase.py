@@ -518,7 +518,7 @@ class Vine5LinkMovingBase(VecTask):
             else:
                 dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
 
-                U_MIN, U_MAX = -0.1, 5.0
+                U_MIN, U_MAX = -0.1, 3.0
                 RAIL_FORCE_SCALE = 1000.0
 
                 # Break apart actions and states
@@ -564,6 +564,35 @@ class Vine5LinkMovingBase(VecTask):
                                      0.029474741498381096, -0.015412936470522515], device=self.device)
                     A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
                     self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
+
+                TEST_Q = torch.zeros(self.num_envs, 5, device=self.device)
+                TEST_QD = torch.zeros(self.num_envs, 5, device=self.device)
+                # TEST_Q = torch.tensor([0.05762569, 0.12572397, 0.15844386, 0.11710363, 0.1638493], device=self.device)[None, ...].repeat_interleave(self.num_envs, dim=0)
+                # TEST_QD = torch.tensor([0.22546462, 0.1221349, 0.17091408, 0.15636652, 0.17276788], device=self.device)[None, ...].repeat_interleave(self.num_envs, dim=0)
+                # TEST_Q = torch.tensor([-0.09057265,  0.04870124,  0.07705427,  0.05063146,  0.05872636], device=self.device)[None, ...].repeat_interleave(self.num_envs, dim=0)
+                # TEST_QD = torch.tensor([0.21137058, -0.02916099,  0.04117841,  0.5062463,   1.15865642], device=self.device)[None, ...].repeat_interleave(self.num_envs, dim=0)
+
+                TEST_U = torch.ones(self.num_envs, 1, device=self.device) * U_MAX
+                MANUAL_TORQUE = -K @ TEST_Q[0] - C @ TEST_QD[0] - b - B * TEST_U[0]
+                print(f"K = {K}")
+                print(f"TEST_Q[0] = {TEST_Q[0]}")
+                print(f"-K @ TEST_Q[0] = {-K @ TEST_Q[0]}")
+                print(f"C = {C}")
+                print(f"TEST_QD[0] = {TEST_QD[0]}")
+                print(f"-C @ TEST_QD[0] = {-C @ TEST_QD[0]}")
+                print(f"b = {b}")
+                print(f"B = {B}")
+                print(f"TEST_U[0] = {TEST_U[0]}")
+                print(f"-B * TEST_U[0] = {-B * TEST_U[0]}")
+
+                TESTX = torch.cat([TEST_Q, TEST_QD, torch.ones(self.num_envs, 5, device=self.device), TEST_U *
+                              torch.ones(self.num_envs, 5, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
+                TEST_TORQUES = -torch.matmul(self.A, TESTX).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
+                print(f"MANUAL_TORQUE = {MANUAL_TORQUE}")
+                print(f"TEST_TORQUES = {TEST_TORQUES}")
+                assert(False)
+
+
 
                 x = torch.cat([q, qd, torch.ones(self.num_envs, 5, device=self.device), u *
                               torch.ones(self.num_envs, 5, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
