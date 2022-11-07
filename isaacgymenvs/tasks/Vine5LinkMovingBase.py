@@ -123,7 +123,7 @@ class Vine5LinkMovingBase(VecTask):
         self.initialize_state_tensors()
         self.target_positions = self.sample_target_positions(self.num_envs)
         self.target_velocities = torch.zeros_like(self.target_positions, device=self.device)
-        self.A = None
+        self.A = None  # Cache this matrix
 
     def initialize_state_tensors(self):
         # Store dof state tensor, and get pos and vel
@@ -643,13 +643,13 @@ def compute_vine_reward(dist_to_target, tip_velocities, raw_actions, target_velo
         reward += torch.norm(tip_velocities, dim=-1)
 
     SUCCESS_DIST = 0.1
-    REWARD_BONUS = 1000
+    REWARD_BONUS = 1000.0
     target_reached = dist_to_target < SUCCESS_DIST
     if USE_POSITION_SUCCESS_REWARD:
-        reward += torch.where(target_reached, REWARD_BONUS, 0)
+        reward += torch.where(target_reached, REWARD_BONUS, 0.0)
 
     if USE_VELOCITY_SUCCESS_REWARD:
-        reward += torch.where(target_reached, torch.norm(tip_velocities - target_velocities), 0)
+        reward += torch.where(target_reached, torch.norm(tip_velocities - target_velocities).double(), 0.0)
 
     if USE_CONTROL_REWARD:
         reward += torch.norm(raw_actions, dim=-1)
