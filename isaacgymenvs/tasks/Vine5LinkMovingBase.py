@@ -126,7 +126,7 @@ class Vine5LinkMovingBase(VecTask):
         self.A = None  # Cache this matrix
 
         # Setup viewer camera
-        index_to_view = int(self.num_envs / 4)
+        index_to_view = int(0.1 * self.num_envs)
         tip_pos = self.tip_positions[index_to_view]
         cam_target = gymapi.Vec3(tip_pos[0], tip_pos[1], INIT_Z)
         cam_pos = cam_target + gymapi.Vec3(2.0, 0.0, 0.0)
