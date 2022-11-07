@@ -51,12 +51,15 @@ START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 USE_MOVING_BASE = False
 
 # Rewards
-USE_DENSE_REWARD = True
-USE_CONST_NEGATIVE_REWARD = True
-USE_VELOCITY_REWARD = True
-USE_POSITION_SUCCESS_REWARD = True
-USE_VELOCITY_SUCCESS_REWARD = True
-USE_CONTROL_REWARD = True
+REWARD_NAMES = ["Dense", "Const Negative", "Position Success", "Velocity Success", "Velocity", "Control"]
+DENSE_REWARD_WEIGHT = 1.0
+CONST_NEGATIVE_REWARD_WEIGHT = 1.0
+POSITION_SUCCESS_REWARD_WEIGHT = 1.0
+VELOCITY_SUCCESS_REWARD_WEIGHT = 1.0
+VELOCITY_REWARD_WEIGHT = 1.0
+CONTROL_REWARD_WEIGHT = 1.0
+REWARD_WEIGHTS = [DENSE_REWARD_WEIGHT, CONST_NEGATIVE_REWARD_WEIGHT, POSITION_SUCCESS_REWARD_WEIGHT,
+                  VELOCITY_SUCCESS_REWARD_WEIGHT, VELOCITY_REWARD_WEIGHT, CONTROL_REWARD_WEIGHT]
 
 N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
@@ -128,6 +131,7 @@ class Vine5LinkMovingBase(VecTask):
         self.target_positions = self.sample_target_positions(self.num_envs)
         self.target_velocities = self.sample_target_velocities(self.num_envs)
         self.A = None  # Cache this matrix
+        self.reward_weights = torch.tensor([REWARD_WEIGHTS], device=self.device)
 
         # Setup viewer camera
         index_to_view = int(0.1 * self.num_envs)
@@ -471,12 +475,22 @@ class Vine5LinkMovingBase(VecTask):
             "tip_velocities": torch.norm(self.tip_velocities, dim=-1).mean().item(),
             "raw_actions": torch.norm(self.raw_actions, dim=-1).mean().item(),
             "target_reached": target_reached.float().mean().item(),
+            "target_reached_max": target_reached.float().max().item(),
+            "tip_velocities_max": torch.norm(self.tip_velocities, dim=-1).max().item(),
         })
 
-        # Break up reward into components and log
-        self.rew_buf[:], self.reset_buf[:] = compute_total_reward(
-            dist_tip_to_target, self.tip_velocities, self.raw_actions, self.target_velocities, self.reset_buf, self.progress_buf, self.max_episode_length, USE_DENSE_REWARD, USE_CONST_NEGATIVE_REWARD, USE_VELOCITY_REWARD, USE_POSITION_SUCCESS_REWARD, USE_VELOCITY_SUCCESS_REWARD, USE_CONTROL_REWARD
+        self.rew_buf[:], reward_matrix = compute_reward_jit(
+            dist_tip_to_target, target_reached, self.tip_velocities, self.target_velocities, self.raw_actions, self.reward_weights
         )
+
+        for i, reward_name in enumerate(REWARD_NAMES):
+            self.wandb_dict.update({
+                f"Mean {reward_name} Reward": reward_matrix[:, i].mean().item(),
+                f"Max {reward_name} Reward": reward_matrix[:, i].max().item()
+            })
+
+        self.reset_buf[:] = compute_reset_jit(self.reset_buf, self.progress_buf,
+                                              self.max_episode_length, target_reached)
 
     def compute_observations(self, env_ids=None):
         if env_ids is None:
@@ -667,67 +681,37 @@ class Vine5LinkMovingBase(VecTask):
 
 
 @torch.jit.script
-def compute_dense_reward(dist_to_target):
-    # type: (Tensor) -> Tensor
-    return -dist_to_target
-
-@torch.jit.script
-def compute_const_negative_reward():
-    # type: () -> float
-    return -1.0
-
-@torch.jit.script
-def compute_velocity_reward(tip_velocities):
-    # type: (Tensor) -> Tensor
-    return torch.norm(tip_velocities, dim=-1)
-
-@torch.jit.script
-def compute_position_success_reward(target_reached):
-    # type: (Tensor) -> Tensor
-    REWARD_BONUS = 1000.0
-    return torch.where(target_reached, REWARD_BONUS, 0.0)
-
-@torch.jit.script
-def compute_velocity_success_reward(target_reached, tip_velocity, desired_tip_velocity):
-    # type: (Tensor) -> Tensor
-    return torch.where(target_reached, torch.norm(tip_velocities - target_velocities).double(), 0.0)
-
-@torch.jit.script
-def compute_total_reward(dist_to_target, tip_velocities, raw_actions, target_velocities, reset_buf, progress_buf, max_episode_length, USE_DENSE_REWARD, USE_CONST_NEGATIVE_REWARD, USE_VELOCITY_REWARD, USE_POSITION_SUCCESS_REWARD, USE_VELOCITY_SUCCESS_REWARD, USE_CONTROL_REWARD):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float, bool, bool, bool, bool, bool, bool) -> Tuple[Tensor, Tensor]
+def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_velocities, raw_actions, reward_weights):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
     # reward = sum(w_i * r_i) with various reward function r_i and weights w_i
 
     # dense_reward = -dist_to_target [Try to reach target]
     # const_negative_reward = -1 [Punish for not succeeding]
-    # velocity_reward = norm(tip_velocity) [Try to move fast]
     # position_success_reward = REWARD_BONUS if dist_to_target < SUCCESS_DISTANCE else 0 [Succeed if close enough]
     # velocity_success_reward = -norm(tip_velocity - desired_tip_velocity) if dist_to_target < SUCCESS_DISTANCE else 0 [Succeed if close enough and moving at the right speed]
+    # velocity_reward = norm(tip_velocity) [Try to move fast]
     # control_reward = -action^2 [Punish for using too much actuation]
+    N_REWARDS = torch.numel(reward_weights)
+    N_ENVS = dist_to_target.shape[0]
 
-    reward = torch.zeros_like(dist_to_target, device=dist_to_target.device)
+    # Brittle: Ensure reward order matches
+    reward_matrix = torch.zeros(N_ENVS, N_REWARDS, device=dist_to_target.device)
+    reward_matrix[:, 0] -= dist_to_target
+    reward_matrix[:, 1] -= 1
 
-    if USE_DENSE_REWARD:
-        reward -= dist_to_target
-
-    if USE_CONST_NEGATIVE_REWARD:
-        reward -= 1
-
-    if USE_VELOCITY_REWARD:
-        reward += torch.norm(tip_velocities, dim=-1)
-
-    SUCCESS_DIST = 0.1
     REWARD_BONUS = 1000.0
-    target_reached = dist_to_target < SUCCESS_DIST
-    if USE_POSITION_SUCCESS_REWARD:
-        reward += torch.where(target_reached, REWARD_BONUS, 0.0)
+    reward_matrix[:, 2] += torch.where(target_reached, REWARD_BONUS, 0.0)
+    reward_matrix[:, 3] += torch.where(target_reached, torch.norm(tip_velocities - target_velocities).double(), 0.0)
+    reward_matrix[:, 4] += torch.norm(tip_velocities, dim=-1)
+    reward_matrix[:, 5] -= torch.norm(raw_actions, dim=-1)
 
-    if USE_VELOCITY_SUCCESS_REWARD:
-        reward += torch.where(target_reached, torch.norm(tip_velocities - target_velocities).double(), 0.0)
+    total_reward = torch.sum(reward_matrix * reward_weights, dim=-1)
 
-    if USE_CONTROL_REWARD:
-        reward += torch.norm(raw_actions, dim=-1)
+    return total_reward, reward_matrix
 
+
+def compute_reset_jit(reset_buf, progress_buf, max_episode_length, target_reached):
+    # type: (Tensor, Tensor, float, Tensor) -> Tensor
     reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset_buf)
     reset = torch.where(target_reached, torch.ones_like(reset), reset)
-
-    return reward, reset
+    return reset
