@@ -33,6 +33,7 @@ import math
 
 from isaacgym import gymutil, gymtorch, gymapi
 from .base.vec_task import VecTask
+import wandb
 
 # CONSTANTS (RARELY CHANGE)
 NUM_STATES = 13  # xyz, quat, v_xyz, w_xyz
@@ -74,6 +75,9 @@ DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
 RANDOMIZE_DOF_INIT = False
 RANDOMIZE_TARGETS = True
 PD_TARGET_ALL_JOINTS = False
+
+# GLOBALS
+USE_WANDB = True
 
 
 def print_if(text="", should_print=False):
@@ -132,6 +136,8 @@ class Vine5LinkMovingBase(VecTask):
         cam_pos = cam_target + gymapi.Vec3(2.0, 0.0, 0.0)
         self.gym.viewer_camera_look_at(self.viewer, self.envs[index_to_view], cam_pos, cam_target)
 
+        self.wandb_dict = {}
+
     def initialize_state_tensors(self):
         # Store dof state tensor, and get pos and vel
         dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
@@ -156,6 +162,17 @@ class Vine5LinkMovingBase(VecTask):
     def refresh_state_tensors(self):
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
+
+    def log_wandb_dict(self):
+        # Only wandb log if working
+        global USE_WANDB
+        if USE_WANDB:
+            try:
+                wandb.log(self.wandb_dict)
+            except wandb.errors.Error:
+                print("Wandb not initialized, no longer trying to log")
+                USE_WANDB = False
+            self.wandb_dict = {}
 
     ##### KEYBOARD EVENT SUBSCRIPTIONS START #####
     def subscribe_to_keyboard_events(self):
@@ -441,6 +458,15 @@ class Vine5LinkMovingBase(VecTask):
         tip_positions = self.obs_buf[:, -6:-3]
         target_positions = self.obs_buf[:, -3:]
         dist_tip_to_target = torch.linalg.norm(tip_positions - target_positions, dim=-1)
+        self.wandb_dict.update({
+            "dist_tip_to_target": dist_tip_to_target.mean().item(),
+            "abs_tip_y": tip_positions[:, 1].abs().mean().item(),
+            "tip_z": tip_positions[:, 2].mean().item(),
+            "max_abs_tip_y": tip_positions[:, 1].abs().max().item(),
+            "max_tip_z": tip_positions[:, 2].max().item(),
+            "tip_velocities": torch.norm(self.tip_velocities, dim=-1).mean().item(),
+            "raw_actions": torch.norm(self.raw_actions, dim=-1).mean().item(),
+        })
 
         self.rew_buf[:], self.reset_buf[:] = compute_vine_reward(
             dist_tip_to_target, self.tip_velocities, self.raw_actions, self.target_velocities, self.reset_buf, self.progress_buf, self.max_episode_length, USE_DENSE_REWARD, USE_CONST_NEGATIVE_REWARD, USE_VELOCITY_REWARD, USE_POSITION_SUCCESS_REWARD, USE_VELOCITY_SUCCESS_REWARD, USE_CONTROL_REWARD
@@ -610,6 +636,9 @@ class Vine5LinkMovingBase(VecTask):
         # Compute observations and reward
         self.compute_observations()
         self.compute_reward()
+
+        # Log info
+        self.log_wandb_dict()
 
         # Draw debug info
         if self.viewer and self.enable_viewer_sync:
