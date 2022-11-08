@@ -15,6 +15,7 @@
 
 # %%
 # Must import rl_games before torch
+import isaacgym
 from rl_games.algos_torch import model_builder, torch_ext
 from rl_games.torch_runner import _restore
 
@@ -151,15 +152,15 @@ class VineRobotControlModel(nn.Module):
 
         # Create rl_games player with config and checkpoint
         with open(config_path, "rb") as f:
-            cfg = pickle.load(f)
-        self.rl_games_player = PpoPlayerContinuous(cfg['params'])
+            self.cfg = pickle.load(f)
+        self.rl_games_player = PpoPlayerContinuous(self.cfg['params'])
         _restore(self.rl_games_player, {"checkpoint": checkpoint_path})
 
-    def get_action(self, q, qd, tip_pos, tip_vel, target_pos, target_vel):
+    def get_action(self, q, qd, tip_pos, tip_vel, target_pos):
         # Inputs all have shape (xi,), where xi is the specific vector size
         # Assumes inputs are torch tensors, and inputs and model are on the same device
         # Returns torch tensor on same device
-        obs = torch.cat([q, qd, tip_pos, tip_vel, target_pos, target_vel])[None, ...].to(q.device)  # (1, sum(xi))
+        obs = torch.cat([q, qd, tip_pos, tip_vel, target_pos])[None, ...].to(q.device)  # (1, sum(xi))
         action = self.forward(obs)[0]  # (1, action_dim)  => (action_dim,)
 
         if torch.numel(action) == 1:
@@ -184,24 +185,27 @@ vine_robot_control_model = VineRobotControlModel(
     ABS_CONFIG_PATH, ABS_CHECKPOINT_PATH, RAIL_FORCE_RANGE, U_RANGE).to(device)
 
 # %%
-print(f"vine_robot_control_model: {vine_robot_control_model}")
-print(f"vine_robot_control_model.rl_games_player: {vine_robot_control_model.rl_games_player}")
-
-# %%
 # Test on inputs
 q = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0]).to(device)
 qd = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0]).to(device)
 tip_pos = torch.tensor([0.0, 0.0, 0.0]).to(device)
 tip_vel = torch.tensor([0.0, 0.0, 0.0]).to(device)
 target_pos = torch.tensor([0.0, 0.0, 0.0]).to(device)
-target_vel = torch.tensor([0.0, 0.0, 0.0]).to(device)
+# target_vel = torch.tensor([0.0, 0.0, 0.0]).to(device)
 
-action = vine_robot_control_model.get_action(q, qd, tip_pos, tip_vel, target_pos, target_vel)
-x = action[0]
-u = action[1]
-print(f"With inputs q = {q}, qd = {qd}, tip_pos = {tip_pos}, tip_vel = {tip_vel}, target_pos = {target_pos}, target_vel = {target_vel}, the model outputs x = {x} and u = {u}")
+# action = vine_robot_control_model.get_action(q, qd, tip_pos, tip_vel, target_pos, target_vel)
+action = vine_robot_control_model.get_action(q, qd, tip_pos, tip_vel, target_pos)
+if torch.numel(action) == 2:
+    x = action[0]
+    u = action[1]
+else:
+    x = None
+    u = action[0]
+print(f"With inputs q = {q}, qd = {qd}, tip_pos = {tip_pos}, tip_vel = {tip_vel}, target_pos = {target_pos},, the model outputs x = {x} and u = {u}")
 
 # %%
-vine_robot_control_model.nn_model
+print(f"vine_robot_control_model: {vine_robot_control_model}")
+print(f"vine_robot_control_model.rl_games_player: {vine_robot_control_model.rl_games_player}")
+print(f"vine_robot_control_model.cfg: {vine_robot_control_model.cfg}")
 
 # %%
