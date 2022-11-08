@@ -14,20 +14,35 @@
 # ---
 
 # %%
+# Must import rl_games before torch
+from rl_games.algos_torch import model_builder, torch_ext
+from rl_games.torch_runner import _restore
+
+import os
 import pickle
-from rl_games.torch_runner import Runner, _restore
-from rl_games.algos_torch import players
-from rl_games.algos_torch import torch_ext
+import numpy as np
 import torch
 import torch.nn as nn
-import os
+from gym import spaces
 
 # %%
-import numpy as np
-from gym import spaces
-from rl_games.algos_torch import model_builder
+# PARAMETERS
+# Input/Output Sizes
 N_ACTIONS = 1
 N_OBS = 19
+
+# Action space
+RAIL_FORCE_RANGE = (-10.0, 10.0)
+U_RANGE = (-0.1, 3.0)
+
+# File paths
+FOLDER = "/home/tylerlum/github_repos/Vine_Robot_IsaacGymEnvs/isaacgymenvs"
+REL_CHECKPOINT_PATH = "runs/Vine5LinkMovingBase/nn/last_Vine5LinkMovingBase_ep_500_rew_182.01628.pth"  # Specific model weights
+REL_CONFIG_PATH = "runs/Vine5LinkMovingBase/2022-11-07_14-50-31_rlg_config_dict.pkl"  # Config of the model
+ABS_CHECKPOINT_PATH = os.path.join(FOLDER, REL_CHECKPOINT_PATH)
+ABS_CONFIG_PATH = os.path.join(FOLDER, REL_CONFIG_PATH)
+
+# %%
 
 
 def rescale_actions(low, high, action):
@@ -124,22 +139,6 @@ class PpoPlayerContinuous(BasePlayer):
 
 
 # %%
-FOLDER = "/home/tylerlum/github_repos/Vine_Robot_IsaacGymEnvs/isaacgymenvs"
-CHECKPOINT_PATH = "runs/Vine5LinkMovingBase/nn/last_Vine5LinkMovingBase_ep_500_rew_182.01628.pth"  # Specific model weights
-CONFIG_PATH = "runs/Vine5LinkMovingBase/2022-11-07_14-50-31_rlg_config_dict.pkl"  # Config of the model
-with open(os.path.join(FOLDER, CONFIG_PATH), "rb") as f:
-    cfg = pickle.load(f)
-
-player = PpoPlayerContinuous(cfg['params'])
-_restore(player, {"checkpoint": os.path.join(FOLDER, CHECKPOINT_PATH)})
-
-# %%
-player.get_action(torch.zeros(2, 19, device=player.device))
-
-# %%
-
-
-# %%
 class VineRobotControlModel(nn.Module):
     def __init__(self, config_path, checkpoint_path, x_range, u_range):
         super().__init__()
@@ -147,11 +146,14 @@ class VineRobotControlModel(nn.Module):
         self.checkpoint_path = checkpoint_path
 
         # Action space scaling
-        self.x_min, self.x_max = x_range
+        self.rail_force_min, self.rail_force_max = x_range
         self.u_min, self.u_max = u_range
 
-        # Create rl_games player
-        self.rl_games_player = 1  # TODO
+        # Create rl_games player with config and checkpoint
+        with open(config_path, "rb") as f:
+            cfg = pickle.load(f)
+        self.rl_games_player = PpoPlayerContinuous(cfg['params'])
+        _restore(self.rl_games_player, {"checkpoint": checkpoint_path})
 
     def get_action(self, q, qd, tip_pos, tip_vel, target_pos, target_vel):
         # Inputs all have shape (xi,), where xi is the specific vector size
@@ -163,7 +165,7 @@ class VineRobotControlModel(nn.Module):
         if torch.numel(action) == 1:
             return self.rescale(action, self.u_min, self.u_max)
         elif torch.numel(action) == 2:
-            action[0] = self.rescale(action[0], self.x_min, self.x_max)
+            action[0] = self.rescale(action[0], self.rail_force_min, self.rail_force_max)
             action[1] = self.rescale(action[1], self.u_min, self.u_max)
         return action
 
@@ -175,24 +177,24 @@ class VineRobotControlModel(nn.Module):
 
 
 # %%
-# Create rlgames player
-FOLDER = "/home/tylerlum/github_repos/Vine_Robot_IsaacGymEnvs/isaacgymenvs"
-FILE_PATH = "runs/Vine5LinkMovingBase/nn/last_Vine5LinkMovingBase_ep_500_rew_914.96765.pth"
-FULL_FILE_PATH = os.path.join(FOLDER, FILE_PATH)
-X_RANGE = (-10.0, 10.0)
-U_RANGE = (-0.1, 3.0)
+# Create VineRobotControlModel
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-vine_robot_control_model = VineRobotControlModel(FULL_FILE_PATH, X_RANGE, U_RANGE).to(device)
+vine_robot_control_model = VineRobotControlModel(
+    ABS_CONFIG_PATH, ABS_CHECKPOINT_PATH, RAIL_FORCE_RANGE, U_RANGE).to(device)
+
+# %%
+print(f"vine_robot_control_model: {vine_robot_control_model}")
+print(f"vine_robot_control_model.rl_games_player: {vine_robot_control_model.rl_games_player}")
 
 # %%
 # Test on inputs
 q = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0]).to(device)
 qd = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0]).to(device)
-tip_pos = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0]).to(device)
-tip_vel = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0]).to(device)
-target_pos = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0]).to(device)
-target_vel = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0]).to(device)
+tip_pos = torch.tensor([0.0, 0.0, 0.0]).to(device)
+tip_vel = torch.tensor([0.0, 0.0, 0.0]).to(device)
+target_pos = torch.tensor([0.0, 0.0, 0.0]).to(device)
+target_vel = torch.tensor([0.0, 0.0, 0.0]).to(device)
 
 action = vine_robot_control_model.get_action(q, qd, tip_pos, tip_vel, target_pos, target_vel)
 x = action[0]
@@ -201,3 +203,5 @@ print(f"With inputs q = {q}, qd = {qd}, tip_pos = {tip_pos}, tip_vel = {tip_vel}
 
 # %%
 vine_robot_control_model.nn_model
+
+# %%
