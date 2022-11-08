@@ -15,7 +15,7 @@
 
 # %%
 # Must import rl_games before torch
-import isaacgym
+# import isaacgym
 from rl_games.algos_torch import model_builder, torch_ext
 from rl_games.torch_runner import _restore
 
@@ -38,8 +38,10 @@ U_RANGE = (-0.1, 3.0)
 
 # File paths
 FOLDER = "/home/tylerlum/github_repos/Vine_Robot_IsaacGymEnvs/isaacgymenvs"
-REL_CHECKPOINT_PATH = "runs/Vine5LinkMovingBase/nn/last_Vine5LinkMovingBase_ep_500_rew_182.01628.pth"  # Specific model weights
-REL_CONFIG_PATH = "runs/Vine5LinkMovingBase/2022-11-07_14-50-31_rlg_config_dict.pkl"  # Config of the model
+# REL_CHECKPOINT_PATH = "runs/Vine5LinkMovingBase/nn/last_Vine5LinkMovingBase_ep_500_rew_182.01628.pth"  # Specific model weights
+# REL_CONFIG_PATH = "runs/Vine5LinkMovingBase/2022-11-07_14-50-31_rlg_config_dict.pkl"  # Config of the model
+REL_CHECKPOINT_PATH = "runs/Vine5LinkMovingBase/nn/last_Vine5LinkMovingBase_ep_450_rew_189.67616.pth"  # Specific model weights
+REL_CONFIG_PATH = "runs/Vine5LinkMovingBase/2022-11-08_11-20-33_rlg_config_dict.pkl"
 ABS_CHECKPOINT_PATH = os.path.join(FOLDER, REL_CHECKPOINT_PATH)
 ABS_CONFIG_PATH = os.path.join(FOLDER, REL_CONFIG_PATH)
 
@@ -204,8 +206,6 @@ else:
 print(f"With inputs q = {q}, qd = {qd}, tip_pos = {tip_pos}, tip_vel = {tip_vel}, target_pos = {target_pos},, the model outputs x = {x} and u = {u}")
 
 # %%
-print(f"vine_robot_control_model: {vine_robot_control_model}")
-print(f"vine_robot_control_model.rl_games_player: {vine_robot_control_model.rl_games_player}")
-print(f"vine_robot_control_model.cfg: {vine_robot_control_model.cfg}")
-
-# %%
+print(f"vine_robot_control_model: {vine_robot_control_model}\n")
+print(f"vine_robot_control_model.rl_games_player: {vine_robot_control_model.rl_games_player}\n")
+print(f"vine_robot_control_model.cfg: {vine_robot_control_model.cfg}\n")
