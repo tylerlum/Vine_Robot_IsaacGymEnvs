@@ -161,6 +161,7 @@ def launch_rlg_hydra(cfg: DictConfig):
     # Remove problematic entry before saving
     if "params" in COPY_RLG_CONFIG_DICT and "config" in COPY_RLG_CONFIG_DICT["params"]:
         COPY_RLG_CONFIG_DICT["params"]["config"].pop("features", None)
+
     with open(os.path.join(experiment_dir, f'{time_str}_rlg_config_dict.pkl'), 'wb') as f:
         pickle.dump(COPY_RLG_CONFIG_DICT, f)
     # TODO: TYLER HACK ADD save config to pickle file

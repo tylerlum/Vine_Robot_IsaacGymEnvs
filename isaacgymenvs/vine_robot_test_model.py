@@ -14,8 +14,6 @@
 # ---
 
 # %%
-# Must import rl_games before torch
-# import isaacgym
 from rl_games.algos_torch import model_builder, torch_ext
 from rl_games.torch_runner import _restore
 
