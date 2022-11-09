@@ -499,7 +499,9 @@ class Vine5LinkMovingBase(VecTask):
                 f"Mean {reward_name} Reward": reward_matrix[:, i].mean().item(),
                 f"Max {reward_name} Reward": reward_matrix[:, i].max().item(),
                 f"Weighted Mean {reward_name} Reward": weighted_reward_matrix[:, i].mean().item(),
-                f"Weighted Max {reward_name} Reward": weighted_reward_matrix[:, i].max().item()
+                f"Weighted Max {reward_name} Reward": weighted_reward_matrix[:, i].max().item(),
+                f"Mean Total Reward": self.rew_buf.mean().item(),
+                f"Max Total Reward": self.rew_buf.max().item(),
             })
 
         self.reset_buf[:] = compute_reset_jit(self.reset_buf, self.progress_buf,
