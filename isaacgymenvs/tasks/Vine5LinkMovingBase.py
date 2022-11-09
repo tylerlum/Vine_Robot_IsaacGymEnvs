@@ -710,14 +710,24 @@ class Vine5LinkMovingBase(VecTask):
 
         # Save camera image
         if self.num_steps % self.capture_video_every == 0 or len(self.video_frames) > 0:
+            if len(self.video_frames) == 0:
+                self.enable_viewer_sync_before = self.enable_viewer_sync
+            self.enable_viewer_sync = True
             print("Capturing image")
             self.gym.render_all_camera_sensors(self.sim)
             color_image = self.gym.get_camera_image(self.sim, self.envs[self.index_to_view], self.camera_handle, gymapi.IMAGE_COLOR).reshape(self.camera_properties.height, self.camera_properties.width, NUM_RGBA)
             self.video_frames.append(color_image)
+            import matplotlib.image
+
+            matplotlib.image.imsave(f'{self.num_steps}.png', color_image)
             if len(self.video_frames) == self.num_video_frames:
                 print("Saving to wandb")
-                self.wandb_dict["video"] = wandb.Video(make_video(self.video_frames), fps=5)
+                import imageio
+                imageio.mimsave('MYGIF.gif', self.video_frames)
+                self.wandb_dict["video"] = wandb.Video('MYGIF.gif', fps=5)
+                print("DONE")
                 self.video_frames = []
+                self.enable_viewer_sync = self.enable_viewer_sync_before
 
         # Log info
         self.log_wandb_dict()
