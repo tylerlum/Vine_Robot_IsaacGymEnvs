@@ -59,6 +59,7 @@ NO_VEL_IN_OBS = False
 # Rewards
 REWARD_NAMES = ["Dense", "Const Negative", "Position Success",
                 "Velocity Success", "Velocity", "Rail Force Control", "U Control"]
+REWARD_NAMES_TO_INDEX = {name: i for i, name in enumerate(REWARD_NAMES)}
 DENSE_REWARD_WEIGHT = 0.0
 CONST_NEGATIVE_REWARD_WEIGHT = 0.0
 POSITION_SUCCESS_REWARD_WEIGHT = 0.0
@@ -477,7 +478,7 @@ class Vine5LinkMovingBase(VecTask):
         })
 
         self.rew_buf[:], reward_matrix = compute_reward_jit(
-            dist_tip_to_target, target_reached, self.tip_velocities, self.target_velocities, self.rail_force, self.u, self.reward_weights
+            dist_tip_to_target, target_reached, self.tip_velocities, self.target_velocities, self.rail_force, self.u, self.reward_weights, REWARD_NAMES_TO_INDEX
         )
 
         for i, reward_name in enumerate(REWARD_NAMES):
@@ -681,8 +682,8 @@ def rescale_to_rail_force(rail_force):
 
 
 @torch.jit.script
-def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_velocities, rail_force, u, reward_weights):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor) -> Tuple[Tensor, Tensor]
+def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_velocities, rail_force, u, reward_weights, REWARD_NAMES_TO_INDEX):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Dict[str, int]) -> Tuple[Tensor, Tensor]
     # reward = sum(w_i * r_i) with various reward function r_i and weights w_i
 
     # dense_reward = -dist_to_target [Try to reach target]
@@ -697,15 +698,14 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
 
     # Brittle: Ensure reward order matches
     reward_matrix = torch.zeros(N_ENVS, N_REWARDS, device=dist_to_target.device)
-    reward_matrix[:, 0] -= dist_to_target
-    reward_matrix[:, 1] -= 1
-
+    reward_matrix[:, REWARD_NAMES_TO_INDEX["Dense"]] -= dist_to_target
+    reward_matrix[:, REWARD_NAMES_TO_INDEX["Const Negative"]] -= 1
     REWARD_BONUS = 1000.0
-    reward_matrix[:, 2] += torch.where(target_reached, REWARD_BONUS, 0.0)
-    reward_matrix[:, 3] += torch.where(target_reached, torch.norm(tip_velocities - target_velocities).double(), 0.0)
-    reward_matrix[:, 4] += torch.norm(tip_velocities, dim=-1)
-    reward_matrix[:, 5] -= torch.norm(rail_force, dim=-1)
-    reward_matrix[:, 6] -= torch.norm(u, dim=-1)
+    reward_matrix[:, REWARD_NAMES_TO_INDEX["Position Success"]] += torch.where(target_reached, REWARD_BONUS, 0.0)
+    reward_matrix[:, REWARD_NAMES_TO_INDEX["Velocity Success"]] += torch.where(target_reached, torch.norm(tip_velocities - target_velocities).double(), 0.0)
+    reward_matrix[:, REWARD_NAMES_TO_INDEX["Velocity"]] += torch.norm(tip_velocities, dim=-1)
+    reward_matrix[:, REWARD_NAMES_TO_INDEX["Rail Force Control"]] -= torch.norm(rail_force, dim=-1)
+    reward_matrix[:, REWARD_NAMES_TO_INDEX["U Control"]] -= torch.norm(u, dim=-1)
 
     total_reward = torch.sum(reward_matrix * reward_weights, dim=-1)
 
