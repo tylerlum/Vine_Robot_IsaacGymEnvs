@@ -57,15 +57,16 @@ RAIL_FORCE_SCALE = 1000.0
 NO_VEL_IN_OBS = False
 
 # Rewards
+# Brittle: Ensure reward order matches
 REWARD_NAMES = ["Dense", "Const Negative", "Position Success",
                 "Velocity Success", "Velocity", "Rail Force Control", "U Control"]
 DENSE_REWARD_WEIGHT = 0.0
 CONST_NEGATIVE_REWARD_WEIGHT = 0.0
-POSITION_SUCCESS_REWARD_WEIGHT = 1.0
+POSITION_SUCCESS_REWARD_WEIGHT = 0.0
 VELOCITY_SUCCESS_REWARD_WEIGHT = 0.0
 VELOCITY_REWARD_WEIGHT = 1.0
-RAIL_FORCE_CONTROL_REWARD_WEIGHT = 0.1
-U_CONTROL_REWARD_WEIGHT = 0.1
+RAIL_FORCE_CONTROL_REWARD_WEIGHT = 0.0
+U_CONTROL_REWARD_WEIGHT = 0.0
 REWARD_WEIGHTS = [DENSE_REWARD_WEIGHT, CONST_NEGATIVE_REWARD_WEIGHT, POSITION_SUCCESS_REWARD_WEIGHT,
                   VELOCITY_SUCCESS_REWARD_WEIGHT, VELOCITY_REWARD_WEIGHT, RAIL_FORCE_CONTROL_REWARD_WEIGHT, U_CONTROL_REWARD_WEIGHT]
 
@@ -489,6 +490,7 @@ class Vine5LinkMovingBase(VecTask):
             "rail_force": torch.norm(self.rail_force, dim=-1).mean().item(),
             "u": torch.norm(self.u, dim=-1).mean().item(),
             "tip_target_velocity_difference": torch.norm(self.tip_velocities - self.target_velocities, dim=-1).mean().item(),
+            "progress_buf": self.progress_buf.float().mean().item(),
         })
 
         self.rew_buf[:], reward_matrix, weighted_reward_matrix = compute_reward_jit(
