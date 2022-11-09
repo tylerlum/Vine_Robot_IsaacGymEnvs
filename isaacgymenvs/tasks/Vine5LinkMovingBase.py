@@ -62,16 +62,16 @@ NO_VEL_IN_OBS = False
 
 # Rewards
 # Brittle: Ensure reward order matches
-REWARD_NAMES = ["Dense", "Const Negative", "Position Success",
+REWARD_NAMES = ["Position", "Const Negative", "Position Success",
                 "Velocity Success", "Velocity", "Rail Force Control", "U Control"]
-DENSE_REWARD_WEIGHT = 0.0
+POSITION_REWARD_WEIGHT = 0.0
 CONST_NEGATIVE_REWARD_WEIGHT = 0.0
 POSITION_SUCCESS_REWARD_WEIGHT = 1.0
 VELOCITY_SUCCESS_REWARD_WEIGHT = 0.0
 VELOCITY_REWARD_WEIGHT = 1.0
 RAIL_FORCE_CONTROL_REWARD_WEIGHT = 0.0
 U_CONTROL_REWARD_WEIGHT = 0.0
-REWARD_WEIGHTS = [DENSE_REWARD_WEIGHT, CONST_NEGATIVE_REWARD_WEIGHT, POSITION_SUCCESS_REWARD_WEIGHT,
+REWARD_WEIGHTS = [POSITION_REWARD_WEIGHT, CONST_NEGATIVE_REWARD_WEIGHT, POSITION_SUCCESS_REWARD_WEIGHT,
                   VELOCITY_SUCCESS_REWARD_WEIGHT, VELOCITY_REWARD_WEIGHT, RAIL_FORCE_CONTROL_REWARD_WEIGHT, U_CONTROL_REWARD_WEIGHT]
 
 N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
@@ -767,7 +767,7 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
     # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, List[str]) -> Tuple[Tensor, Tensor, Tensor]
     # reward = sum(w_i * r_i) with various reward function r_i and weights w_i
 
-    # dense_reward = -dist_to_target [Try to reach target]
+    # position_reward = -dist_to_target [Try to reach target]
     # const_negative_reward = -1 [Punish for not succeeding]
     # position_success_reward = REWARD_BONUS if dist_to_target < SUCCESS_DISTANCE else 0 [Succeed if close enough]
     # velocity_success_reward = -norm(tip_velocity - desired_tip_velocity) if dist_to_target < SUCCESS_DISTANCE else 0 [Succeed if close enough and moving at the right speed]
@@ -782,7 +782,7 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
     # Brittle: Ensure reward order matches
     reward_matrix = torch.zeros(N_ENVS, N_REWARDS, device=dist_to_target.device)
     for i, reward_name in enumerate(REWARD_NAMES):
-        if reward_name == "Dense":
+        if reward_name == "Position":
             reward_matrix[:, i] -= dist_to_target
         elif reward_name == "Const Negative":
             reward_matrix[:, i] -= 1
