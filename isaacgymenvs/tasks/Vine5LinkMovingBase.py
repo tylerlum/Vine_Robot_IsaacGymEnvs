@@ -61,7 +61,7 @@ REWARD_NAMES = ["Dense", "Const Negative", "Position Success",
                 "Velocity Success", "Velocity", "Rail Force Control", "U Control"]
 DENSE_REWARD_WEIGHT = 0.0
 CONST_NEGATIVE_REWARD_WEIGHT = 0.0
-POSITION_SUCCESS_REWARD_WEIGHT = 0.0
+POSITION_SUCCESS_REWARD_WEIGHT = 1.0
 VELOCITY_SUCCESS_REWARD_WEIGHT = 0.0
 VELOCITY_REWARD_WEIGHT = 1.0
 RAIL_FORCE_CONTROL_REWARD_WEIGHT = 0.1
@@ -400,7 +400,6 @@ class Vine5LinkMovingBase(VecTask):
                 else:
                     raise ValueError(f"Invalid DOF_MODE = {DOF_MODE}")
 
-
             self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
 
             self.envs.append(env_ptr)
@@ -491,14 +490,16 @@ class Vine5LinkMovingBase(VecTask):
             "tip_velocities_max": torch.norm(self.tip_velocities, dim=-1).max().item(),
         })
 
-        self.rew_buf[:], reward_matrix = compute_reward_jit(
+        self.rew_buf[:], reward_matrix, weighted_reward_matrix = compute_reward_jit(
             dist_tip_to_target, target_reached, self.tip_velocities, self.target_velocities, self.rail_force, self.u, self.reward_weights, REWARD_NAMES
         )
 
         for i, reward_name in enumerate(REWARD_NAMES):
             self.wandb_dict.update({
                 f"Mean {reward_name} Reward": reward_matrix[:, i].mean().item(),
-                f"Max {reward_name} Reward": reward_matrix[:, i].max().item()
+                f"Max {reward_name} Reward": reward_matrix[:, i].max().item(),
+                f"Weighted Mean {reward_name} Reward": weighted_reward_matrix[:, i].mean().item(),
+                f"Weighted Max {reward_name} Reward": weighted_reward_matrix[:, i].max().item()
             })
 
         self.reset_buf[:] = compute_reset_jit(self.reset_buf, self.progress_buf,
@@ -697,7 +698,7 @@ def rescale_to_rail_force(rail_force):
 
 @torch.jit.script
 def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_velocities, rail_force, u, reward_weights, REWARD_NAMES):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, List[str]) -> Tuple[Tensor, Tensor]
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, List[str]) -> Tuple[Tensor, Tensor, Tensor]
     # reward = sum(w_i * r_i) with various reward function r_i and weights w_i
 
     # dense_reward = -dist_to_target [Try to reach target]
@@ -732,9 +733,10 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
         else:
             raise ValueError(f"Invalid reward name: {reward_name}")
 
-    total_reward = torch.sum(reward_matrix * reward_weights, dim=-1)
+    weighted_reward_matrix = reward_matrix * reward_weights
+    total_reward = torch.sum(weighted_reward_matrix, dim=-1)
 
-    return total_reward, reward_matrix
+    return total_reward, reward_matrix, weighted_reward_matrix
 
 
 def compute_reset_jit(reset_buf, progress_buf, max_episode_length, target_reached):
