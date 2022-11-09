@@ -51,7 +51,7 @@ START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = False
-CAPTURE_VIDEO = False
+CAPTURE_VIDEO = True
 PD_TARGET_ALL_JOINTS = False
 
 U_MIN, U_MAX = -0.1, 3.0
@@ -78,7 +78,7 @@ N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.5
 
-MAX_EFFECTIVE_ANGLE = math.radians(45)
+MAX_EFFECTIVE_ANGLE = math.radians(20)
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 
 TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
@@ -486,11 +486,7 @@ class Vine5LinkMovingBase(VecTask):
         print()
 
     def compute_reward(self):
-        # retrieve environment observations from buffer
-        tip_positions = self.obs_buf[:, -6:-3]
-        target_positions = self.obs_buf[:, -3:]
-        dist_tip_to_target = torch.linalg.norm(tip_positions - target_positions, dim=-1)
-
+        dist_tip_to_target = torch.linalg.norm(self.tip_positions - self.target_positions, dim=-1)
         SUCCESS_DIST = 0.1
         target_reached = dist_tip_to_target < SUCCESS_DIST
 
@@ -498,10 +494,10 @@ class Vine5LinkMovingBase(VecTask):
             "dist_tip_to_target": dist_tip_to_target.mean().item(),
             "target_reached": target_reached.float().mean().item(),
             "target_reached_max": target_reached.float().max().item(),
-            "abs_tip_y": tip_positions[:, 1].abs().mean().item(),
-            "tip_z": tip_positions[:, 2].mean().item(),
-            "max_abs_tip_y": tip_positions[:, 1].abs().max().item(),
-            "max_tip_z": tip_positions[:, 2].max().item(),
+            "abs_tip_y": self.tip_positions[:, 1].abs().mean().item(),
+            "tip_z": self.tip_positions[:, 2].mean().item(),
+            "max_abs_tip_y": self.tip_positions[:, 1].abs().max().item(),
+            "max_tip_z": self.tip_positions[:, 2].max().item(),
             "tip_velocities": torch.norm(self.tip_velocities, dim=-1).mean().item(),
             "tip_velocities_max": torch.norm(self.tip_velocities, dim=-1).max().item(),
             "rail_force": torch.norm(self.rail_force, dim=-1).mean().item(),
