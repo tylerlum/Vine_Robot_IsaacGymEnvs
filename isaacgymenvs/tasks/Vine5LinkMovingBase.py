@@ -478,16 +478,17 @@ class Vine5LinkMovingBase(VecTask):
 
         self.wandb_dict.update({
             "dist_tip_to_target": dist_tip_to_target.mean().item(),
+            "target_reached": target_reached.float().mean().item(),
+            "target_reached_max": target_reached.float().max().item(),
             "abs_tip_y": tip_positions[:, 1].abs().mean().item(),
             "tip_z": tip_positions[:, 2].mean().item(),
             "max_abs_tip_y": tip_positions[:, 1].abs().max().item(),
             "max_tip_z": tip_positions[:, 2].max().item(),
             "tip_velocities": torch.norm(self.tip_velocities, dim=-1).mean().item(),
+            "tip_velocities_max": torch.norm(self.tip_velocities, dim=-1).max().item(),
             "rail_force": torch.norm(self.rail_force, dim=-1).mean().item(),
             "u": torch.norm(self.u, dim=-1).mean().item(),
-            "target_reached": target_reached.float().mean().item(),
-            "target_reached_max": target_reached.float().max().item(),
-            "tip_velocities_max": torch.norm(self.tip_velocities, dim=-1).max().item(),
+            "tip_target_velocity_difference": torch.norm(self.tip_velocities - self.target_velocities, dim=-1).mean().item(),
         })
 
         self.rew_buf[:], reward_matrix, weighted_reward_matrix = compute_reward_jit(
