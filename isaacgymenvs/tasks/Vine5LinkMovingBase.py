@@ -54,7 +54,7 @@ U_MIN, U_MAX = -0.1, 3.0
 RAIL_FORCE_SCALE = 1000.0
 
 # Observations
-NO_VEL_IN_OBS = True
+NO_VEL_IN_OBS = False
 
 # Rewards
 REWARD_NAMES = ["Dense", "Const Negative", "Position Success",
@@ -379,29 +379,12 @@ class Vine5LinkMovingBase(VecTask):
             # Set dof properties
             dof_props = self.gym.get_actor_dof_properties(env_ptr, vine_handle)
 
-            for j in range(self.gym.get_asset_dof_count(self.vine_asset)):
-                dof_type = self.gym.get_asset_dof_type(self.vine_asset, j)
-
-                # Dof type specific params
-                if dof_type == gymapi.DofType.DOF_ROTATION:
-                    if j == 0:  # First revolute is different
-                        dof_props['stiffness'][j] = 10.0  # TODO: Tune
-                        dof_props['damping'][j] = 1.0  # TODO: Tune
-                    else:
-                        dof_props['stiffness'][j] = 10.0  # TODO: Tune
-                        dof_props['damping'][j] = 1.0  # TODO: Tune
-                elif dof_type == gymapi.DofType.DOF_TRANSLATION:
-                    dof_props['stiffness'][j] = 100.0  # TODO: Tune
-                    dof_props['damping'][j] = 1.0   # TODO: Tune
-                else:
-                    raise ValueError(f"Invalid dof_type = {dof_type}")
-
-                if DOF_MODE == "FORCE":
-                    dof_props['driveMode'][j] = gymapi.DOF_MODE_EFFORT
-                elif DOF_MODE == "POSITION":
-                    dof_props['driveMode'][j] = gymapi.DOF_MODE_POS
-                else:
-                    raise ValueError(f"Invalid DOF_MODE = {DOF_MODE}")
+            if DOF_MODE == "FORCE":
+                dof_props['driveMode'][:] = gymapi.DOF_MODE_EFFORT
+            elif DOF_MODE == "POSITION":
+                dof_props['driveMode'][j] = gymapi.DOF_MODE_POS
+            else:
+                raise ValueError(f"Invalid DOF_MODE = {DOF_MODE}")
 
             self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
 
