@@ -424,6 +424,7 @@ class VecTask(Env):
                     sys.exit()
                 elif evt.action == "toggle_viewer_sync" and evt.value > 0:
                     self.enable_viewer_sync = not self.enable_viewer_sync
+                    print(f"Changed self.enable_viewer_sync to {self.enable_viewer_sync}")
                 # TYLER ADDITION: Manually added events
                 elif hasattr(self, "event_action_to_function") and evt.action in self.event_action_to_function and evt.value > 0:
                     event_function = self.event_action_to_function[evt.action]

@@ -124,6 +124,7 @@ class Vine5LinkMovingBase(VecTask):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         # Store cfg file and read in parameters
         self.cfg = cfg
+        self.log_dir = os.path.join('runs', cfg["name"])
         self.max_episode_length = self.cfg["env"]["maxEpisodeLength"]
 
         # Must set this before continuing
@@ -724,14 +725,15 @@ class Vine5LinkMovingBase(VecTask):
             if len(self.video_frames) == self.num_video_frames:
                 # Save to file and wandb
                 video_filename = f"video_{self.num_steps}.gif"
-                print(f"Saving to {video_filename}...")
+                video_path = os.path.join(self.log_dir, video_filename)
+                print(f"Saving to {video_path}...")
 
                 if not self.enable_viewer_sync_before:
                     self.video_frames.pop(0)  # Remove first frame because it was not synced
 
                 import imageio
-                imageio.mimsave(video_filename, self.video_frames)
-                self.wandb_dict["video"] = wandb.Video(video_filename)
+                imageio.mimsave(video_path, self.video_frames)
+                self.wandb_dict["video"] = wandb.Video(video_path)
                 print("DONE")
 
                 # Reset variables
