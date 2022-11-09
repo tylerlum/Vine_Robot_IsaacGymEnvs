@@ -30,6 +30,7 @@ import numpy as np
 import os
 import torch
 import math
+import datetime
 
 from isaacgym import gymutil, gymtorch, gymapi
 from .base.vec_task import VecTask
@@ -50,6 +51,7 @@ START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = False
+CAPTURE_VIDEO = False
 
 U_MIN, U_MAX = -0.1, 3.0
 RAIL_FORCE_SCALE = 1000.0
@@ -125,6 +127,7 @@ class Vine5LinkMovingBase(VecTask):
         # Store cfg file and read in parameters
         self.cfg = cfg
         self.log_dir = os.path.join('runs', cfg["name"])
+        self.time_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self.max_episode_length = self.cfg["env"]["maxEpisodeLength"]
 
         # Must set this before continuing
@@ -159,6 +162,8 @@ class Vine5LinkMovingBase(VecTask):
 
         # Setup camera for taking pictures
         self.camera_properties = gymapi.CameraProperties()
+        self.camera_properties.width = self.camera_properties.width // 4  # Save storage space
+        self.camera_properties.height = self.camera_properties.height // 4  # Save storage space
         self.camera_handle = self.gym.create_camera_sensor(self.envs[self.index_to_view], self.camera_properties)
         self.video_frames = []
         self.num_video_frames = 50
@@ -708,10 +713,12 @@ class Vine5LinkMovingBase(VecTask):
                 gymutil.draw_lines(visualization_sphere_green, self.gym, self.viewer, self.envs[i], sphere_pose)
 
         # Create video
-        if self.num_steps % self.capture_video_every == 0 or len(self.video_frames) > 0:
-            if len(self.video_frames) == 0:
+        should_start_video_capture = self.num_steps % self.capture_video_every == 0
+        video_capture_in_progress = len(self.video_frames) > 0
+        if CAPTURE_VIDEO and (should_start_video_capture or video_capture_in_progress):
+            if not video_capture_in_progress:
                 print("-" * 100)
-                print("Capturing video frames...")
+                print("Starting to capture video frames...")
                 print("-" * 100)
                 self.enable_viewer_sync_before = self.enable_viewer_sync
 
@@ -724,7 +731,7 @@ class Vine5LinkMovingBase(VecTask):
 
             if len(self.video_frames) == self.num_video_frames:
                 # Save to file and wandb
-                video_filename = f"video_{self.num_steps}.gif"
+                video_filename = f"{self.time_str}_video_{self.num_steps}.gif"
                 video_path = os.path.join(self.log_dir, video_filename)
                 print(f"Saving to {video_path}...")
 
@@ -744,12 +751,6 @@ class Vine5LinkMovingBase(VecTask):
 
         # Log info
         self.log_wandb_dict()
-
-
-def make_video(video_frames):
-    x = np.stack(video_frames, axis=0)  # (video_frames, height, width, NUM_RGBA)
-    x = np.transpose(x, [0, -1, -3, -2])  # (video_frames, NUM_RGBA, height, width)
-    return x
 
 
 def rescale_to_u(u):
