@@ -78,7 +78,8 @@ N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.5
 
-MAX_EFFECTIVE_ANGLE = math.radians(20)
+MIN_EFFECTIVE_ANGLE = math.radians(20)
+MAX_EFFECTIVE_ANGLE = math.radians(30)
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 
 TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
@@ -587,12 +588,17 @@ class Vine5LinkMovingBase(VecTask):
     def sample_target_positions(self, num_envs):
         target_positions = torch.zeros(num_envs, NUM_XYZ, device=self.device)
         if RANDOMIZE_TARGETS:
-            target_positions[:, 0] = torch.FloatTensor(num_envs).uniform_(
-                TARGET_POS_MIN_X, TARGET_POS_MAX_X).to(self.device)
-            target_positions[:, 1] = torch.FloatTensor(num_envs).uniform_(
-                TARGET_POS_MIN_Y, TARGET_POS_MAX_Y).to(self.device)
-            target_positions[:, 2] = torch.FloatTensor(num_envs).uniform_(
-                TARGET_POS_MIN_Z, TARGET_POS_MAX_Z).to(self.device)
+            # TODO Find the best way to set targets
+            angles = torch.FloatTensor(num_envs).uniform_(MIN_EFFECTIVE_ANGLE, MAX_EFFECTIVE_ANGLE).to(self.device)
+            target_positions[:, 1] = torch.sin(angles) * VINE_LENGTH
+            target_positions[:, 2] = INIT_Z - torch.cos(angles) * VINE_LENGTH
+
+            # target_positions[:, 0] = torch.FloatTensor(num_envs).uniform_(
+            #     TARGET_POS_MIN_X, TARGET_POS_MAX_X).to(self.device)
+            # target_positions[:, 1] = torch.FloatTensor(num_envs).uniform_(
+            #     TARGET_POS_MIN_Y, TARGET_POS_MAX_Y).to(self.device)
+            # target_positions[:, 2] = torch.FloatTensor(num_envs).uniform_(
+            #     TARGET_POS_MIN_Z, TARGET_POS_MAX_Z).to(self.device)
         else:
             target_positions[:, 1] = TARGET_POS_MAX_Y
             target_positions[:, 2] = TARGET_POS_MIN_Z
