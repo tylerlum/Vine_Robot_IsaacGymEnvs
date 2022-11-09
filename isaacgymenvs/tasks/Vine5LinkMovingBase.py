@@ -560,9 +560,6 @@ class Vine5LinkMovingBase(VecTask):
                 max_angle = min(self.revolute_dof_uppers[i], math.radians(20))
                 self.dof_pos[env_ids, self.revolute_dof_indices[i]] = torch.FloatTensor(
                     len(env_ids)).uniform_(min_angle, max_angle).to(self.device)
-            print("Printing initial joint angles")
-            print(self.dof_pos.max())
-            print(self.dof_pos.min())
 
             num_prismatic_joints = len(self.prismatic_dof_lowers)
             for i in range(num_prismatic_joints):
