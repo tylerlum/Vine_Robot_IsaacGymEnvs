@@ -379,12 +379,27 @@ class Vine5LinkMovingBase(VecTask):
             # Set dof properties
             dof_props = self.gym.get_actor_dof_properties(env_ptr, vine_handle)
 
-            if DOF_MODE == "FORCE":
-                dof_props['driveMode'][:] = gymapi.DOF_MODE_EFFORT
-            elif DOF_MODE == "POSITION":
-                dof_props['driveMode'][j] = gymapi.DOF_MODE_POS
-            else:
-                raise ValueError(f"Invalid DOF_MODE = {DOF_MODE}")
+            for j in range(self.gym.get_asset_dof_count(self.vine_asset)):
+                dof_type = self.gym.get_asset_dof_type(self.vine_asset, j)
+
+                # Dof type specific params
+                # TODO: Tune
+                if dof_type == gymapi.DofType.DOF_ROTATION:
+                    dof_props['stiffness'][j] = 10.0
+                    dof_props['damping'][j] = 1.0
+                elif dof_type == gymapi.DofType.DOF_TRANSLATION:
+                    dof_props['stiffness'][j] = 100.0
+                    dof_props['damping'][j] = 1.0
+                else:
+                    raise ValueError(f"Invalid dof_type = {dof_type}")
+
+                if DOF_MODE == "FORCE":
+                    dof_props['driveMode'][j] = gymapi.DOF_MODE_EFFORT
+                elif DOF_MODE == "POSITION":
+                    dof_props['driveMode'][j] = gymapi.DOF_MODE_POS
+                else:
+                    raise ValueError(f"Invalid DOF_MODE = {DOF_MODE}")
+
 
             self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
 
