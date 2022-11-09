@@ -691,8 +691,6 @@ class Vine5LinkMovingBase(VecTask):
         self.compute_observations()
         self.compute_reward()
 
-        self.num_steps += 1
-
         # Draw debug info
         if self.viewer and self.enable_viewer_sync:
             # Create spheres
@@ -708,26 +706,39 @@ class Vine5LinkMovingBase(VecTask):
                     target_position[0], target_position[1], target_position[2]), r=None)
                 gymutil.draw_lines(visualization_sphere_green, self.gym, self.viewer, self.envs[i], sphere_pose)
 
-        # Save camera image
+        # Create video
         if self.num_steps % self.capture_video_every == 0 or len(self.video_frames) > 0:
             if len(self.video_frames) == 0:
+                print("-" * 100)
+                print("Capturing video frames...")
+                print("-" * 100)
                 self.enable_viewer_sync_before = self.enable_viewer_sync
-            self.enable_viewer_sync = True
-            print("Capturing image")
-            self.gym.render_all_camera_sensors(self.sim)
-            color_image = self.gym.get_camera_image(self.sim, self.envs[self.index_to_view], self.camera_handle, gymapi.IMAGE_COLOR).reshape(self.camera_properties.height, self.camera_properties.width, NUM_RGBA)
-            self.video_frames.append(color_image)
-            import matplotlib.image
 
-            matplotlib.image.imsave(f'{self.num_steps}.png', color_image)
+            # Store image
+            self.enable_viewer_sync = True
+            self.gym.render_all_camera_sensors(self.sim)
+            color_image = self.gym.get_camera_image(self.sim, self.envs[self.index_to_view], self.camera_handle, gymapi.IMAGE_COLOR).reshape(
+                self.camera_properties.height, self.camera_properties.width, NUM_RGBA)
+            self.video_frames.append(color_image)
+
             if len(self.video_frames) == self.num_video_frames:
-                print("Saving to wandb")
+                # Save to file and wandb
+                video_filename = f"video_{self.num_steps}.gif"
+                print(f"Saving to {video_filename}...")
+
+                if not self.enable_viewer_sync_before:
+                    self.video_frames.pop(0)  # Remove first frame because it was not synced
+
                 import imageio
-                imageio.mimsave('MYGIF.gif', self.video_frames)
-                self.wandb_dict["video"] = wandb.Video('MYGIF.gif', fps=5)
+                imageio.mimsave(video_filename, self.video_frames)
+                self.wandb_dict["video"] = wandb.Video(video_filename)
                 print("DONE")
+
+                # Reset variables
                 self.video_frames = []
                 self.enable_viewer_sync = self.enable_viewer_sync_before
+
+        self.num_steps += 1
 
         # Log info
         self.log_wandb_dict()
@@ -737,6 +748,7 @@ def make_video(video_frames):
     x = np.stack(video_frames, axis=0)  # (video_frames, height, width, NUM_RGBA)
     x = np.transpose(x, [0, -1, -3, -2])  # (video_frames, NUM_RGBA, height, width)
     return x
+
 
 def rescale_to_u(u):
     return (u + 1.0) / 2.0 * (U_MAX-U_MIN) + U_MIN
