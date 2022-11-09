@@ -52,6 +52,7 @@ START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = False
 CAPTURE_VIDEO = False
+PD_TARGET_ALL_JOINTS = False
 
 U_MIN, U_MAX = -0.1, 3.0
 RAIL_FORCE_SCALE = 1000.0
@@ -87,9 +88,8 @@ TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MAX_EFFECTIVE_ANGLE)*VINE_LENGTH
 TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MAX_EFFECTIVE_ANGLE) * VINE_LENGTH
 
 DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
-RANDOMIZE_DOF_INIT = False
+RANDOMIZE_DOF_INIT = True
 RANDOMIZE_TARGETS = True
-PD_TARGET_ALL_JOINTS = False
 
 # GLOBALS
 USE_WANDB = True
@@ -556,8 +556,13 @@ class Vine5LinkMovingBase(VecTask):
         if RANDOMIZE_DOF_INIT:
             num_revolute_joints = len(self.revolute_dof_lowers)
             for i in range(num_revolute_joints):
-                self.dof_pos[env_ids, self.revolute_dof_indices[i]] = torch.FloatTensor(len(env_ids)).uniform_(
-                    self.revolute_dof_lowers[i], self.revolute_dof_uppers[i]).to(self.device)
+                min_angle = max(self.revolute_dof_lowers[i], -math.radians(20))
+                max_angle = min(self.revolute_dof_uppers[i], math.radians(20))
+                self.dof_pos[env_ids, self.revolute_dof_indices[i]] = torch.FloatTensor(
+                    len(env_ids)).uniform_(min_angle, max_angle).to(self.device)
+            print("Printing initial joint angles")
+            print(self.dof_pos.max())
+            print(self.dof_pos.min())
 
             num_prismatic_joints = len(self.prismatic_dof_lowers)
             for i in range(num_prismatic_joints):
@@ -567,7 +572,6 @@ class Vine5LinkMovingBase(VecTask):
             self.dof_pos[env_ids, :] = 0
 
         # Set dof velocities to 0
-        self.dof_pos[env_ids, :] = 0.0
         self.dof_vel[env_ids, :] = 0.0
 
         # Update dofs
