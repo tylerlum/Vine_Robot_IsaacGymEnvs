@@ -38,6 +38,7 @@ import wandb
 # CONSTANTS (RARELY CHANGE)
 NUM_STATES = 13  # xyz, quat, v_xyz, w_xyz
 NUM_XYZ = 3
+NUM_RGBA = 4
 LENGTH_RAIL = 0.8
 LENGTH_PER_LINK = 0.0885
 N_REVOLUTE_DOFS = 5
@@ -149,11 +150,20 @@ class Vine5LinkMovingBase(VecTask):
         self.aggregated_rew_buf = torch.zeros_like(self.rew_buf, device=self.device, dtype=self.rew_buf.dtype)
 
         # Setup viewer camera
-        index_to_view = int(0.1 * self.num_envs)
-        tip_pos = self.tip_positions[index_to_view]
+        self.index_to_view = int(0.1 * self.num_envs)
+        tip_pos = self.tip_positions[self.index_to_view]
         cam_target = gymapi.Vec3(tip_pos[0], tip_pos[1], INIT_Z)
-        cam_pos = cam_target + gymapi.Vec3(2.0, 0.0, 0.0)
-        self.gym.viewer_camera_look_at(self.viewer, self.envs[index_to_view], cam_pos, cam_target)
+        cam_pos = cam_target + gymapi.Vec3(1.0, 0.0, 0.0)
+        self.gym.viewer_camera_look_at(self.viewer, self.envs[self.index_to_view], cam_pos, cam_target)
+
+        # Setup camera for taking pictures
+        self.camera_properties = gymapi.CameraProperties()
+        self.camera_handle = self.gym.create_camera_sensor(self.envs[self.index_to_view], self.camera_properties)
+        self.video_frames = []
+        self.num_video_frames = 200
+        self.capture_video_every = 500
+        self.num_steps = 0
+        self.gym.set_camera_location(self.camera_handle, self.envs[self.index_to_view], cam_pos, cam_target)
 
         self.wandb_dict = {}
 
@@ -698,6 +708,18 @@ class Vine5LinkMovingBase(VecTask):
                 sphere_pose = gymapi.Transform(gymapi.Vec3(
                     target_position[0], target_position[1], target_position[2]), r=None)
                 gymutil.draw_lines(visualization_sphere_green, self.gym, self.viewer, self.envs[i], sphere_pose)
+
+        self.num_steps += 1
+
+        # Save camera image
+        if self.num_steps % self.capture_video_every == 0 or len(self.video_frames) > 0:
+            self.gym.render_all_camera_sensors(self.sim)
+            color_image = self.gym.get_camera_image(self.sim, self.envs[self.index_to_view], self.camera_handle, gymapi.IMAGE_COLOR).reshape(self.camera_properties.height, self.camera_properties.width, NUM_RGBA)
+            self.video_frames.append(color_image)
+            # if len(self.video_frames) == self.num_video_frames:
+            import matplotlib.pyplot as plt
+            plt.imshow(color_image)
+            plt.show()
 
 
 def rescale_to_u(u):
