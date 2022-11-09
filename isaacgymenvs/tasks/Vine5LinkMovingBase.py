@@ -146,6 +146,7 @@ class Vine5LinkMovingBase(VecTask):
         self.target_velocities = self.sample_target_velocities(self.num_envs)
         self.A = None  # Cache this matrix
         self.reward_weights = torch.tensor([REWARD_WEIGHTS], device=self.device)
+        self.aggregated_rew_buf = torch.zeros_like(self.rew_buf, device=self.device, dtype=self.rew_buf.dtype)
 
         # Setup viewer camera
         index_to_view = int(0.1 * self.num_envs)
@@ -496,6 +497,13 @@ class Vine5LinkMovingBase(VecTask):
         self.rew_buf[:], reward_matrix, weighted_reward_matrix = compute_reward_jit(
             dist_tip_to_target, target_reached, self.tip_velocities, self.target_velocities, self.rail_force, self.u, self.reward_weights, REWARD_NAMES
         )
+        self.aggregated_rew_buf += self.rew_buf
+
+        self.wandb_dict.update({
+            "Aggregated Reward": self.aggregated_rew_buf.mean().item(),
+            "Aggregated Reward 1 Std Up": self.aggregated_rew_buf.mean().item() + self.aggregated_rew_buf.std().item(),
+            "Aggregated Reward 1 Std Down": self.aggregated_rew_buf.mean().item() - self.aggregated_rew_buf.std().item(),
+        })
 
         for i, reward_name in enumerate(REWARD_NAMES):
             self.wandb_dict.update({
@@ -522,7 +530,8 @@ class Vine5LinkMovingBase(VecTask):
         if NO_VEL_IN_OBS:
             tensors_to_concat = [self.dof_pos, self.tip_positions, self.target_positions]
         else:
-            tensors_to_concat = [self.dof_pos, self.dof_vel, self.tip_positions, self.tip_velocities, self.target_positions, self.target_velocities]
+            tensors_to_concat = [self.dof_pos, self.dof_vel, self.tip_positions,
+                                 self.tip_velocities, self.target_positions, self.target_velocities]
         self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
 
         return self.obs_buf
@@ -555,6 +564,8 @@ class Vine5LinkMovingBase(VecTask):
                                                   gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
         self.reset_buf[env_ids] = 0
         self.progress_buf[env_ids] = 0
+        self.rew_buf[env_ids] = 0
+        self.aggregated_rew_buf[env_ids] = 0
 
         # New target positions
         self.target_positions[env_ids, :] = self.sample_target_positions(len(env_ids))
@@ -728,7 +739,9 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
         elif reward_name == "Position Success":
             reward_matrix[:, i] += torch.where(target_reached, REWARD_BONUS, 0.0)
         elif reward_name == "Velocity Success":
-            reward_matrix[:, i] -= torch.where(target_reached, torch.norm(tip_velocities - target_velocities, dim=-1).double(), 0.0)
+            reward_matrix[:, i] -= torch.where(target_reached,
+                                               torch.norm(tip_velocities - target_velocities, dim=-1).double(),
+                                               0.0)
         elif reward_name == "Velocity":
             reward_matrix[:, i] += torch.norm(tip_velocities, dim=-1)
         elif reward_name == "Rail Force Control":
