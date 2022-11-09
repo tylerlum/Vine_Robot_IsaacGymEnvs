@@ -53,6 +53,9 @@ USE_MOVING_BASE = False
 U_MIN, U_MAX = -0.1, 3.0
 RAIL_FORCE_SCALE = 1000.0
 
+# Observations
+NO_VEL_IN_OBS = True
+
 # Rewards
 REWARD_NAMES = ["Dense", "Const Negative", "Position Success",
                 "Velocity Success", "Velocity", "Rail Force Control", "U Control"]
@@ -105,6 +108,7 @@ class Vine5LinkMovingBase(VecTask):
       * 3 tip position
       * 3 tip velocity
       * 3 target position
+      * 3 target velocity
     Action:
       * 1 for rail_force prismatic joint
       * 1 for u pressure
@@ -121,7 +125,11 @@ class Vine5LinkMovingBase(VecTask):
         self.max_episode_length = self.cfg["env"]["maxEpisodeLength"]
 
         # Must set this before continuing
-        self.cfg["env"]["numObservations"] = 2 * N_REVOLUTE_DOFS + 2 * N_PRISMATIC_DOFS + 2 * NUM_XYZ + NUM_XYZ
+        if NO_VEL_IN_OBS:
+            self.cfg["env"]["numObservations"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ
+        else:
+            self.cfg["env"]["numObservations"] = 2 * (N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ)
+
         if PD_TARGET_ALL_JOINTS:
             self.cfg["env"]["numActions"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS
         else:
@@ -506,14 +514,12 @@ class Vine5LinkMovingBase(VecTask):
         self.refresh_state_tensors()
 
         # Populate obs_buf
-        tensors_to_add = [self.dof_pos, self.dof_vel, self.tip_positions,
-                          self.tip_velocities, self.target_positions]  # Must all be (num_envs, X)
-        start_idx = 0
-        for tensor_to_add in tensors_to_add:
-            num_elements = tensor_to_add.shape[1]
-            end_idx = start_idx + num_elements
-            self.obs_buf[env_ids, start_idx:end_idx] = tensor_to_add[env_ids]
-            start_idx = end_idx
+        # tensors_to_add elements must all be (num_envs, X)
+        if NO_VEL_IN_OBS:
+            tensors_to_concat = [self.dof_pos, self.tip_positions, self.target_positions]
+        else:
+            tensors_to_concat = [self.dof_pos, self.dof_vel, self.tip_positions, self.tip_velocities, self.target_positions, self.target_velocities]
+        self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
 
         return self.obs_buf
 
