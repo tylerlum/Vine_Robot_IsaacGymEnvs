@@ -658,7 +658,7 @@ class Vine5LinkMovingBase(VecTask):
 
                 if USE_SIMPLE_POLICY:
                     tip_y_velocities = self.tip_velocities[:, 1]  # (num_envs,)
-                    self.u = torch.where(tip_y_velocities >= 0, U_MAX, U_MIN).reshape(self.num_envs, 1)  # (num_envs, 1)
+                    self.u = torch.where(tip_y_velocities <= 0, U_MAX, U_MIN).reshape(self.num_envs, 1)  # (num_envs, 1)
 
                 # Log input and output
                 for i in range(N_REVOLUTE_DOFS):
