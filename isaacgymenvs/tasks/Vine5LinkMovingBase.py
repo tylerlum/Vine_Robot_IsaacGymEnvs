@@ -51,6 +51,7 @@ START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = False
+USE_SIMPLE_POLICY = True
 CAPTURE_VIDEO = True
 PD_TARGET_ALL_JOINTS = False
 
@@ -553,8 +554,8 @@ class Vine5LinkMovingBase(VecTask):
         if RANDOMIZE_DOF_INIT:
             num_revolute_joints = len(self.revolute_dof_lowers)
             for i in range(num_revolute_joints):
-                min_angle = max(self.revolute_dof_lowers[i], -math.radians(10))
-                max_angle = min(self.revolute_dof_uppers[i], math.radians(10))
+                min_angle = max(self.revolute_dof_lowers[i], -math.radians(5))
+                max_angle = min(self.revolute_dof_uppers[i], math.radians(5))
                 self.dof_pos[env_ids, self.revolute_dof_indices[i]] = torch.FloatTensor(
                     len(env_ids)).uniform_(min_angle, max_angle).to(self.device)
 
@@ -655,6 +656,15 @@ class Vine5LinkMovingBase(VecTask):
                 if self.MIN_PRESSURE_COUNTER > 0:
                     self.u[:] = U_MIN
                     self.MIN_PRESSURE_COUNTER -= 1
+
+                if USE_SIMPLE_POLICY:
+                    _, V_YYY, _ = self.tip_velocities[self.index_to_view]
+
+                    if V_YYY.item() >= 0:
+                        self.u[self.index_to_view] = U_MAX
+                    else:
+                        self.u[self.index_to_view] = U_MIN
+
 
                 if self.A is None:
                     # torque = - Kq - Cqd - b - Bu;
