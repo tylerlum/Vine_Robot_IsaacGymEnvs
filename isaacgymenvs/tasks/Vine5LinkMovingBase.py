@@ -65,7 +65,7 @@ NO_VEL_IN_OBS = False
 # Brittle: Ensure reward order matches
 REWARD_NAMES = ["Position", "Const Negative", "Position Success",
                 "Velocity Success", "Velocity", "Rail Force Control", "U Control"]
-POSITION_REWARD_WEIGHT = 0.0
+POSITION_REWARD_WEIGHT = 10.0
 CONST_NEGATIVE_REWARD_WEIGHT = 0.0
 POSITION_SUCCESS_REWARD_WEIGHT = 1.0
 VELOCITY_SUCCESS_REWARD_WEIGHT = 0.0
@@ -79,8 +79,8 @@ N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.5
 
-MIN_EFFECTIVE_ANGLE = math.radians(5)
-MAX_EFFECTIVE_ANGLE = math.radians(80)
+MIN_EFFECTIVE_ANGLE = math.radians(0)
+MAX_EFFECTIVE_ANGLE = math.radians(60)
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 
 TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
