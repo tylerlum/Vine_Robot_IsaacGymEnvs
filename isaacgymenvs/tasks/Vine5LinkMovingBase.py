@@ -51,6 +51,7 @@ START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = False
+USE_SIMPLE_POLICY = True
 CAPTURE_VIDEO = True
 PD_TARGET_ALL_JOINTS = False
 
@@ -66,7 +67,7 @@ REWARD_NAMES = ["Position", "Const Negative", "Position Success",
                 "Velocity Success", "Velocity", "Rail Force Control", "U Control"]
 POSITION_REWARD_WEIGHT = 0.0
 CONST_NEGATIVE_REWARD_WEIGHT = 0.0
-POSITION_SUCCESS_REWARD_WEIGHT = 1.0
+POSITION_SUCCESS_REWARD_WEIGHT = 0.0
 VELOCITY_SUCCESS_REWARD_WEIGHT = 0.0
 VELOCITY_REWARD_WEIGHT = 1.0
 RAIL_FORCE_CONTROL_REWARD_WEIGHT = 0.0
@@ -78,7 +79,8 @@ N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.5
 
-MAX_EFFECTIVE_ANGLE = math.radians(20)
+MIN_EFFECTIVE_ANGLE = math.radians(30)
+MAX_EFFECTIVE_ANGLE = math.radians(50)
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 
 TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
@@ -88,7 +90,7 @@ TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MAX_EFFECTIVE_ANGLE)*VINE_LENGTH
 TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MAX_EFFECTIVE_ANGLE) * VINE_LENGTH
 
 DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
-RANDOMIZE_DOF_INIT = True
+RANDOMIZE_DOF_INIT = False
 RANDOMIZE_TARGETS = True
 
 # GLOBALS
@@ -166,8 +168,8 @@ class Vine5LinkMovingBase(VecTask):
         self.camera_properties.height = self.camera_properties.height // 4  # Save storage space
         self.camera_handle = self.gym.create_camera_sensor(self.envs[self.index_to_view], self.camera_properties)
         self.video_frames = []
-        self.num_video_frames = 50
-        self.capture_video_every = 500
+        self.num_video_frames = 100
+        self.capture_video_every = 1_500
         self.num_steps = 0
         self.gym.set_camera_location(self.camera_handle, self.envs[self.index_to_view], cam_pos, cam_target)
 
@@ -388,7 +390,7 @@ class Vine5LinkMovingBase(VecTask):
 
             # Different collision_groups so that different envs don't interact
             # collision_filter = 0 for enabled self-collision, collision_filter > 0 disable self-collisions
-            collision_group, collision_filter, segmentation_id = i, 0, 0
+            collision_group, collision_filter, segmentation_id = i, 1, 0
 
             # Create vine robots
             vine_handle = self.gym.create_actor(
@@ -552,8 +554,8 @@ class Vine5LinkMovingBase(VecTask):
         if RANDOMIZE_DOF_INIT:
             num_revolute_joints = len(self.revolute_dof_lowers)
             for i in range(num_revolute_joints):
-                min_angle = max(self.revolute_dof_lowers[i], -math.radians(20))
-                max_angle = min(self.revolute_dof_uppers[i], math.radians(20))
+                min_angle = max(self.revolute_dof_lowers[i], -math.radians(5))
+                max_angle = min(self.revolute_dof_uppers[i], math.radians(5))
                 self.dof_pos[env_ids, self.revolute_dof_indices[i]] = torch.FloatTensor(
                     len(env_ids)).uniform_(min_angle, max_angle).to(self.device)
 
@@ -587,12 +589,17 @@ class Vine5LinkMovingBase(VecTask):
     def sample_target_positions(self, num_envs):
         target_positions = torch.zeros(num_envs, NUM_XYZ, device=self.device)
         if RANDOMIZE_TARGETS:
-            target_positions[:, 0] = torch.FloatTensor(num_envs).uniform_(
-                TARGET_POS_MIN_X, TARGET_POS_MAX_X).to(self.device)
-            target_positions[:, 1] = torch.FloatTensor(num_envs).uniform_(
-                TARGET_POS_MIN_Y, TARGET_POS_MAX_Y).to(self.device)
-            target_positions[:, 2] = torch.FloatTensor(num_envs).uniform_(
-                TARGET_POS_MIN_Z, TARGET_POS_MAX_Z).to(self.device)
+            # TODO Find the best way to set targets
+            angles = torch.FloatTensor(num_envs).uniform_(MIN_EFFECTIVE_ANGLE, MAX_EFFECTIVE_ANGLE).to(self.device)
+            target_positions[:, 1] = torch.sin(angles) * VINE_LENGTH
+            target_positions[:, 2] = INIT_Z - torch.cos(angles) * VINE_LENGTH
+
+            # target_positions[:, 0] = torch.FloatTensor(num_envs).uniform_(
+            #     TARGET_POS_MIN_X, TARGET_POS_MAX_X).to(self.device)
+            # target_positions[:, 1] = torch.FloatTensor(num_envs).uniform_(
+            #     TARGET_POS_MIN_Y, TARGET_POS_MAX_Y).to(self.device)
+            # target_positions[:, 2] = torch.FloatTensor(num_envs).uniform_(
+            #     TARGET_POS_MIN_Z, TARGET_POS_MAX_Z).to(self.device)
         else:
             target_positions[:, 1] = TARGET_POS_MAX_Y
             target_positions[:, 2] = TARGET_POS_MIN_Z
@@ -650,6 +657,16 @@ class Vine5LinkMovingBase(VecTask):
                     self.u[:] = U_MIN
                     self.MIN_PRESSURE_COUNTER -= 1
 
+                if USE_SIMPLE_POLICY:
+                    tip_y_velocities = self.tip_velocities[:, 1]  # (num_envs,)
+                    self.u = torch.where(tip_y_velocities >= 0, U_MAX, U_MIN).reshape(self.num_envs, 1)  # (num_envs, 1)
+
+                # Log input and output
+                for i in range(N_REVOLUTE_DOFS):
+                    self.wandb_dict[f"q{i}"] = self.dof_pos[self.index_to_view, i]
+                self.wandb_dict["u at self.index_to_view"] = self.u[self.index_to_view]
+                self.wandb_dict["rail_force at self.index_to_view"] = self.rail_force[self.index_to_view]
+
                 if self.A is None:
                     # torque = - Kq - Cqd - b - Bu;
                     #        = - [K C diag(b) diag(B)] @ [q; qd; ones(5), u*ones(5)]
@@ -665,8 +682,8 @@ class Vine5LinkMovingBase(VecTask):
                     A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
                     self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
 
-                x = torch.cat([q, qd, torch.ones(self.num_envs, 5, device=self.device), self.u *
-                              torch.ones(self.num_envs, 5, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
+                x = torch.cat([q, qd, torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device), self.u *
+                              torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
                 torques = -torch.matmul(self.A, x).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
 
                 # Set efforts
