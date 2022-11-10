@@ -66,7 +66,7 @@ REWARD_NAMES = ["Position", "Const Negative", "Position Success",
                 "Velocity Success", "Velocity", "Rail Force Control", "U Control"]
 POSITION_REWARD_WEIGHT = 0.0
 CONST_NEGATIVE_REWARD_WEIGHT = 0.0
-POSITION_SUCCESS_REWARD_WEIGHT = 1.0
+POSITION_SUCCESS_REWARD_WEIGHT = 0.0
 VELOCITY_SUCCESS_REWARD_WEIGHT = 0.0
 VELOCITY_REWARD_WEIGHT = 1.0
 RAIL_FORCE_CONTROL_REWARD_WEIGHT = 0.0
@@ -389,7 +389,7 @@ class Vine5LinkMovingBase(VecTask):
 
             # Different collision_groups so that different envs don't interact
             # collision_filter = 0 for enabled self-collision, collision_filter > 0 disable self-collisions
-            collision_group, collision_filter, segmentation_id = i, 0, 0
+            collision_group, collision_filter, segmentation_id = i, 1, 0
 
             # Create vine robots
             vine_handle = self.gym.create_actor(
@@ -553,8 +553,8 @@ class Vine5LinkMovingBase(VecTask):
         if RANDOMIZE_DOF_INIT:
             num_revolute_joints = len(self.revolute_dof_lowers)
             for i in range(num_revolute_joints):
-                min_angle = max(self.revolute_dof_lowers[i], -math.radians(20))
-                max_angle = min(self.revolute_dof_uppers[i], math.radians(20))
+                min_angle = max(self.revolute_dof_lowers[i], -math.radians(10))
+                max_angle = min(self.revolute_dof_uppers[i], math.radians(10))
                 self.dof_pos[env_ids, self.revolute_dof_indices[i]] = torch.FloatTensor(
                     len(env_ids)).uniform_(min_angle, max_angle).to(self.device)
 
