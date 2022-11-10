@@ -79,15 +79,15 @@ N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.5
 
-MIN_EFFECTIVE_ANGLE = math.radians(5)
-MAX_EFFECTIVE_ANGLE = math.radians(20)
+MIN_EFFECTIVE_ANGLE = math.radians(-20)
+MAX_EFFECTIVE_ANGLE = math.radians(-5)
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 
 TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
 # TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, LENGTH_RAIL/2  # Set to length of rail
-TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MAX_EFFECTIVE_ANGLE)*VINE_LENGTH,
-                                      math.sin(MAX_EFFECTIVE_ANGLE) * VINE_LENGTH)
-TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MAX_EFFECTIVE_ANGLE) * VINE_LENGTH
+TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MIN_EFFECTIVE_ANGLE)*VINE_LENGTH,
+                                      math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
+TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
 
 DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
 RANDOMIZE_DOF_INIT = True
@@ -489,7 +489,7 @@ class Vine5LinkMovingBase(VecTask):
 
     def compute_reward(self):
         dist_tip_to_target = torch.linalg.norm(self.tip_positions - self.target_positions, dim=-1)
-        target_reached = self.tip_positions[:, 1] > self.target_positions[:, 1]
+        target_reached = self.tip_positions[:, 1] < self.target_positions[:, 1]  # More negative in y dir BRITTLE
 
         self.wandb_dict.update({
             "dist_tip_to_target": dist_tip_to_target.mean().item(),
@@ -680,9 +680,9 @@ class Vine5LinkMovingBase(VecTask):
                                                  0.7728716674414156, 0.566602254820747, 0.20000000042282678], device=self.device))
                     C = torch.diag(torch.tensor([0.010098832804688505, 0.008001446516454621,
                                                  0.01352315902253585, 0.021895211325047674, 0.017533205699630634], device=self.device))
-                    b = torch.tensor([-0.002961879962361915, -0.019149230853283454, -0.01339719175569314, -
+                    b = -torch.tensor([-0.002961879962361915, -0.019149230853283454, -0.01339719175569314, -
                                      0.011436913019114144, -0.0031035566743229624], device=self.device)
-                    B = torch.tensor([-0.02525783894248118, -0.06298872026151316, -0.049676622868418834, -
+                    B = -torch.tensor([-0.02525783894248118, -0.06298872026151316, -0.049676622868418834, -
                                      0.029474741498381096, -0.015412936470522515], device=self.device)
                     A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
                     self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
