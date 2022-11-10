@@ -50,8 +50,8 @@ START_LIN_VEL_IDX, END_LIN_VEL_IDX = 7, 10
 START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 
 # PARAMETERS (OFTEN CHANGE)
-USE_MOVING_BASE = False
-USE_SIMPLE_POLICY = True
+USE_MOVING_BASE = True
+USE_SIMPLE_POLICY = False
 CAPTURE_VIDEO = True
 PD_TARGET_ALL_JOINTS = False
 
@@ -80,13 +80,14 @@ INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.5
 
 MIN_EFFECTIVE_ANGLE = math.radians(5)
-MAX_EFFECTIVE_ANGLE = math.radians(20)
+MAX_EFFECTIVE_ANGLE = math.radians(60)
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 
 TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
-# TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, LENGTH_RAIL/2  # Set to length of rail
-TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MAX_EFFECTIVE_ANGLE)*VINE_LENGTH,
-                                      math.sin(MAX_EFFECTIVE_ANGLE) * VINE_LENGTH)
+TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, LENGTH_RAIL/2  # Set to length of rail
+# TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MAX_EFFECTIVE_ANGLE)*VINE_LENGTH,
+#                                       math.sin(MAX_EFFECTIVE_ANGLE) * VINE_LENGTH)
+# TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MAX_EFFECTIVE_ANGLE) * VINE_LENGTH
 TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MAX_EFFECTIVE_ANGLE) * VINE_LENGTH
 
 DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
@@ -489,7 +490,11 @@ class Vine5LinkMovingBase(VecTask):
 
     def compute_reward(self):
         dist_tip_to_target = torch.linalg.norm(self.tip_positions - self.target_positions, dim=-1)
-        target_reached = self.tip_positions[:, 1] > self.target_positions[:, 1]
+
+        # target_reached = self.tip_positions[:, 1] > self.target_positions[:, 1]
+
+        SUCCESS_DIST = 0.1
+        target_reached = dist_tip_to_target < SUCCESS_DIST
 
         self.wandb_dict.update({
             "dist_tip_to_target": dist_tip_to_target.mean().item(),
@@ -553,8 +558,8 @@ class Vine5LinkMovingBase(VecTask):
         if RANDOMIZE_DOF_INIT:
             num_revolute_joints = len(self.revolute_dof_lowers)
             for i in range(num_revolute_joints):
-                min_angle = max(self.revolute_dof_lowers[i], -math.radians(5))
-                max_angle = min(self.revolute_dof_uppers[i], math.radians(5))
+                min_angle = max(self.revolute_dof_lowers[i], -math.radians(10))
+                max_angle = min(self.revolute_dof_uppers[i], math.radians(10))
                 self.dof_pos[env_ids, self.revolute_dof_indices[i]] = torch.FloatTensor(
                     len(env_ids)).uniform_(min_angle, max_angle).to(self.device)
 
@@ -589,16 +594,16 @@ class Vine5LinkMovingBase(VecTask):
         target_positions = torch.zeros(num_envs, NUM_XYZ, device=self.device)
         if RANDOMIZE_TARGETS:
             # TODO Find the best way to set targets
-            angles = torch.FloatTensor(num_envs).uniform_(MIN_EFFECTIVE_ANGLE, MAX_EFFECTIVE_ANGLE).to(self.device)
-            target_positions[:, 1] = torch.sin(angles) * VINE_LENGTH
-            target_positions[:, 2] = INIT_Z - torch.cos(angles) * VINE_LENGTH
+            # angles = torch.FloatTensor(num_envs).uniform_(MIN_EFFECTIVE_ANGLE, MAX_EFFECTIVE_ANGLE).to(self.device)
+            # target_positions[:, 1] = torch.sin(angles) * VINE_LENGTH
+            # target_positions[:, 2] = INIT_Z - torch.cos(angles) * VINE_LENGTH
 
-            # target_positions[:, 0] = torch.FloatTensor(num_envs).uniform_(
-            #     TARGET_POS_MIN_X, TARGET_POS_MAX_X).to(self.device)
-            # target_positions[:, 1] = torch.FloatTensor(num_envs).uniform_(
-            #     TARGET_POS_MIN_Y, TARGET_POS_MAX_Y).to(self.device)
-            # target_positions[:, 2] = torch.FloatTensor(num_envs).uniform_(
-            #     TARGET_POS_MIN_Z, TARGET_POS_MAX_Z).to(self.device)
+            target_positions[:, 0] = torch.FloatTensor(num_envs).uniform_(
+                TARGET_POS_MIN_X, TARGET_POS_MAX_X).to(self.device)
+            target_positions[:, 1] = torch.FloatTensor(num_envs).uniform_(
+                TARGET_POS_MIN_Y, TARGET_POS_MAX_Y).to(self.device)
+            target_positions[:, 2] = torch.FloatTensor(num_envs).uniform_(
+                TARGET_POS_MIN_Z, TARGET_POS_MAX_Z).to(self.device)
         else:
             target_positions[:, 1] = TARGET_POS_MAX_Y
             target_positions[:, 2] = TARGET_POS_MIN_Z
