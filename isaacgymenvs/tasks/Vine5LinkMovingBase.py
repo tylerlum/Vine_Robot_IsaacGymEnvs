@@ -658,8 +658,8 @@ class Vine5LinkMovingBase(VecTask):
                     self.MIN_PRESSURE_COUNTER -= 1
 
                 if USE_SIMPLE_POLICY:
-                    tip_y_velocities = self.tip_velocities[:, 1]
-                    self.u = torch.where(tip_y_velocities >= 0, U_MAX, U_MIN)
+                    tip_y_velocities = self.tip_velocities[:, 1]  # (num_envs,)
+                    self.u = torch.where(tip_y_velocities >= 0, U_MAX, U_MIN).reshape(self.num_envs, 1)  # (num_envs, 1)
 
                 # Log input and output
                 for i in range(N_REVOLUTE_DOFS):
@@ -682,8 +682,8 @@ class Vine5LinkMovingBase(VecTask):
                     A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
                     self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
 
-                x = torch.cat([q, qd, torch.ones(self.num_envs, 5, device=self.device), self.u *
-                              torch.ones(self.num_envs, 5, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
+                x = torch.cat([q, qd, torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device), self.u *
+                              torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
                 torques = -torch.matmul(self.A, x).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
 
                 # Set efforts
