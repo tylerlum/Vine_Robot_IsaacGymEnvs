@@ -90,7 +90,7 @@ TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MAX_EFFECTIVE_ANGLE)*VINE_LENGTH
 TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MAX_EFFECTIVE_ANGLE) * VINE_LENGTH
 
 DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
-RANDOMIZE_DOF_INIT = True
+RANDOMIZE_DOF_INIT = False
 RANDOMIZE_TARGETS = True
 
 # GLOBALS
@@ -658,13 +658,14 @@ class Vine5LinkMovingBase(VecTask):
                     self.MIN_PRESSURE_COUNTER -= 1
 
                 if USE_SIMPLE_POLICY:
-                    _, V_YYY, _ = self.tip_velocities[self.index_to_view]
+                    tip_y_velocities = self.tip_velocities[:, 1]
+                    self.u = torch.where(tip_y_velocities >= 0, U_MAX, U_MIN)
 
-                    if V_YYY.item() >= 0:
-                        self.u[self.index_to_view] = U_MAX
-                    else:
-                        self.u[self.index_to_view] = U_MIN
-
+                # Log input and output
+                for i in range(N_REVOLUTE_DOFS):
+                    self.wandb_dict[f"q{i}"] = self.dof_pos[self.index_to_view, i]
+                self.wandb_dict["u at self.index_to_view"] = self.u[self.index_to_view]
+                self.wandb_dict["rail_force at self.index_to_view"] = self.rail_force[self.index_to_view]
 
                 if self.A is None:
                     # torque = - Kq - Cqd - b - Bu;
