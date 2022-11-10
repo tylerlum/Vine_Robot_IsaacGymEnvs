@@ -79,8 +79,8 @@ N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.5
 
-MIN_EFFECTIVE_ANGLE = math.radians(-20)
-MAX_EFFECTIVE_ANGLE = math.radians(-5)
+MIN_EFFECTIVE_ANGLE = math.radians(-60)
+MAX_EFFECTIVE_ANGLE = math.radians(-40)
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 
 TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
@@ -90,7 +90,7 @@ TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MIN_EFFECTIVE_ANGLE)*VINE_LENGTH
 TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
 
 DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
-RANDOMIZE_DOF_INIT = True
+RANDOMIZE_DOF_INIT = False
 RANDOMIZE_TARGETS = True
 
 # GLOBALS
@@ -126,11 +126,13 @@ class Vine5LinkMovingBase(VecTask):
     """
 
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
+        print("In Vine5LinkMovingBase __init__")
         # Store cfg file and read in parameters
         self.cfg = cfg
         self.log_dir = os.path.join('runs', cfg["name"])
         self.time_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self.max_episode_length = self.cfg["env"]["maxEpisodeLength"]
+        print("In Vine5LinkMovingBase __init__ later")
 
         # Must set this before continuing
         if NO_VEL_IN_OBS:
@@ -138,6 +140,7 @@ class Vine5LinkMovingBase(VecTask):
         else:
             self.cfg["env"]["numObservations"] = 2 * (N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ)
 
+        print("In Vine5LinkMovingBase __init__ later")
         if PD_TARGET_ALL_JOINTS:
             self.cfg["env"]["numActions"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS
         else:
@@ -147,6 +150,7 @@ class Vine5LinkMovingBase(VecTask):
 
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id,
                          headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
+        print("In Vine5LinkMovingBase __init__ later")
 
         self.initialize_state_tensors()
         self.target_positions = self.sample_target_positions(self.num_envs)
@@ -161,6 +165,7 @@ class Vine5LinkMovingBase(VecTask):
         cam_target = gymapi.Vec3(tip_pos[0], tip_pos[1], INIT_Z)
         cam_pos = cam_target + gymapi.Vec3(1.0, 0.0, 0.0)
         self.gym.viewer_camera_look_at(self.viewer, self.envs[self.index_to_view], cam_pos, cam_target)
+        print("In Vine5LinkMovingBase __init__ later")
 
         # Setup camera for taking pictures
         self.camera_properties = gymapi.CameraProperties()
@@ -172,8 +177,10 @@ class Vine5LinkMovingBase(VecTask):
         self.capture_video_every = 1_500
         self.num_steps = 0
         self.gym.set_camera_location(self.camera_handle, self.envs[self.index_to_view], cam_pos, cam_target)
+        print("In Vine5LinkMovingBase __init__ later")
 
         self.wandb_dict = {}
+        print("In Vine5LinkMovingBase __init__ later")
 
     def initialize_state_tensors(self):
         # Store dof state tensor, and get pos and vel
@@ -398,28 +405,9 @@ class Vine5LinkMovingBase(VecTask):
 
             # Set dof properties
             dof_props = self.gym.get_actor_dof_properties(env_ptr, vine_handle)
-
-            for j in range(self.gym.get_asset_dof_count(self.vine_asset)):
-                dof_type = self.gym.get_asset_dof_type(self.vine_asset, j)
-
-                # Dof type specific params
-                # TODO: Tune
-                if dof_type == gymapi.DofType.DOF_ROTATION:
-                    dof_props['stiffness'][j] = 10.0
-                    dof_props['damping'][j] = 1.0
-                elif dof_type == gymapi.DofType.DOF_TRANSLATION:
-                    dof_props['stiffness'][j] = 100.0
-                    dof_props['damping'][j] = 1.0
-                else:
-                    raise ValueError(f"Invalid dof_type = {dof_type}")
-
-                if DOF_MODE == "FORCE":
-                    dof_props['driveMode'][j] = gymapi.DOF_MODE_EFFORT
-                elif DOF_MODE == "POSITION":
-                    dof_props['driveMode'][j] = gymapi.DOF_MODE_POS
-                else:
-                    raise ValueError(f"Invalid DOF_MODE = {DOF_MODE}")
-
+            dof_props["driveMode"].fill(gymapi.DOF_MODE_EFFORT)
+            dof_props["stiffness"].fill(1e-1)
+            dof_props["damping"].fill(1e-2)
             self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
 
             self.envs.append(env_ptr)
@@ -610,6 +598,8 @@ class Vine5LinkMovingBase(VecTask):
         return torch.zeros(num_envs, NUM_XYZ, device=self.device)
 
     def pre_physics_step(self, actions):
+        print("In pre_physics_step")
+        print("-" * 80)
         self.raw_actions = actions.clone().to(self.device)
 
         if DOF_MODE == "FORCE":
@@ -660,6 +650,9 @@ class Vine5LinkMovingBase(VecTask):
                     tip_y_velocities = self.tip_velocities[:, 1]  # (num_envs,)
                     self.u = torch.where(tip_y_velocities <= 0, U_MAX, U_MIN).reshape(self.num_envs, 1)  # (num_envs, 1)
 
+                # TODO: Force u = U_MAX
+                self.u[:] = U_MAX
+
                 # Log input and output
                 for i in range(N_REVOLUTE_DOFS):
                     self.wandb_dict[f"q{i} at self.index_to_view"] = self.dof_pos[self.index_to_view, i]
@@ -690,6 +683,9 @@ class Vine5LinkMovingBase(VecTask):
                 x = torch.cat([q, qd, torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device), self.u *
                               torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
                 torques = -torch.matmul(self.A, x).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
+                print(f"torques = {torques}")
+                print(f"q = {self.dof_pos}")
+                print(f"qd = {self.dof_vel}")
 
                 # Set efforts
                 if N_PRISMATIC_DOFS == 1:
