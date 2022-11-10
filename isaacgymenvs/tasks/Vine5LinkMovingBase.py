@@ -51,7 +51,7 @@ START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = False
-USE_SIMPLE_POLICY = True
+USE_SIMPLE_POLICY = False
 CAPTURE_VIDEO = True
 PD_TARGET_ALL_JOINTS = False
 
@@ -553,8 +553,8 @@ class Vine5LinkMovingBase(VecTask):
         if RANDOMIZE_DOF_INIT:
             num_revolute_joints = len(self.revolute_dof_lowers)
             for i in range(num_revolute_joints):
-                min_angle = max(self.revolute_dof_lowers[i], -math.radians(5))
-                max_angle = min(self.revolute_dof_uppers[i], math.radians(5))
+                min_angle = max(self.revolute_dof_lowers[i], -math.radians(10))
+                max_angle = min(self.revolute_dof_uppers[i], math.radians(10))
                 self.dof_pos[env_ids, self.revolute_dof_indices[i]] = torch.FloatTensor(
                     len(env_ids)).uniform_(min_angle, max_angle).to(self.device)
 
