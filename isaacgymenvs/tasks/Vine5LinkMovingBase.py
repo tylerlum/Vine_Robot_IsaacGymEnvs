@@ -167,8 +167,8 @@ class Vine5LinkMovingBase(VecTask):
         self.camera_properties.height = self.camera_properties.height // 4  # Save storage space
         self.camera_handle = self.gym.create_camera_sensor(self.envs[self.index_to_view], self.camera_properties)
         self.video_frames = []
-        self.num_video_frames = 50
-        self.capture_video_every = 500
+        self.num_video_frames = 100
+        self.capture_video_every = 1_500
         self.num_steps = 0
         self.gym.set_camera_location(self.camera_handle, self.envs[self.index_to_view], cam_pos, cam_target)
 
