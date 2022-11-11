@@ -641,9 +641,6 @@ class Vine5LinkMovingBase(VecTask):
                     tip_y_velocities = self.tip_velocities[:, 1]  # (num_envs,)
                     self.u = torch.where(tip_y_velocities <= 0, U_MAX, U_MIN).reshape(self.num_envs, 1)  # (num_envs, 1)
 
-                # TODO: Force u = U_MAX
-                self.u[:] = U_MAX
-
                 # Log input and output
                 for i in range(N_REVOLUTE_DOFS):
                     self.wandb_dict[f"q{i} at self.index_to_view"] = self.dof_pos[self.index_to_view, i]
