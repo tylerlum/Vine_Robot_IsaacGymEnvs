@@ -126,13 +126,11 @@ class Vine5LinkMovingBase(VecTask):
     """
 
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
-        print("In Vine5LinkMovingBase __init__")
         # Store cfg file and read in parameters
         self.cfg = cfg
         self.log_dir = os.path.join('runs', cfg["name"])
         self.time_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self.max_episode_length = self.cfg["env"]["maxEpisodeLength"]
-        print("In Vine5LinkMovingBase __init__ later")
 
         # Must set this before continuing
         if NO_VEL_IN_OBS:
@@ -140,7 +138,6 @@ class Vine5LinkMovingBase(VecTask):
         else:
             self.cfg["env"]["numObservations"] = 2 * (N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ)
 
-        print("In Vine5LinkMovingBase __init__ later")
         if PD_TARGET_ALL_JOINTS:
             self.cfg["env"]["numActions"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS
         else:
@@ -150,7 +147,6 @@ class Vine5LinkMovingBase(VecTask):
 
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id,
                          headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
-        print("In Vine5LinkMovingBase __init__ later")
 
         self.initialize_state_tensors()
         self.target_positions = self.sample_target_positions(self.num_envs)
@@ -165,7 +161,6 @@ class Vine5LinkMovingBase(VecTask):
         cam_target = gymapi.Vec3(tip_pos[0], tip_pos[1], INIT_Z)
         cam_pos = cam_target + gymapi.Vec3(1.0, 0.0, 0.0)
         self.gym.viewer_camera_look_at(self.viewer, self.envs[self.index_to_view], cam_pos, cam_target)
-        print("In Vine5LinkMovingBase __init__ later")
 
         # Setup camera for taking pictures
         self.camera_properties = gymapi.CameraProperties()
@@ -177,10 +172,8 @@ class Vine5LinkMovingBase(VecTask):
         self.capture_video_every = 1_500
         self.num_steps = 0
         self.gym.set_camera_location(self.camera_handle, self.envs[self.index_to_view], cam_pos, cam_target)
-        print("In Vine5LinkMovingBase __init__ later")
 
         self.wandb_dict = {}
-        print("In Vine5LinkMovingBase __init__ later")
 
     def initialize_state_tensors(self):
         # Store dof state tensor, and get pos and vel
@@ -598,8 +591,6 @@ class Vine5LinkMovingBase(VecTask):
         return torch.zeros(num_envs, NUM_XYZ, device=self.device)
 
     def pre_physics_step(self, actions):
-        print("In pre_physics_step")
-        print("-" * 80)
         self.raw_actions = actions.clone().to(self.device)
 
         if DOF_MODE == "FORCE":
@@ -683,9 +674,6 @@ class Vine5LinkMovingBase(VecTask):
                 x = torch.cat([q, qd, torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device), self.u *
                               torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
                 torques = -torch.matmul(self.A, x).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
-                print(f"torques = {torques}")
-                print(f"q = {self.dof_pos}")
-                print(f"qd = {self.dof_vel}")
 
                 # Set efforts
                 if N_PRISMATIC_DOFS == 1:
