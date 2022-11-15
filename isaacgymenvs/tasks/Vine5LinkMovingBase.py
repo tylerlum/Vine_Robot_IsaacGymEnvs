@@ -59,7 +59,7 @@ U_MIN, U_MAX = -0.1, 3.0
 RAIL_FORCE_SCALE = 1000.0
 
 # Observations
-NO_VEL_IN_OBS = False
+NO_VEL_IN_OBS = True
 
 # Rewards
 # Brittle: Ensure reward order matches
