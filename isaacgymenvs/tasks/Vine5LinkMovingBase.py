@@ -31,6 +31,7 @@ import os
 import torch
 import math
 import datetime
+from enum import Enum
 
 from isaacgym import gymutil, gymtorch, gymapi
 from .base.vec_task import VecTask
@@ -59,7 +60,13 @@ U_MIN, U_MAX = -0.1, 3.0
 RAIL_FORCE_SCALE = 1000.0
 
 # Observations
-NO_VEL_IN_OBS = False
+class ObservationType(Enum):
+    POS_ONLY = 0
+    POS_AND_VEL = 1
+    POS_AND_FD_VEL = 2
+    POS_AND_PREV_POS = 3
+
+OBSERVATION_TYPE = ObservationType.POS_AND_PREV_POS
 
 # Rewards
 # Brittle: Ensure reward order matches
@@ -131,9 +138,14 @@ class Vine5LinkMovingBase(VecTask):
         self.log_dir = os.path.join('runs', cfg["name"])
         self.time_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self.max_episode_length = self.cfg["env"]["maxEpisodeLength"]
+        self.dt = self.cfg["sim"]["dt"]
+
+        # Randomization
+        self.randomize = self.cfg["task"]["randomize"]
+        self.randomization_params = self.cfg["task"]["randomization_params"]
 
         # Must set this before continuing
-        if NO_VEL_IN_OBS:
+        if OBSERVATION_TYPE == ObservationType.POS_ONLY:
             self.cfg["env"]["numObservations"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ
         else:
             self.cfg["env"]["numObservations"] = 2 * (N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ)
@@ -181,6 +193,7 @@ class Vine5LinkMovingBase(VecTask):
         self.dof_state = gymtorch.wrap_tensor(dof_state_tensor)
         self.dof_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 0]
         self.dof_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 1]
+        self.prev_dof_pos = self.dof_pos.clone()
 
         # Store rigid body state tensor
         rigid_body_state_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
@@ -195,6 +208,7 @@ class Vine5LinkMovingBase(VecTask):
         self.tip_positions = rigid_body_state_by_env[:, -1, START_POS_IDX:END_POS_IDX]
         self.link_velocities = rigid_body_state_by_env[:, :, START_LIN_VEL_IDX:END_LIN_VEL_IDX]
         self.tip_velocities = rigid_body_state_by_env[:, -1, START_LIN_VEL_IDX:END_LIN_VEL_IDX]
+        self.prev_tip_positions = self.tip_positions.clone()
 
     def refresh_state_tensors(self):
         self.gym.refresh_dof_state_tensor(self.sim)
@@ -302,6 +316,11 @@ class Vine5LinkMovingBase(VecTask):
         self.sim = super().create_sim(self.device_id, self.graphics_device_id, self.physics_engine, self.sim_params)
         self._create_ground_plane()
         self._create_envs(self.num_envs, self.cfg["env"]['envSpacing'], int(np.sqrt(self.num_envs)))
+
+        # If randomizing, apply once immediately on startup before the fist sim step
+        if self.randomize:
+            print("Applying randomization on startup")
+            self.apply_randomizations(self.randomization_params)
 
     def _create_ground_plane(self):
         plane_params = gymapi.PlaneParams()
@@ -505,6 +524,21 @@ class Vine5LinkMovingBase(VecTask):
             "Aggregated Reward 1 Std Down": self.aggregated_rew_buf.mean().item() - self.aggregated_rew_buf.std().item(),
         })
 
+        # Log input and output
+        for i in range(N_REVOLUTE_DOFS):
+            self.wandb_dict[f"q{i} at self.index_to_view"] = self.dof_pos[self.index_to_view, i]
+            self.wandb_dict[f"qd{i} at self.index_to_view"] = self.dof_vel[self.index_to_view, i]
+            self.wandb_dict[f"finite_diff_qd{i} at self.index_to_view"] = self.finite_difference_dof_vel[self.index_to_view, i]
+
+        for i, dir in enumerate(["x", "y", "z"]):
+            self.wandb_dict[f"tip_vel_{dir} at self.index_to_view"] = self.tip_velocities[self.index_to_view, i]
+            self.wandb_dict[f"target_vel_{dir} at self.index_to_view"] = self.target_velocities[self.index_to_view, i]
+            self.wandb_dict[f"finite_diff_tip_vel_{dir} at self.index_to_view"] = self.finite_difference_tip_velocities[self.index_to_view, i]
+
+        self.wandb_dict["u at self.index_to_view"] = self.u[self.index_to_view]
+        self.wandb_dict["rail_force at self.index_to_view"] = self.rail_force[self.index_to_view]
+
+
         for i, reward_name in enumerate(REWARD_NAMES):
             self.wandb_dict.update({
                 f"Mean {reward_name} Reward": reward_matrix[:, i].mean().item(),
@@ -523,20 +557,37 @@ class Vine5LinkMovingBase(VecTask):
             env_ids = np.arange(self.num_envs)
 
         # Refresh tensors
+        self.prev_dof_pos = self.dof_pos.clone()
+        self.prev_tip_positions = self.tip_positions.clone()
         self.refresh_state_tensors()
+
+        # Finite difference to get velocities
+        self.finite_difference_dof_vel = (self.dof_pos - self.prev_dof_pos) / self.dt
+        self.finite_difference_tip_velocities = (self.tip_positions - self.prev_tip_positions) / self.dt
 
         # Populate obs_buf
         # tensors_to_add elements must all be (num_envs, X)
-        if NO_VEL_IN_OBS:
+        if OBSERVATION_TYPE == ObservationType.POS_ONLY:
             tensors_to_concat = [self.dof_pos, self.tip_positions, self.target_positions]
-        else:
+        elif OBSERVATION_TYPE == ObservationType.POS_AND_VEL:
             tensors_to_concat = [self.dof_pos, self.dof_vel, self.tip_positions,
                                  self.tip_velocities, self.target_positions, self.target_velocities]
+        elif OBSERVATION_TYPE == ObservationType.POS_AND_FD_VEL:
+            tensors_to_concat = [self.dof_pos, self.finite_difference_dof_vel, self.tip_positions,
+                                 self.finite_difference_tip_velocities, self.target_positions, self.target_velocities]
+        elif OBSERVATION_TYPE == ObservationType.POS_AND_PREV_POS:
+            tensors_to_concat = [self.dof_pos, self.prev_dof_pos, self.tip_positions,
+                                 self.prev_tip_positions, self.target_positions, self.target_velocities]
         self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
 
         return self.obs_buf
 
     def reset_idx(self, env_ids):
+        # randomization can happen only at reset time, since it can reset actor positions on GPU
+        if self.randomize:
+            print("Applying randomization")
+            self.apply_randomizations(self.randomization_params)
+
         if RANDOMIZE_DOF_INIT:
             num_revolute_joints = len(self.revolute_dof_lowers)
             for i in range(num_revolute_joints):
@@ -554,6 +605,8 @@ class Vine5LinkMovingBase(VecTask):
 
         # Set dof velocities to 0
         self.dof_vel[env_ids, :] = 0.0
+        self.prev_dof_pos = self.dof_pos.clone()
+        # TODO: Need to reset prev_tip_positions as well?
 
         # Update dofs
         env_ids_int32 = env_ids.to(dtype=torch.int32)
@@ -646,17 +699,6 @@ class Vine5LinkMovingBase(VecTask):
                 if USE_SIMPLE_POLICY:
                     tip_y_velocities = self.tip_velocities[:, 1]  # (num_envs,)
                     self.u = torch.where(tip_y_velocities <= 0, U_MAX, U_MIN).reshape(self.num_envs, 1)  # (num_envs, 1)
-
-                # Log input and output
-                for i in range(N_REVOLUTE_DOFS):
-                    self.wandb_dict[f"q{i} at self.index_to_view"] = self.dof_pos[self.index_to_view, i]
-
-                for i, dir in enumerate(["x", "y", "z"]):
-                    self.wandb_dict[f"tip_vel_{dir} at self.index_to_view"] = self.tip_velocities[self.index_to_view, i]
-                    self.wandb_dict[f"target_vel_{dir} at self.index_to_view"] = self.target_velocities[self.index_to_view, i]
-
-                self.wandb_dict["u at self.index_to_view"] = self.u[self.index_to_view]
-                self.wandb_dict["rail_force at self.index_to_view"] = self.rail_force[self.index_to_view]
 
                 if self.A is None:
                     # torque = - Kq - Cqd - b - Bu;
