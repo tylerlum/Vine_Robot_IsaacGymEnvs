@@ -309,6 +309,7 @@ class Vine5LinkMovingBase(VecTask):
 
         # If randomizing, apply once immediately on startup before the fist sim step
         if self.randomize:
+            print("Applying randomization on startup")
             self.apply_randomizations(self.randomization_params)
 
     def _create_ground_plane(self):
@@ -547,6 +548,7 @@ class Vine5LinkMovingBase(VecTask):
     def reset_idx(self, env_ids):
         # randomization can happen only at reset time, since it can reset actor positions on GPU
         if self.randomize:
+            print("Applying randomization")
             self.apply_randomizations(self.randomization_params)
 
         if RANDOMIZE_DOF_INIT:
