@@ -66,7 +66,7 @@ class ObservationType(Enum):
     POS_AND_FD_VEL = 2
     POS_AND_PREV_POS = 3
 
-OBSERVATION_TYPE = ObservationType.POS_AND_FD_VEL
+OBSERVATION_TYPE = ObservationType.POS_AND_PREV_POS
 
 # Rewards
 # Brittle: Ensure reward order matches
