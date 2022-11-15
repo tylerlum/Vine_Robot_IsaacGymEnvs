@@ -31,6 +31,7 @@ import os
 import torch
 import math
 import datetime
+from enum import Enum
 
 from isaacgym import gymutil, gymtorch, gymapi
 from .base.vec_task import VecTask
@@ -59,7 +60,13 @@ U_MIN, U_MAX = -0.1, 3.0
 RAIL_FORCE_SCALE = 1000.0
 
 # Observations
-NO_VEL_IN_OBS = False
+class ObservationType(Enum):
+    POS_ONLY = 0
+    POS_AND_VEL = 1
+    POS_AND_FD_VEL = 2
+    POS_AND_PREV_POS = 3
+
+OBSERVATION_TYPE = ObservationType.POS_AND_FD_VEL
 
 # Rewards
 # Brittle: Ensure reward order matches
@@ -138,7 +145,7 @@ class Vine5LinkMovingBase(VecTask):
         self.randomization_params = self.cfg["task"]["randomization_params"]
 
         # Must set this before continuing
-        if NO_VEL_IN_OBS:
+        if OBSERVATION_TYPE == ObservationType.POS_ONLY:
             self.cfg["env"]["numObservations"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ
         else:
             self.cfg["env"]["numObservations"] = 2 * (N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ)
@@ -560,13 +567,17 @@ class Vine5LinkMovingBase(VecTask):
 
         # Populate obs_buf
         # tensors_to_add elements must all be (num_envs, X)
-        if NO_VEL_IN_OBS:
+        if OBSERVATION_TYPE == ObservationType.POS_ONLY:
             tensors_to_concat = [self.dof_pos, self.tip_positions, self.target_positions]
-        else:
-            # tensors_to_concat = [self.dof_pos, self.dof_vel, self.tip_positions,
-            #                      self.tip_velocities, self.target_positions, self.target_velocities]
+        elif OBSERVATION_TYPE == ObservationType.POS_AND_VEL:
+            tensors_to_concat = [self.dof_pos, self.dof_vel, self.tip_positions,
+                                 self.tip_velocities, self.target_positions, self.target_velocities]
+        elif OBSERVATION_TYPE == ObservationType.POS_AND_FD_VEL:
             tensors_to_concat = [self.dof_pos, self.finite_difference_dof_vel, self.tip_positions,
                                  self.finite_difference_tip_velocities, self.target_positions, self.target_velocities]
+        elif OBSERVATION_TYPE == ObservationType.POS_AND_PREV_POS:
+            tensors_to_concat = [self.dof_pos, self.prev_dof_pos, self.tip_positions,
+                                 self.prev_tip_positions, self.target_positions, self.target_velocities]
         self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
 
         return self.obs_buf
