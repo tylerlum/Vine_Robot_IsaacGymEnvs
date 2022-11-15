@@ -399,8 +399,8 @@ class Vine5LinkMovingBase(VecTask):
             # Set dof properties
             dof_props = self.gym.get_actor_dof_properties(env_ptr, vine_handle)
             dof_props["driveMode"].fill(gymapi.DOF_MODE_EFFORT)
-            dof_props["stiffness"].fill(1e-1)
-            dof_props["damping"].fill(1e-2)
+            dof_props["stiffness"].fill(1e-1)  # TODO: Tune
+            dof_props["damping"].fill(1e-2)  # TODO: Tune
             self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
 
             self.envs.append(env_ptr)
@@ -470,7 +470,13 @@ class Vine5LinkMovingBase(VecTask):
 
     def compute_reward(self):
         dist_tip_to_target = torch.linalg.norm(self.tip_positions - self.target_positions, dim=-1)
-        target_reached = self.tip_positions[:, 1] < self.target_positions[:, 1]  # More negative in y dir BRITTLE
+
+        ONLY_CARE_ABOUT_Y_TARGET = True
+        if ONLY_CARE_ABOUT_Y_TARGET:
+            target_reached = self.tip_positions[:, 1] < self.target_positions[:, 1]  # More negative in y dir BRITTLE
+        else:
+            SUCCESS_DIST = 0.1
+            target_reached = dist_tip_to_target < SUCCESS_DIST
 
         self.wandb_dict.update({
             "dist_tip_to_target": dist_tip_to_target.mean().item(),
@@ -644,12 +650,11 @@ class Vine5LinkMovingBase(VecTask):
                 # Log input and output
                 for i in range(N_REVOLUTE_DOFS):
                     self.wandb_dict[f"q{i} at self.index_to_view"] = self.dof_pos[self.index_to_view, i]
-                self.wandb_dict[f"tip_x at self.index_to_view"] = self.tip_positions[self.index_to_view, 0]
-                self.wandb_dict[f"tip_y at self.index_to_view"] = self.tip_positions[self.index_to_view, 1]
-                self.wandb_dict[f"tip_z at self.index_to_view"] = self.tip_positions[self.index_to_view, 2]
-                self.wandb_dict[f"target_x at self.index_to_view"] = self.target_positions[self.index_to_view, 0]
-                self.wandb_dict[f"target_y at self.index_to_view"] = self.target_positions[self.index_to_view, 1]
-                self.wandb_dict[f"target_z at self.index_to_view"] = self.target_positions[self.index_to_view, 2]
+
+                for i, dir in enumerate(["x", "y", "z"]):
+                    self.wandb_dict[f"tip_vel_{dir} at self.index_to_view"] = self.tip_velocities[self.index_to_view, i]
+                    self.wandb_dict[f"target_vel_{dir} at self.index_to_view"] = self.target_velocities[self.index_to_view, i]
+
                 self.wandb_dict["u at self.index_to_view"] = self.u[self.index_to_view]
                 self.wandb_dict["rail_force at self.index_to_view"] = self.rail_force[self.index_to_view]
 
