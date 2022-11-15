@@ -51,7 +51,7 @@ START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = False
-USE_SIMPLE_POLICY = True
+USE_SIMPLE_POLICY = False
 CAPTURE_VIDEO = True
 PD_TARGET_ALL_JOINTS = False
 
@@ -79,18 +79,18 @@ N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.5
 
-MIN_EFFECTIVE_ANGLE = math.radians(30)
-MAX_EFFECTIVE_ANGLE = math.radians(50)
+MIN_EFFECTIVE_ANGLE = math.radians(-60)
+MAX_EFFECTIVE_ANGLE = math.radians(-40)
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 
 TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
 # TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, LENGTH_RAIL/2  # Set to length of rail
-TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MAX_EFFECTIVE_ANGLE)*VINE_LENGTH,
-                                      math.sin(MAX_EFFECTIVE_ANGLE) * VINE_LENGTH)
-TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MAX_EFFECTIVE_ANGLE) * VINE_LENGTH
+TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MIN_EFFECTIVE_ANGLE)*VINE_LENGTH,
+                                      math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
+TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
 
 DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
-RANDOMIZE_DOF_INIT = False
+RANDOMIZE_DOF_INIT = True
 RANDOMIZE_TARGETS = True
 
 # GLOBALS
@@ -398,28 +398,9 @@ class Vine5LinkMovingBase(VecTask):
 
             # Set dof properties
             dof_props = self.gym.get_actor_dof_properties(env_ptr, vine_handle)
-
-            for j in range(self.gym.get_asset_dof_count(self.vine_asset)):
-                dof_type = self.gym.get_asset_dof_type(self.vine_asset, j)
-
-                # Dof type specific params
-                # TODO: Tune
-                if dof_type == gymapi.DofType.DOF_ROTATION:
-                    dof_props['stiffness'][j] = 10.0
-                    dof_props['damping'][j] = 1.0
-                elif dof_type == gymapi.DofType.DOF_TRANSLATION:
-                    dof_props['stiffness'][j] = 100.0
-                    dof_props['damping'][j] = 1.0
-                else:
-                    raise ValueError(f"Invalid dof_type = {dof_type}")
-
-                if DOF_MODE == "FORCE":
-                    dof_props['driveMode'][j] = gymapi.DOF_MODE_EFFORT
-                elif DOF_MODE == "POSITION":
-                    dof_props['driveMode'][j] = gymapi.DOF_MODE_POS
-                else:
-                    raise ValueError(f"Invalid DOF_MODE = {DOF_MODE}")
-
+            dof_props["driveMode"].fill(gymapi.DOF_MODE_EFFORT)
+            dof_props["stiffness"].fill(1e-1)  # TODO: Tune
+            dof_props["damping"].fill(1e-2)  # TODO: Tune
             self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
 
             self.envs.append(env_ptr)
@@ -489,8 +470,13 @@ class Vine5LinkMovingBase(VecTask):
 
     def compute_reward(self):
         dist_tip_to_target = torch.linalg.norm(self.tip_positions - self.target_positions, dim=-1)
-        SUCCESS_DIST = 0.1
-        target_reached = dist_tip_to_target < SUCCESS_DIST
+
+        ONLY_CARE_ABOUT_Y_TARGET = True
+        if ONLY_CARE_ABOUT_Y_TARGET:
+            target_reached = self.tip_positions[:, 1] < self.target_positions[:, 1]  # More negative in y dir BRITTLE
+        else:
+            SUCCESS_DIST = 0.1
+            target_reached = dist_tip_to_target < SUCCESS_DIST
 
         self.wandb_dict.update({
             "dist_tip_to_target": dist_tip_to_target.mean().item(),
@@ -554,8 +540,8 @@ class Vine5LinkMovingBase(VecTask):
         if RANDOMIZE_DOF_INIT:
             num_revolute_joints = len(self.revolute_dof_lowers)
             for i in range(num_revolute_joints):
-                min_angle = max(self.revolute_dof_lowers[i], -math.radians(5))
-                max_angle = min(self.revolute_dof_uppers[i], math.radians(5))
+                min_angle = max(self.revolute_dof_lowers[i], -math.radians(10))
+                max_angle = min(self.revolute_dof_uppers[i], math.radians(10))
                 self.dof_pos[env_ids, self.revolute_dof_indices[i]] = torch.FloatTensor(
                     len(env_ids)).uniform_(min_angle, max_angle).to(self.device)
 
@@ -659,11 +645,16 @@ class Vine5LinkMovingBase(VecTask):
 
                 if USE_SIMPLE_POLICY:
                     tip_y_velocities = self.tip_velocities[:, 1]  # (num_envs,)
-                    self.u = torch.where(tip_y_velocities >= 0, U_MAX, U_MIN).reshape(self.num_envs, 1)  # (num_envs, 1)
+                    self.u = torch.where(tip_y_velocities <= 0, U_MAX, U_MIN).reshape(self.num_envs, 1)  # (num_envs, 1)
 
                 # Log input and output
                 for i in range(N_REVOLUTE_DOFS):
-                    self.wandb_dict[f"q{i}"] = self.dof_pos[self.index_to_view, i]
+                    self.wandb_dict[f"q{i} at self.index_to_view"] = self.dof_pos[self.index_to_view, i]
+
+                for i, dir in enumerate(["x", "y", "z"]):
+                    self.wandb_dict[f"tip_vel_{dir} at self.index_to_view"] = self.tip_velocities[self.index_to_view, i]
+                    self.wandb_dict[f"target_vel_{dir} at self.index_to_view"] = self.target_velocities[self.index_to_view, i]
+
                 self.wandb_dict["u at self.index_to_view"] = self.u[self.index_to_view]
                 self.wandb_dict["rail_force at self.index_to_view"] = self.rail_force[self.index_to_view]
 
@@ -675,9 +666,9 @@ class Vine5LinkMovingBase(VecTask):
                                                  0.7728716674414156, 0.566602254820747, 0.20000000042282678], device=self.device))
                     C = torch.diag(torch.tensor([0.010098832804688505, 0.008001446516454621,
                                                  0.01352315902253585, 0.021895211325047674, 0.017533205699630634], device=self.device))
-                    b = torch.tensor([-0.002961879962361915, -0.019149230853283454, -0.01339719175569314, -
+                    b = -torch.tensor([-0.002961879962361915, -0.019149230853283454, -0.01339719175569314, -
                                      0.011436913019114144, -0.0031035566743229624], device=self.device)
-                    B = torch.tensor([-0.02525783894248118, -0.06298872026151316, -0.049676622868418834, -
+                    B = -torch.tensor([-0.02525783894248118, -0.06298872026151316, -0.049676622868418834, -
                                      0.029474741498381096, -0.015412936470522515], device=self.device)
                     A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
                     self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
