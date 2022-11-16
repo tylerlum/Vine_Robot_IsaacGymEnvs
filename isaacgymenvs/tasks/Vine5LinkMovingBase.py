@@ -53,6 +53,10 @@ START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = False
 USE_SIMPLE_POLICY = False
+USE_SMOOTHED_U = True
+SMOOTHING_ALPHA_INFLATE = 0.88
+SMOOTHING_ALPHA_DEFLATE = 0.95
+
 CAPTURE_VIDEO = True
 PD_TARGET_ALL_JOINTS = False
 
@@ -66,7 +70,7 @@ class ObservationType(Enum):
     POS_AND_FD_VEL = 2
     POS_AND_PREV_POS = 3
 
-OBSERVATION_TYPE = ObservationType.POS_AND_PREV_POS
+OBSERVATION_TYPE = ObservationType.POS_AND_FD_VEL
 
 # Rewards
 # Brittle: Ensure reward order matches
@@ -184,6 +188,9 @@ class Vine5LinkMovingBase(VecTask):
         self.capture_video_every = 1_500
         self.num_steps = 0
         self.gym.set_camera_location(self.camera_handle, self.envs[self.index_to_view], cam_pos, cam_target)
+
+        # Perform smoothing of actions
+        self.smoothed_u = torch.zeros(self.num_envs, N_PRESSURE_ACTIONS, device=self.device)
 
         self.wandb_dict = {}
 
@@ -700,6 +707,10 @@ class Vine5LinkMovingBase(VecTask):
                     tip_y_velocities = self.tip_velocities[:, 1]  # (num_envs,)
                     self.u = torch.where(tip_y_velocities <= 0, U_MAX, U_MIN).reshape(self.num_envs, 1)  # (num_envs, 1)
 
+                # Compute smoothed u
+                alphas = torch.where(self.u > self.smoothed_u, SMOOTHING_ALPHA_INFLATE, SMOOTHING_ALPHA_DEFLATE)
+                self.smoothed_u = alphas * self.smoothed_u + (1 - alphas) * self.u
+
                 if self.A is None:
                     # torque = - Kq - Cqd - b - Bu;
                     #        = - [K C diag(b) diag(B)] @ [q; qd; ones(5), u*ones(5)]
@@ -715,7 +726,8 @@ class Vine5LinkMovingBase(VecTask):
                     A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
                     self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
 
-                x = torch.cat([q, qd, torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device), self.u *
+                u_to_use = self.smoothed_u if USE_SMOOTHED_U else self.u
+                x = torch.cat([q, qd, torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device), u_to_use *
                               torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
                 torques = -torch.matmul(self.A, x).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
 
