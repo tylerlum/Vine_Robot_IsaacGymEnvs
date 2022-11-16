@@ -150,9 +150,9 @@ class Vine5LinkMovingBase(VecTask):
 
         # Must set this before continuing
         if OBSERVATION_TYPE == ObservationType.POS_ONLY:
-            self.cfg["env"]["numObservations"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ
+            self.cfg["env"]["numObservations"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ + N_PRESSURE_ACTIONS
         else:
-            self.cfg["env"]["numObservations"] = 2 * (N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ)
+            self.cfg["env"]["numObservations"] = 2 * (N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ) + N_PRESSURE_ACTIONS
 
         if PD_TARGET_ALL_JOINTS:
             self.cfg["env"]["numActions"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS
@@ -575,16 +575,16 @@ class Vine5LinkMovingBase(VecTask):
         # Populate obs_buf
         # tensors_to_add elements must all be (num_envs, X)
         if OBSERVATION_TYPE == ObservationType.POS_ONLY:
-            tensors_to_concat = [self.dof_pos, self.tip_positions, self.target_positions]
+            tensors_to_concat = [self.dof_pos, self.tip_positions, self.target_positions, self.smoothed_u]
         elif OBSERVATION_TYPE == ObservationType.POS_AND_VEL:
             tensors_to_concat = [self.dof_pos, self.dof_vel, self.tip_positions,
-                                 self.tip_velocities, self.target_positions, self.target_velocities]
+                                 self.tip_velocities, self.target_positions, self.target_velocities, self.smoothed_u]
         elif OBSERVATION_TYPE == ObservationType.POS_AND_FD_VEL:
             tensors_to_concat = [self.dof_pos, self.finite_difference_dof_vel, self.tip_positions,
-                                 self.finite_difference_tip_velocities, self.target_positions, self.target_velocities]
+                                 self.finite_difference_tip_velocities, self.target_positions, self.target_velocities, self.smoothed_u]
         elif OBSERVATION_TYPE == ObservationType.POS_AND_PREV_POS:
             tensors_to_concat = [self.dof_pos, self.prev_dof_pos, self.tip_positions,
-                                 self.prev_tip_positions, self.target_positions, self.target_velocities]
+                                 self.prev_tip_positions, self.target_positions, self.target_velocities, self.smoothed_u]
         self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
 
         return self.obs_buf
