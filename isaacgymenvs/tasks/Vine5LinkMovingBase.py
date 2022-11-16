@@ -115,17 +115,36 @@ def print_if(text="", should_print=False):
 
 class Vine5LinkMovingBase(VecTask):
     """
-    State:
-      * 6 Joint positions (5 revolute, 1 prismatic)
-    Goal:
-      * 1 Target Pos
     Observation:
-      * 6 joint positions
-      * 6 joint velocities
-      * 3 tip position
-      * 3 tip velocity
-      * 3 target position
-      * 3 target velocity
+      POS_ONLY = 0
+        * Joint positions
+        * Tip position
+        * Target position
+        * p_fpam
+      POS_AND_VEL = 1
+        * Joint positions
+        * Joint velocities
+        * Tip position
+        * Tip velocity
+        * Target position
+        * Target velocity
+        * p_fpam
+      POS_AND_FD_VEL = 2
+        * Joint positions
+        * Joint velocities (finite difference)
+        * Tip position
+        * Tip velocity (finite difference)
+        * Target position
+        * Target velocity (finite difference)
+        * p_fpam
+      POS_AND_PREV_POS = 3
+        * Joint positions
+        * Prev joint positions
+        * Tip position
+        * Prev tip position
+        * Target position
+        * Prev target position
+        * p_fpam
     Action:
       * 1 for rail_force prismatic joint
       * 1 for u pressure
