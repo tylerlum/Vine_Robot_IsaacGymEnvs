@@ -543,6 +543,9 @@ class Vine5LinkMovingBase(VecTask):
             self.wandb_dict[f"target_vel_{dir} at self.index_to_view"] = self.target_velocities[self.index_to_view, i]
             self.wandb_dict[f"finite_diff_tip_vel_{dir} at self.index_to_view"] = self.finite_difference_tip_velocities[self.index_to_view, i]
 
+            self.wandb_dict[f"tip_pos_{dir} at self.index_to_view"] = self.tip_positions[self.index_to_view, i]
+            self.wandb_dict[f"target_pos_{dir} at self.index_to_view"] = self.target_positions[self.index_to_view, i]
+
         self.wandb_dict["u at self.index_to_view"] = self.u[self.index_to_view]
         self.wandb_dict["smoothed u at self.index_to_view"] = self.smoothed_u[self.index_to_view]
         self.wandb_dict["rail_force at self.index_to_view"] = self.rail_force[self.index_to_view]
