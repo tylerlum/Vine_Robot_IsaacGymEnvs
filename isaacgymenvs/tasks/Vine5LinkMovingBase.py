@@ -516,6 +516,7 @@ class Vine5LinkMovingBase(VecTask):
             "tip_velocities_max": torch.norm(self.tip_velocities, dim=-1).max().item(),
             "rail_force": torch.norm(self.rail_force, dim=-1).mean().item(),
             "u": torch.norm(self.u, dim=-1).mean().item(),
+            "smoothed_u": torch.norm(self.smoothed_u, dim=-1).mean().item(),
             "tip_target_velocity_difference": torch.norm(self.tip_velocities - self.target_velocities, dim=-1).mean().item(),
             "progress_buf": self.progress_buf.float().mean().item(),
         })
@@ -543,6 +544,7 @@ class Vine5LinkMovingBase(VecTask):
             self.wandb_dict[f"finite_diff_tip_vel_{dir} at self.index_to_view"] = self.finite_difference_tip_velocities[self.index_to_view, i]
 
         self.wandb_dict["u at self.index_to_view"] = self.u[self.index_to_view]
+        self.wandb_dict["smoothed u at self.index_to_view"] = self.smoothed_u[self.index_to_view]
         self.wandb_dict["rail_force at self.index_to_view"] = self.rail_force[self.index_to_view]
 
 
