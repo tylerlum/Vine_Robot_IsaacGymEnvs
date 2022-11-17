@@ -51,17 +51,18 @@ START_LIN_VEL_IDX, END_LIN_VEL_IDX = 7, 10
 START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 
 # PARAMETERS (OFTEN CHANGE)
-USE_MOVING_BASE = False
+USE_MOVING_BASE = True
 USE_SIMPLE_POLICY = False
 USE_SMOOTHED_U = True
 SMOOTHING_ALPHA_INFLATE = 0.81
 SMOOTHING_ALPHA_DEFLATE = 0.86
 
 CAPTURE_VIDEO = True
-PD_TARGET_ALL_JOINTS = False
 
 U_MIN, U_MAX = -0.1, 3.0
 RAIL_FORCE_SCALE = 1000.0
+DAMPING = 1e-2
+STIFFNESS = 1e-1
 
 # Observations
 
@@ -105,7 +106,6 @@ TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MIN_EFFECTIVE_ANGLE)*VINE_LENGTH
                                       math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
 TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
 
-DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
 RANDOMIZE_DOF_INIT = True
 RANDOMIZE_TARGETS = True
 
@@ -181,11 +181,6 @@ class Vine5LinkMovingBase(VecTask):
             self.cfg["env"]["numObservations"] = (
                 2 * (N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ) + N_PRESSURE_ACTIONS
             )
-
-        if PD_TARGET_ALL_JOINTS:
-            self.cfg["env"]["numActions"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS
-        else:
-            self.cfg["env"]["numActions"] = N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
 
         self.subscribe_to_keyboard_events()
 
@@ -452,9 +447,10 @@ class Vine5LinkMovingBase(VecTask):
 
             # Set dof properties
             dof_props = self.gym.get_actor_dof_properties(env_ptr, vine_handle)
-            dof_props["driveMode"].fill(gymapi.DOF_MODE_EFFORT)
-            dof_props["stiffness"].fill(1e-1)  # TODO: Tune
-            dof_props["damping"].fill(1e-2)  # TODO: Tune
+            dof_props['driveMode'].fill(gymapi.DOF_MODE_EFFORT)
+            dof_props['stiffness'].fill(STIFFNESS)
+            dof_props['damping'].fill(DAMPING)
+
             self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
 
             self.envs.append(env_ptr)
@@ -693,90 +689,72 @@ class Vine5LinkMovingBase(VecTask):
     def pre_physics_step(self, actions):
         self.raw_actions = actions.clone().to(self.device)
 
-        if DOF_MODE == "FORCE":
-            if PD_TARGET_ALL_JOINTS:
-                REVOLUTE_FORCE_SCALING = 1.0
-                PRISMATIC_FORCE_SCALING = 1000.0
-                dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
+        dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
 
-                # Revolute
-                for idx in self.revolute_dof_indices:
-                    dof_efforts[:, idx] = self.raw_actions[:, idx] * REVOLUTE_FORCE_SCALING
-                for idx in self.prismatic_dof_indices:
-                    dof_efforts[:, idx] = self.raw_actions[:, idx] * PRISMATIC_FORCE_SCALING
-                self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
-            else:
-                dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
-
-                # Break apart actions and states
-                if N_PRISMATIC_DOFS == 1:
-                    self.rail_force = rescale_to_rail_force(self.raw_actions[:, 0:1])  # (num_envs, 1)
-                    self.u = rescale_to_u(self.raw_actions[:, 1:2])  # (num_envs, 1)
-                    q = self.dof_pos[:, 1:]  # (num_envs, 5)
-                    qd = self.dof_vel[:, 1:]  # (num_envs, 5)
-                elif N_PRISMATIC_DOFS == 0:
-                    self.rail_force = torch.zeros_like(self.raw_actions[:, 0:1], device=self.device)  # (num_envs, 1)
-                    self.u = rescale_to_u(self.raw_actions)  # (num_envs, 1)
-                    q = self.dof_pos[:]  # (num_envs, 5)
-                    qd = self.dof_vel[:]  # (num_envs, 5)
-                else:
-                    raise ValueError(f"Can't have N_PRISMATIC_DOFS = {N_PRISMATIC_DOFS}")
-
-                # Manual intervention
-                if self.MOVE_LEFT_COUNTER > 0:
-                    self.rail_force[:] = -RAIL_FORCE_SCALE
-                    self.MOVE_LEFT_COUNTER -= 1
-                if self.MOVE_RIGHT_COUNTER > 0:
-                    self.rail_force[:] = RAIL_FORCE_SCALE
-                    self.MOVE_RIGHT_COUNTER -= 1
-
-                if self.MAX_PRESSURE_COUNTER > 0:
-                    self.u[:] = U_MAX
-                    self.MAX_PRESSURE_COUNTER -= 1
-                if self.MIN_PRESSURE_COUNTER > 0:
-                    self.u[:] = U_MIN
-                    self.MIN_PRESSURE_COUNTER -= 1
-
-                if USE_SIMPLE_POLICY:
-                    tip_y_velocities = self.tip_velocities[:, 1]  # (num_envs,)
-                    self.u = torch.where(tip_y_velocities <= 0, U_MAX, U_MIN).reshape(self.num_envs, 1)  # (num_envs, 1)
-
-                # Compute smoothed u
-                alphas = torch.where(self.u > self.smoothed_u, SMOOTHING_ALPHA_INFLATE, SMOOTHING_ALPHA_DEFLATE)
-                self.smoothed_u = alphas * self.smoothed_u + (1 - alphas) * self.u
-
-                if self.A is None:
-                    # torque = - Kq - Cqd - b - Bu;
-                    #        = - [K C diag(b) diag(B)] @ [q; qd; ones(5), u*ones(5)]
-                    #        = - A @ x
-                    K = torch.diag(torch.tensor([1.0822678619473745, 1.3960597815085283,
-                                                 0.7728716674414156, 0.566602254820747, 0.20000000042282678], device=self.device))
-                    C = torch.diag(torch.tensor([0.010098832804688505, 0.008001446516454621,
-                                                 0.01352315902253585, 0.021895211325047674, 0.017533205699630634], device=self.device))
-                    b = -torch.tensor([-0.002961879962361915, -0.019149230853283454, -0.01339719175569314, -
-                                       0.011436913019114144, -0.0031035566743229624], device=self.device)
-                    B = -torch.tensor([-0.02525783894248118, -0.06298872026151316, -0.049676622868418834, -
-                                       0.029474741498381096, -0.015412936470522515], device=self.device)
-                    A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
-                    self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
-
-                u_to_use = self.smoothed_u if USE_SMOOTHED_U else self.u
-                x = torch.cat([q, qd, torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device), u_to_use *
-                              torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
-                torques = -torch.matmul(self.A, x).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
-
-                # Set efforts
-                if N_PRISMATIC_DOFS == 1:
-                    dof_efforts[:, 0:1] = self.rail_force
-                    dof_efforts[:, 1:] = torques
-                elif N_PRISMATIC_DOFS == 0:
-                    dof_efforts[:, :] = torques
-                self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
-
-        elif DOF_MODE == "POSITION":
-            raise ValueError(f"Unable to run with {DOF_MODE}")
+        # Break apart actions and states
+        if N_PRISMATIC_DOFS == 1:
+            self.rail_force = rescale_to_rail_force(self.raw_actions[:, 0:1])  # (num_envs, 1)
+            self.u = rescale_to_u(self.raw_actions[:, 1:2])  # (num_envs, 1)
+            q = self.dof_pos[:, 1:]  # (num_envs, 5)
+            qd = self.dof_vel[:, 1:]  # (num_envs, 5)
+        elif N_PRISMATIC_DOFS == 0:
+            self.rail_force = torch.zeros_like(self.raw_actions[:, 0:1], device=self.device)  # (num_envs, 1)
+            self.u = rescale_to_u(self.raw_actions)  # (num_envs, 1)
+            q = self.dof_pos[:]  # (num_envs, 5)
+            qd = self.dof_vel[:]  # (num_envs, 5)
         else:
-            raise ValueError(f"Invalid DOF_MODE = {DOF_MODE}")
+            raise ValueError(f"Can't have N_PRISMATIC_DOFS = {N_PRISMATIC_DOFS}")
+
+        # Manual intervention
+        if self.MOVE_LEFT_COUNTER > 0:
+            self.rail_force[:] = -RAIL_FORCE_SCALE
+            self.MOVE_LEFT_COUNTER -= 1
+        if self.MOVE_RIGHT_COUNTER > 0:
+            self.rail_force[:] = RAIL_FORCE_SCALE
+            self.MOVE_RIGHT_COUNTER -= 1
+
+        if self.MAX_PRESSURE_COUNTER > 0:
+            self.u[:] = U_MAX
+            self.MAX_PRESSURE_COUNTER -= 1
+        if self.MIN_PRESSURE_COUNTER > 0:
+            self.u[:] = U_MIN
+            self.MIN_PRESSURE_COUNTER -= 1
+
+        if USE_SIMPLE_POLICY:
+            tip_y_velocities = self.tip_velocities[:, 1]  # (num_envs,)
+            self.u = torch.where(tip_y_velocities <= 0, U_MAX, U_MIN).reshape(self.num_envs, 1)  # (num_envs, 1)
+
+        # Compute smoothed u
+        alphas = torch.where(self.u > self.smoothed_u, SMOOTHING_ALPHA_INFLATE, SMOOTHING_ALPHA_DEFLATE)
+        self.smoothed_u = alphas * self.smoothed_u + (1 - alphas) * self.u
+
+        if self.A is None:
+            # torque = - Kq - Cqd - b - Bu;
+            #        = - [K C diag(b) diag(B)] @ [q; qd; ones(5), u*ones(5)]
+            #        = - A @ x
+            K = torch.diag(torch.tensor([1.0822678619473745, 1.3960597815085283,
+                                            0.7728716674414156, 0.566602254820747, 0.20000000042282678], device=self.device))
+            C = torch.diag(torch.tensor([0.010098832804688505, 0.008001446516454621,
+                                            0.01352315902253585, 0.021895211325047674, 0.017533205699630634], device=self.device))
+            b = -torch.tensor([-0.002961879962361915, -0.019149230853283454, -0.01339719175569314, -
+                                0.011436913019114144, -0.0031035566743229624], device=self.device)
+            B = -torch.tensor([-0.02525783894248118, -0.06298872026151316, -0.049676622868418834, -
+                                0.029474741498381096, -0.015412936470522515], device=self.device)
+            A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
+            self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
+
+        u_to_use = self.smoothed_u if USE_SMOOTHED_U else self.u
+        x = torch.cat([q, qd, torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device), u_to_use *
+                        torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
+        torques = -torch.matmul(self.A, x).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
+
+        # Set efforts
+        if N_PRISMATIC_DOFS == 1:
+            dof_efforts[:, 0:1] = self.rail_force
+            dof_efforts[:, 1:] = torques
+        elif N_PRISMATIC_DOFS == 0:
+            dof_efforts[:, :] = torques
+        self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
 
     def post_physics_step(self):
         self.progress_buf += 1
