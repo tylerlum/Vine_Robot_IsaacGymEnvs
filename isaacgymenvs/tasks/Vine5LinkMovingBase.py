@@ -87,7 +87,7 @@ OBSERVATION_TYPE = ObservationType.POS_AND_FD_VEL
 REWARD_NAMES = ["Position", "Const Negative", "Position Success",
                 "Velocity Success", "Velocity", "Rail Velocity Control",
                 "U Control", "Rail Velocity Change", "U Change", "Rail Limit"]
-POSITION_REWARD_WEIGHT = 0.0
+POSITION_REWARD_WEIGHT = 1.0
 CONST_NEGATIVE_REWARD_WEIGHT = 0.0
 POSITION_SUCCESS_REWARD_WEIGHT = 1.0
 VELOCITY_SUCCESS_REWARD_WEIGHT = 0.0
@@ -717,16 +717,16 @@ class Vine5LinkMovingBase(VecTask):
         target_positions = torch.zeros(num_envs, NUM_XYZ, device=self.device)
         if RANDOMIZE_TARGETS:
             # TODO Find the best way to set targets
-            angles = torch.FloatTensor(num_envs).uniform_(MIN_EFFECTIVE_ANGLE, MAX_EFFECTIVE_ANGLE).to(self.device)
-            target_positions[:, 1] = torch.sin(angles) * VINE_LENGTH
-            target_positions[:, 2] = INIT_Z - torch.cos(angles) * VINE_LENGTH
+            # angles = torch.FloatTensor(num_envs).uniform_(MIN_EFFECTIVE_ANGLE, MAX_EFFECTIVE_ANGLE).to(self.device)
+            # target_positions[:, 1] = torch.sin(angles) * VINE_LENGTH
+            # target_positions[:, 2] = INIT_Z - torch.cos(angles) * VINE_LENGTH
 
-            # target_positions[:, 0] = torch.FloatTensor(num_envs).uniform_(
-            #     TARGET_POS_MIN_X, TARGET_POS_MAX_X).to(self.device)
-            # target_positions[:, 1] = torch.FloatTensor(num_envs).uniform_(
-            #     TARGET_POS_MIN_Y, TARGET_POS_MAX_Y).to(self.device)
-            # target_positions[:, 2] = torch.FloatTensor(num_envs).uniform_(
-            #     TARGET_POS_MIN_Z, TARGET_POS_MAX_Z).to(self.device)
+            target_positions[:, 0] = torch.FloatTensor(num_envs).uniform_(
+                TARGET_POS_MIN_X, TARGET_POS_MAX_X).to(self.device)
+            target_positions[:, 1] = torch.FloatTensor(num_envs).uniform_(
+                TARGET_POS_MIN_Y, TARGET_POS_MAX_Y).to(self.device)
+            target_positions[:, 2] = torch.FloatTensor(num_envs).uniform_(
+                TARGET_POS_MIN_Z, TARGET_POS_MAX_Z).to(self.device)
         else:
             target_positions[:, 1] = TARGET_POS_MAX_Y
             target_positions[:, 2] = TARGET_POS_MIN_Z
