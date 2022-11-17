@@ -139,7 +139,6 @@ class Vine5LinkMovingBase(VecTask):
         * Target position
         * p_fpam
         * prev rail velocity
-        * Cart position
       POS_AND_VEL = 1
         * Joint positions
         * Joint velocities
@@ -149,8 +148,6 @@ class Vine5LinkMovingBase(VecTask):
         * Target velocity
         * p_fpam
         * prev rail velocity
-        * Cart position
-        * Cart velocity
       POS_AND_FD_VEL = 2
         * Joint positions
         * Joint velocities (finite difference)
@@ -160,8 +157,6 @@ class Vine5LinkMovingBase(VecTask):
         * Target velocity (finite difference)
         * p_fpam
         * prev rail velocity
-        * Cart position
-        * Cart velocity (finite difference)
       POS_AND_PREV_POS = 3
         * Joint positions
         * Prev joint positions
@@ -171,8 +166,6 @@ class Vine5LinkMovingBase(VecTask):
         * Prev target position
         * p_fpam
         * prev rail velocity
-        * Cart position
-        * Prev position
     Action:
       * 1 for rail_velocity prismatic joint
       * 1 for u pressure
@@ -198,12 +191,12 @@ class Vine5LinkMovingBase(VecTask):
         # Must set this before continuing
         if OBSERVATION_TYPE == ObservationType.POS_ONLY:
             self.cfg["env"]["numObservations"] = (
-                N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ + N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS + NUM_XYZ
+                N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ + N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
             )
         else:
             self.cfg["env"]["numObservations"] = (
                 2 * (N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ) +
-                N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS + 2 * NUM_XYZ
+                N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
             )
         self.cfg["env"]["numActions"] = N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
 
@@ -612,7 +605,6 @@ class Vine5LinkMovingBase(VecTask):
             self.wandb_dict[f"cart_vel_{dir} at self.index_to_view"] = self.cart_velocities[self.index_to_view, i]
             self.wandb_dict[f"target_vel_{dir} at self.index_to_view"] = self.target_velocities[self.index_to_view, i]
             self.wandb_dict[f"finite_diff_tip_vel_{dir} at self.index_to_view"] = self.finite_difference_tip_velocities[self.index_to_view, i]
-            self.wandb_dict[f"finite_diff_cart_vel_{dir} at self.index_to_view"] = self.finite_difference_cart_velocities[self.index_to_view, i]
 
             self.wandb_dict[f"tip_pos_{dir} at self.index_to_view"] = self.tip_positions[self.index_to_view, i]
             self.wandb_dict[f"cart_pos_{dir} at self.index_to_view"] = self.cart_positions[self.index_to_view, i]
