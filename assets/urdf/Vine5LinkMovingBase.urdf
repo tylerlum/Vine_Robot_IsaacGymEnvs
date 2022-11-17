@@ -176,6 +176,7 @@
             </geometry>
         </collision>
     </link>
+    <link name="tip"/>
 
     <!-- JOINTS -->
     <!-- 1 slider joint, 5 revolute joints -->
@@ -233,5 +234,10 @@
         <parent link="link_3" />
         <child link="link_4" />
         <!-- <limit lower="-0.523599" upper="0.523599" /> -->
+    </joint>
+    <joint name="link_4_to_tip" type="fixed">
+        <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
+        <parent link="link_4" />
+        <child link="tip" />
     </joint>
 </robot>
