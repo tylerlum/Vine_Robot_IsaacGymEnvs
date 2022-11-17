@@ -181,6 +181,7 @@ class Vine5LinkMovingBase(VecTask):
             self.cfg["env"]["numObservations"] = (
                 2 * (N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ) + N_PRESSURE_ACTIONS
             )
+        self.cfg["env"]["numActions"] = N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
 
         self.subscribe_to_keyboard_events()
 
