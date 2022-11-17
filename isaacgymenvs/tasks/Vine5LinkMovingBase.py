@@ -557,7 +557,7 @@ class Vine5LinkMovingBase(VecTask):
             target_y = self.target_positions[:, 1]
             target_reached = tip_y < target_y  # More negative in y dir BRITTLE
         else:
-            SUCCESS_DIST = 0.01
+            SUCCESS_DIST = 0.05
             target_reached = dist_tip_to_target < SUCCESS_DIST
 
         # Limit hit
