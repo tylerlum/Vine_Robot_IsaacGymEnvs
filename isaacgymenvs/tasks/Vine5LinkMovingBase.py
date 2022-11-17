@@ -775,6 +775,9 @@ class Vine5LinkMovingBase(VecTask):
             tip_y_velocities = self.tip_velocities[:, 1]  # (num_envs,)
             self.u = torch.where(tip_y_velocities <= 0, U_MAX, U_MIN).reshape(self.num_envs, 1)  # (num_envs, 1)
 
+        # TODO: FORCE NO U
+        self.u[:] = 0
+
         # Compute smoothed u
         alphas = torch.where(self.u > self.smoothed_u, SMOOTHING_ALPHA_INFLATE, SMOOTHING_ALPHA_DEFLATE)
         self.smoothed_u = alphas * self.smoothed_u + (1 - alphas) * self.u
