@@ -89,9 +89,9 @@ REWARD_NAMES = ["Position", "Const Negative", "Position Success",
                 "U Control", "Rail Velocity Change", "U Change", "Rail Limit"]
 POSITION_REWARD_WEIGHT = 0.0
 CONST_NEGATIVE_REWARD_WEIGHT = 0.0
-POSITION_SUCCESS_REWARD_WEIGHT = 0.0
+POSITION_SUCCESS_REWARD_WEIGHT = 1.0
 VELOCITY_SUCCESS_REWARD_WEIGHT = 0.0
-VELOCITY_REWARD_WEIGHT = 1.0
+VELOCITY_REWARD_WEIGHT = 0.0
 RAIL_VELOCITY_CONTROL_REWARD_WEIGHT = 0.0
 U_CONTROL_REWARD_WEIGHT = 0.0
 RAIL_VELOCITY_CHANGE_REWARD_WEIGHT = 0.0
@@ -110,9 +110,11 @@ MAX_EFFECTIVE_ANGLE = math.radians(-40)
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 
 TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
-# TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, LENGTH_RAIL/2  # Set to length of rail
-TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MIN_EFFECTIVE_ANGLE)*VINE_LENGTH,
-                                      math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
+if USE_MOVING_BASE:
+    TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, LENGTH_RAIL/2  # Set to length of rail
+else:
+    TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MIN_EFFECTIVE_ANGLE)*VINE_LENGTH,
+                                          math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
 TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
 
 RANDOMIZE_DOF_INIT = True
@@ -375,7 +377,6 @@ class Vine5LinkMovingBase(VecTask):
 
         # If randomizing, apply once immediately on startup before the fist sim step
         if self.randomize:
-            print("Applying randomization on startup")
             self.apply_randomizations(self.randomization_params)
 
     def _create_ground_plane(self):
@@ -550,13 +551,13 @@ class Vine5LinkMovingBase(VecTask):
         dist_tip_to_target = torch.linalg.norm(self.tip_positions - self.target_positions, dim=-1)
 
         # Target reached
-        ONLY_CARE_ABOUT_Y_TARGET = True
+        ONLY_CARE_ABOUT_Y_TARGET = False
         if ONLY_CARE_ABOUT_Y_TARGET:
             tip_y = self.tip_positions[:, 1]
             target_y = self.target_positions[:, 1]
             target_reached = tip_y < target_y  # More negative in y dir BRITTLE
         else:
-            SUCCESS_DIST = 0.1
+            SUCCESS_DIST = 0.01
             target_reached = dist_tip_to_target < SUCCESS_DIST
 
         # Limit hit
@@ -671,7 +672,6 @@ class Vine5LinkMovingBase(VecTask):
     def reset_idx(self, env_ids):
         # randomization can happen only at reset time, since it can reset actor positions on GPU
         if self.randomize:
-            print("Applying randomization")
             self.apply_randomizations(self.randomization_params)
 
         if RANDOMIZE_DOF_INIT:
