@@ -61,8 +61,13 @@ CAPTURE_VIDEO = True
 
 U_MIN, U_MAX = -0.1, 3.0
 RAIL_FORCE_SCALE = 1000.0
-DAMPING = 1e-2
-STIFFNESS = 1e-1
+
+
+DAMPING = 0.0
+STIFFNESS = 0.0
+FORCE_EFFORT = 0.1
+DRIVE_MODE = gymapi.DOF_MODE_VEL
+
 
 # Observations
 
@@ -106,7 +111,7 @@ TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MIN_EFFECTIVE_ANGLE)*VINE_LENGTH
                                       math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
 TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
 
-RANDOMIZE_DOF_INIT = True
+RANDOMIZE_DOF_INIT = False
 RANDOMIZE_TARGETS = True
 
 # GLOBALS
@@ -448,7 +453,7 @@ class Vine5LinkMovingBase(VecTask):
 
             # Set dof properties
             dof_props = self.gym.get_actor_dof_properties(env_ptr, vine_handle)
-            dof_props['driveMode'].fill(gymapi.DOF_MODE_EFFORT)
+            dof_props['driveMode'].fill(DRIVE_MODE)
             dof_props['stiffness'].fill(STIFFNESS)
             dof_props['damping'].fill(DAMPING)
 
@@ -456,6 +461,14 @@ class Vine5LinkMovingBase(VecTask):
 
             self.envs.append(env_ptr)
             self.vine_handles.append(vine_handle)
+        
+        for name, value in self.dof_props.dtype.fields.items():
+            print(f"At first {name} => {value}, {self.dof_props[name]}")
+        for name, value in dof_props.dtype.fields.items():
+            print(f"Later {name} => {value}, {dof_props[name]}")
+        print(f"gymapi.DOF_MODE_EFFORT => {int(gymapi.DOF_MODE_EFFORT)}")
+        print(f"gymapi.DOF_MODE_POS => {int(gymapi.DOF_MODE_POS)}")
+        print(f"gymapi.DOF_MODE_VEL => {int(gymapi.DOF_MODE_VEL)}")
 
         PRINT_ASSET_INFO = False
         if PRINT_ASSET_INFO:
@@ -755,6 +768,9 @@ class Vine5LinkMovingBase(VecTask):
             dof_efforts[:, 1:] = torques
         elif N_PRISMATIC_DOFS == 0:
             dof_efforts[:, :] = torques
+
+        # TODO
+        dof_efforts[:] = FORCE_EFFORT
         self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
 
     def post_physics_step(self):
