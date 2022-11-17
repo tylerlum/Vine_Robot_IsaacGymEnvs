@@ -23,6 +23,8 @@ sim:
   up_axis: "z"
   use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
   gravity: [0.0, 0.0, -9.81]
+  enable_viewer_sync_at_start: ${resolve_default:True,${...enable_viewer_sync_at_start}}
+
   physx:
     num_threads: ${....num_threads}
     solver_type: ${....solver_type}
