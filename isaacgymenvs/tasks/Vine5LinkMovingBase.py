@@ -54,6 +54,7 @@ START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 USE_MOVING_BASE = True
 USE_SIMPLE_POLICY = False
 USE_SMOOTHED_U = True
+FORCE_U_ZERO = False
 SMOOTHING_ALPHA_INFLATE = 0.81
 SMOOTHING_ALPHA_DEFLATE = 0.86
 
@@ -266,7 +267,6 @@ class Vine5LinkMovingBase(VecTask):
         self.tip_velocities = self.link_velocities[:, -1]
         self.cart_velocities = self.link_velocities[:, 1]
         self.prev_tip_positions = self.tip_positions.clone()
-        self.prev_cart_positions = self.cart_positions.clone()
 
     def refresh_state_tensors(self):
         self.gym.refresh_dof_state_tensor(self.sim)
@@ -597,10 +597,15 @@ class Vine5LinkMovingBase(VecTask):
         })
 
         # Log input and output
-        for i in range(N_REVOLUTE_DOFS):
-            self.wandb_dict[f"q{i} at self.index_to_view"] = self.dof_pos[self.index_to_view, i]
-            self.wandb_dict[f"qd{i} at self.index_to_view"] = self.dof_vel[self.index_to_view, i]
-            self.wandb_dict[f"finite_diff_qd{i} at self.index_to_view"] = self.finite_difference_dof_vel[self.index_to_view, i]
+        for i, idx in enumerate(self.prismatic_dof_indices):
+            self.wandb_dict[f"prismatic_q{i} at self.index_to_view"] = self.dof_pos[self.index_to_view, idx]
+            self.wandb_dict[f"prismatic_qd{i} at self.index_to_view"] = self.dof_vel[self.index_to_view, idx]
+            self.wandb_dict[f"finite_diff_qd{i} at self.index_to_view"] = self.finite_difference_dof_vel[self.index_to_view, idx]
+
+        for i, idx in enumerate(self.revolute_dof_indices):
+            self.wandb_dict[f"q{i} at self.index_to_view"] = self.dof_pos[self.index_to_view, idx]
+            self.wandb_dict[f"qd{i} at self.index_to_view"] = self.dof_vel[self.index_to_view, idx]
+            self.wandb_dict[f"finite_diff_qd{i} at self.index_to_view"] = self.finite_difference_dof_vel[self.index_to_view, idx]
 
         for i, dir in enumerate(["x", "y", "z"]):
             self.wandb_dict[f"tip_vel_{dir} at self.index_to_view"] = self.tip_velocities[self.index_to_view, i]
@@ -640,31 +645,29 @@ class Vine5LinkMovingBase(VecTask):
         # Refresh tensors
         self.prev_dof_pos = self.dof_pos.clone()
         self.prev_tip_positions = self.tip_positions.clone()
-        self.prev_cart_positions = self.cart_positions.clone()
         self.refresh_state_tensors()
 
         # Finite difference to get velocities
         self.finite_difference_dof_vel = (self.dof_pos - self.prev_dof_pos) / self.dt
         self.finite_difference_tip_velocities = (self.tip_positions - self.prev_tip_positions) / self.dt
-        self.finite_difference_cart_velocities = (self.cart_positions - self.prev_cart_positions) / self.dt
 
         # Populate obs_buf
         # tensors_to_add elements must all be (num_envs, X)
         if OBSERVATION_TYPE == ObservationType.POS_ONLY:
-            tensors_to_concat = [self.dof_pos, self.tip_positions,
-                                 self.target_positions, self.smoothed_u, self.prev_rail_velocity, self.cart_positions]
+            tensors_to_concat = [self.dof_pos, self.tip_positions, self.target_positions,
+                                 self.smoothed_u, self.prev_rail_velocity]
         elif OBSERVATION_TYPE == ObservationType.POS_AND_VEL:
-            tensors_to_concat = [self.dof_pos, self.dof_vel, self.tip_positions,
-                                 self.tip_velocities, self.target_positions, self.target_velocities, self.smoothed_u,
-                                 self.prev_rail_velocity, self.cart_positions, self.cart_velocities]
+            tensors_to_concat = [self.dof_pos, self.dof_vel, self.tip_positions, self.tip_velocities,
+                                 self.target_positions, self.target_velocities,
+                                 self.smoothed_u, self.prev_rail_velocity]
         elif OBSERVATION_TYPE == ObservationType.POS_AND_FD_VEL:
-            tensors_to_concat = [self.dof_pos, self.finite_difference_dof_vel, self.tip_positions,
-                                 self.finite_difference_tip_velocities, self.target_positions, self.target_velocities,
-                                 self.smoothed_u, self.prev_rail_velocity, self.cart_positions, self.finite_difference_cart_velocities]
+            tensors_to_concat = [self.dof_pos, self.finite_difference_dof_vel, self.tip_positions, self.finite_difference_tip_velocities,
+                                 self.target_positions, self.target_velocities,
+                                 self.smoothed_u, self.prev_rail_velocity]
         elif OBSERVATION_TYPE == ObservationType.POS_AND_PREV_POS:
-            tensors_to_concat = [self.dof_pos, self.prev_dof_pos, self.tip_positions,
-                                 self.prev_tip_positions, self.target_positions, self.target_velocities, self.smoothed_u,
-                                 self.prev_rail_velocity, self.cart_positions, self.prev_cart_positions]
+            tensors_to_concat = [self.dof_pos, self.prev_dof_pos, self.tip_positions, self.prev_tip_positions,
+                                 self.target_positions, self.target_velocities,
+                                 self.smoothed_u, self.prev_rail_velocity]
         self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
 
         return self.obs_buf
@@ -775,8 +778,8 @@ class Vine5LinkMovingBase(VecTask):
             tip_y_velocities = self.tip_velocities[:, 1]  # (num_envs,)
             self.u = torch.where(tip_y_velocities <= 0, U_MAX, U_MIN).reshape(self.num_envs, 1)  # (num_envs, 1)
 
-        # TODO: FORCE NO U
-        self.u[:] = 0
+        if FORCE_U_ZERO:
+            self.u[:] = 0
 
         # Compute smoothed u
         alphas = torch.where(self.u > self.smoothed_u, SMOOTHING_ALPHA_INFLATE, SMOOTHING_ALPHA_DEFLATE)
