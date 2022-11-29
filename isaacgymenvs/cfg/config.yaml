@@ -48,6 +48,7 @@ capture_video: False
 capture_video_freq: 1464
 capture_video_len: 100
 force_render: True
+enable_viewer_sync_at_start: True
 
 # disables rendering
 headless: False

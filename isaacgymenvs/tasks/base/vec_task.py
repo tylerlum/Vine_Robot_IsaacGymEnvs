@@ -226,7 +226,7 @@ class VecTask(Env):
         """Create the viewer."""
 
         # todo: read from config
-        self.enable_viewer_sync = True
+        self.enable_viewer_sync = self.cfg["sim"].get("enable_viewer_sync_at_start", True)
         self.viewer = None
 
         # if running with a viewer, set up keyboard shortcuts and camera

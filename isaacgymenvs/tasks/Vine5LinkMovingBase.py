@@ -51,17 +51,25 @@ START_LIN_VEL_IDX, END_LIN_VEL_IDX = 7, 10
 START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 
 # PARAMETERS (OFTEN CHANGE)
-USE_MOVING_BASE = False
+USE_MOVING_BASE = True
 USE_SIMPLE_POLICY = False
 USE_SMOOTHED_U = True
+FORCE_U_ZERO = False
 SMOOTHING_ALPHA_INFLATE = 0.81
 SMOOTHING_ALPHA_DEFLATE = 0.86
 
 CAPTURE_VIDEO = True
-PD_TARGET_ALL_JOINTS = False
 
 U_MIN, U_MAX = -0.1, 3.0
-RAIL_FORCE_SCALE = 1000.0
+RAIL_VELOCITY_SCALE = 1.0
+DAMPING = 1e-2
+STIFFNESS = 1e-1
+DOF_MODE = gymapi.DOF_MODE_EFFORT
+
+RAIL_SOFT_LIMIT = 0.2
+# Want max accel of 2m/s^2, if max v_error = 2m/s, then F = m*a = k*v_error, so k = m*a/v_error = 0.52 * 2 / 2 = 0.52
+# But that doesn't account for the vine robot swinging, so make it bigger
+RAIL_P_GAIN = 10.0
 
 # Observations
 
@@ -78,18 +86,21 @@ OBSERVATION_TYPE = ObservationType.POS_AND_FD_VEL
 # Rewards
 # Brittle: Ensure reward order matches
 REWARD_NAMES = ["Position", "Const Negative", "Position Success",
-                "Velocity Success", "Velocity", "Rail Force Control", "U Control", "U Change"]
+                "Velocity Success", "Velocity", "Rail Velocity Control",
+                "U Control", "Rail Velocity Change", "U Change", "Rail Limit"]
 POSITION_REWARD_WEIGHT = 0.0
 CONST_NEGATIVE_REWARD_WEIGHT = 0.0
 POSITION_SUCCESS_REWARD_WEIGHT = 0.0
 VELOCITY_SUCCESS_REWARD_WEIGHT = 0.0
 VELOCITY_REWARD_WEIGHT = 1.0
-RAIL_FORCE_CONTROL_REWARD_WEIGHT = 0.0
-U_CONTROL_REWARD_WEIGHT = 0.0
+RAIL_VELOCITY_CONTROL_REWARD_WEIGHT = 0.1
+U_CONTROL_REWARD_WEIGHT = 0.1
+RAIL_VELOCITY_CHANGE_REWARD_WEIGHT = 0.1
 U_CHANGE_REWARD_WEIGHT = 0.1
+RAIL_LIMIT_REWARD_WEIGHT = 0.1
 REWARD_WEIGHTS = [POSITION_REWARD_WEIGHT, CONST_NEGATIVE_REWARD_WEIGHT, POSITION_SUCCESS_REWARD_WEIGHT,
-                  VELOCITY_SUCCESS_REWARD_WEIGHT, VELOCITY_REWARD_WEIGHT, RAIL_FORCE_CONTROL_REWARD_WEIGHT,
-                  U_CONTROL_REWARD_WEIGHT, U_CHANGE_REWARD_WEIGHT]
+                  VELOCITY_SUCCESS_REWARD_WEIGHT, VELOCITY_REWARD_WEIGHT, RAIL_VELOCITY_CONTROL_REWARD_WEIGHT,
+                  U_CONTROL_REWARD_WEIGHT, RAIL_VELOCITY_CHANGE_REWARD_WEIGHT, U_CHANGE_REWARD_WEIGHT, RAIL_LIMIT_REWARD_WEIGHT]
 
 N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
@@ -100,12 +111,13 @@ MAX_EFFECTIVE_ANGLE = math.radians(-40)
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 
 TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
-# TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, LENGTH_RAIL/2  # Set to length of rail
-TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MIN_EFFECTIVE_ANGLE)*VINE_LENGTH,
-                                      math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
+if USE_MOVING_BASE:
+    TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, LENGTH_RAIL/2  # Set to length of rail
+else:
+    TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MIN_EFFECTIVE_ANGLE)*VINE_LENGTH,
+                                          math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
 TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
 
-DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
 RANDOMIZE_DOF_INIT = True
 RANDOMIZE_TARGETS = True
 
@@ -126,6 +138,7 @@ class Vine5LinkMovingBase(VecTask):
         * Tip position
         * Target position
         * p_fpam
+        * prev rail velocity
       POS_AND_VEL = 1
         * Joint positions
         * Joint velocities
@@ -134,6 +147,7 @@ class Vine5LinkMovingBase(VecTask):
         * Target position
         * Target velocity
         * p_fpam
+        * prev rail velocity
       POS_AND_FD_VEL = 2
         * Joint positions
         * Joint velocities (finite difference)
@@ -142,6 +156,7 @@ class Vine5LinkMovingBase(VecTask):
         * Target position
         * Target velocity (finite difference)
         * p_fpam
+        * prev rail velocity
       POS_AND_PREV_POS = 3
         * Joint positions
         * Prev joint positions
@@ -150,8 +165,9 @@ class Vine5LinkMovingBase(VecTask):
         * Target position
         * Prev target position
         * p_fpam
+        * prev rail velocity
     Action:
-      * 1 for rail_force prismatic joint
+      * 1 for rail_velocity prismatic joint
       * 1 for u pressure
     Reward:
       * -Dist to target
@@ -175,17 +191,14 @@ class Vine5LinkMovingBase(VecTask):
         # Must set this before continuing
         if OBSERVATION_TYPE == ObservationType.POS_ONLY:
             self.cfg["env"]["numObservations"] = (
-                N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ + N_PRESSURE_ACTIONS
+                N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ + N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
             )
         else:
             self.cfg["env"]["numObservations"] = (
-                2 * (N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ) + N_PRESSURE_ACTIONS
+                2 * (N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ) +
+                N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
             )
-
-        if PD_TARGET_ALL_JOINTS:
-            self.cfg["env"]["numActions"] = N_REVOLUTE_DOFS + N_PRISMATIC_DOFS
-        else:
-            self.cfg["env"]["numActions"] = N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
+        self.cfg["env"]["numActions"] = N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
 
         self.subscribe_to_keyboard_events()
 
@@ -219,6 +232,7 @@ class Vine5LinkMovingBase(VecTask):
 
         # Perform smoothing of actions
         self.smoothed_u = torch.zeros(self.num_envs, N_PRESSURE_ACTIONS, device=self.device)
+        self.prev_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device)
 
         self.wandb_dict = {}
 
@@ -240,9 +254,11 @@ class Vine5LinkMovingBase(VecTask):
             self.num_envs, self.num_rigid_bodies, NUM_STATES)
 
         self.link_positions = rigid_body_state_by_env[:, :, START_POS_IDX:END_POS_IDX]
-        self.tip_positions = rigid_body_state_by_env[:, -1, START_POS_IDX:END_POS_IDX]
+        self.tip_positions = self.link_positions[:, -1]
+        self.cart_positions = self.link_positions[:, 1]
         self.link_velocities = rigid_body_state_by_env[:, :, START_LIN_VEL_IDX:END_LIN_VEL_IDX]
-        self.tip_velocities = rigid_body_state_by_env[:, -1, START_LIN_VEL_IDX:END_LIN_VEL_IDX]
+        self.tip_velocities = self.link_velocities[:, -1]
+        self.cart_velocities = self.link_velocities[:, 1]
         self.prev_tip_positions = self.tip_positions.clone()
 
     def refresh_state_tensors(self):
@@ -325,22 +341,22 @@ class Vine5LinkMovingBase(VecTask):
     def _move_left_callback(self):
         self.MOVE_LEFT_COUNTER = 100
         self.MOVE_RIGHT_COUNTER = 0
-        print(f"self.MOVE_LEFT = {self.MOVE_LEFT_COUNTER}")
+        print(f"self.MOVE_LEFT_COUNTER = {self.MOVE_LEFT_COUNTER}")
 
     def _move_right_callback(self):
         self.MOVE_RIGHT_COUNTER = 100
         self.MOVE_LEFT_COUNTER = 0
-        print(f"self.MOVE_RIGHT = {self.MOVE_RIGHT_COUNTER}")
+        print(f"self.MOVE_RIGHT_COUNTER = {self.MOVE_RIGHT_COUNTER}")
 
     def _max_pressure_callback(self):
         self.MAX_PRESSURE_COUNTER = 100
         self.MIN_PRESSURE_COUNTER = 0
-        print(f"self.MAX_PRESSURE = {self.MAX_PRESSURE_COUNTER}")
+        print(f"self.MAX_PRESSURE_COUNTER = {self.MAX_PRESSURE_COUNTER}")
 
     def _min_pressure_callback(self):
         self.MIN_PRESSURE_COUNTER = 100
         self.MAX_PRESSURE_COUNTER = 0
-        print(f"self.MIN_PRESSURE = {self.MIN_PRESSURE_COUNTER}")
+        print(f"self.MIN_PRESSURE_COUNTER = {self.MIN_PRESSURE_COUNTER}")
 
     ##### KEYBOARD EVENT SUBSCRIPTIONS END #####
 
@@ -354,7 +370,6 @@ class Vine5LinkMovingBase(VecTask):
 
         # If randomizing, apply once immediately on startup before the fist sim step
         if self.randomize:
-            print("Applying randomization on startup")
             self.apply_randomizations(self.randomization_params)
 
     def _create_ground_plane(self):
@@ -452,9 +467,12 @@ class Vine5LinkMovingBase(VecTask):
 
             # Set dof properties
             dof_props = self.gym.get_actor_dof_properties(env_ptr, vine_handle)
-            dof_props["driveMode"].fill(gymapi.DOF_MODE_EFFORT)
-            dof_props["stiffness"].fill(1e-1)  # TODO: Tune
-            dof_props["damping"].fill(1e-2)  # TODO: Tune
+
+            # TODO: Can have prismatic and revolute specific props, but has bug with gpu
+            dof_props['driveMode'].fill(DOF_MODE)
+            dof_props['stiffness'].fill(STIFFNESS)
+            dof_props['damping'].fill(DAMPING)
+
             self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
 
             self.envs.append(env_ptr)
@@ -525,23 +543,32 @@ class Vine5LinkMovingBase(VecTask):
     def compute_reward(self):
         dist_tip_to_target = torch.linalg.norm(self.tip_positions - self.target_positions, dim=-1)
 
-        ONLY_CARE_ABOUT_Y_TARGET = True
+        # Target reached
+        ONLY_CARE_ABOUT_Y_TARGET = False
         if ONLY_CARE_ABOUT_Y_TARGET:
-            target_reached = self.tip_positions[:, 1] < self.target_positions[:, 1]  # More negative in y dir BRITTLE
+            tip_y = self.tip_positions[:, 1]
+            target_y = self.target_positions[:, 1]
+            target_reached = tip_y < target_y  # More negative in y dir BRITTLE
         else:
-            SUCCESS_DIST = 0.1
+            SUCCESS_DIST = 0.05
             target_reached = dist_tip_to_target < SUCCESS_DIST
+
+        # Limit hit
+        cart_y = self.cart_positions[:, 1]
+        limit_hit = torch.logical_or(cart_y > RAIL_SOFT_LIMIT, cart_y < -RAIL_SOFT_LIMIT)
 
         self.wandb_dict.update({
             "dist_tip_to_target": dist_tip_to_target.mean().item(),
             "target_reached": target_reached.float().mean().item(),
-            "target_reached_max": target_reached.float().max().item(),
+            "limit_hit": limit_hit.float().mean().item(),
             "abs_tip_y": self.tip_positions[:, 1].abs().mean().item(),
             "tip_z": self.tip_positions[:, 2].mean().item(),
             "max_abs_tip_y": self.tip_positions[:, 1].abs().max().item(),
             "max_tip_z": self.tip_positions[:, 2].max().item(),
             "tip_velocities": torch.norm(self.tip_velocities, dim=-1).mean().item(),
             "tip_velocities_max": torch.norm(self.tip_velocities, dim=-1).max().item(),
+            "rail_velocity": torch.norm(self.rail_velocity, dim=-1).mean().item(),
+            "prev_rail_velocity": torch.norm(self.prev_rail_velocity, dim=-1).mean().item(),
             "rail_force": torch.norm(self.rail_force, dim=-1).mean().item(),
             "u": torch.norm(self.u, dim=-1).mean().item(),
             "smoothed_u": torch.norm(self.smoothed_u, dim=-1).mean().item(),
@@ -551,8 +578,8 @@ class Vine5LinkMovingBase(VecTask):
 
         self.rew_buf[:], reward_matrix, weighted_reward_matrix = compute_reward_jit(
             dist_to_target=dist_tip_to_target, target_reached=target_reached, tip_velocities=self.tip_velocities,
-            target_velocities=self.target_velocities, rail_force=self.rail_force, u=self.u, smoothed_u=self.smoothed_u,
-            reward_weights=self.reward_weights, reward_names=REWARD_NAMES
+            target_velocities=self.target_velocities, rail_velocity=self.rail_velocity, u=self.u, prev_rail_velocity=self.prev_rail_velocity,
+            smoothed_u=self.smoothed_u, limit_hit=limit_hit, reward_weights=self.reward_weights, reward_names=REWARD_NAMES
         )
         self.aggregated_rew_buf += self.rew_buf
 
@@ -563,21 +590,29 @@ class Vine5LinkMovingBase(VecTask):
         })
 
         # Log input and output
-        for i in range(N_REVOLUTE_DOFS):
-            self.wandb_dict[f"q{i} at self.index_to_view"] = self.dof_pos[self.index_to_view, i]
-            self.wandb_dict[f"qd{i} at self.index_to_view"] = self.dof_vel[self.index_to_view, i]
-            self.wandb_dict[f"finite_diff_qd{i} at self.index_to_view"] = self.finite_difference_dof_vel[self.index_to_view, i]
+        for i, idx in enumerate(self.prismatic_dof_indices):
+            self.wandb_dict[f"prismatic_q{i} at self.index_to_view"] = self.dof_pos[self.index_to_view, idx]
+            self.wandb_dict[f"prismatic_qd{i} at self.index_to_view"] = self.dof_vel[self.index_to_view, idx]
+            self.wandb_dict[f"finite_diff_qd{i} at self.index_to_view"] = self.finite_difference_dof_vel[self.index_to_view, idx]
+
+        for i, idx in enumerate(self.revolute_dof_indices):
+            self.wandb_dict[f"q{i} at self.index_to_view"] = self.dof_pos[self.index_to_view, idx]
+            self.wandb_dict[f"qd{i} at self.index_to_view"] = self.dof_vel[self.index_to_view, idx]
+            self.wandb_dict[f"finite_diff_qd{i} at self.index_to_view"] = self.finite_difference_dof_vel[self.index_to_view, idx]
 
         for i, dir in enumerate(["x", "y", "z"]):
             self.wandb_dict[f"tip_vel_{dir} at self.index_to_view"] = self.tip_velocities[self.index_to_view, i]
+            self.wandb_dict[f"cart_vel_{dir} at self.index_to_view"] = self.cart_velocities[self.index_to_view, i]
             self.wandb_dict[f"target_vel_{dir} at self.index_to_view"] = self.target_velocities[self.index_to_view, i]
             self.wandb_dict[f"finite_diff_tip_vel_{dir} at self.index_to_view"] = self.finite_difference_tip_velocities[self.index_to_view, i]
 
             self.wandb_dict[f"tip_pos_{dir} at self.index_to_view"] = self.tip_positions[self.index_to_view, i]
+            self.wandb_dict[f"cart_pos_{dir} at self.index_to_view"] = self.cart_positions[self.index_to_view, i]
             self.wandb_dict[f"target_pos_{dir} at self.index_to_view"] = self.target_positions[self.index_to_view, i]
 
         self.wandb_dict["u at self.index_to_view"] = self.u[self.index_to_view]
         self.wandb_dict["smoothed u at self.index_to_view"] = self.smoothed_u[self.index_to_view]
+        self.wandb_dict["rail_velocity at self.index_to_view"] = self.rail_velocity[self.index_to_view]
         self.wandb_dict["rail_force at self.index_to_view"] = self.rail_force[self.index_to_view]
 
         for i, reward_name in enumerate(REWARD_NAMES):
@@ -590,8 +625,10 @@ class Vine5LinkMovingBase(VecTask):
                 f"Max Total Reward": self.rew_buf.max().item(),
             })
 
-        self.reset_buf[:] = compute_reset_jit(self.reset_buf, self.progress_buf,
-                                              self.max_episode_length, target_reached)
+        self.reset_buf[:] = compute_reset_jit(
+            reset_buf=self.reset_buf, progress_buf=self.progress_buf,
+            max_episode_length=self.max_episode_length, target_reached=target_reached, limit_hit=limit_hit
+        )
 
     def compute_observations(self, env_ids=None):
         if env_ids is None:
@@ -609,16 +646,20 @@ class Vine5LinkMovingBase(VecTask):
         # Populate obs_buf
         # tensors_to_add elements must all be (num_envs, X)
         if OBSERVATION_TYPE == ObservationType.POS_ONLY:
-            tensors_to_concat = [self.dof_pos, self.tip_positions, self.target_positions, self.smoothed_u]
+            tensors_to_concat = [self.dof_pos, self.tip_positions, self.target_positions,
+                                 self.smoothed_u, self.prev_rail_velocity]
         elif OBSERVATION_TYPE == ObservationType.POS_AND_VEL:
-            tensors_to_concat = [self.dof_pos, self.dof_vel, self.tip_positions,
-                                 self.tip_velocities, self.target_positions, self.target_velocities, self.smoothed_u]
+            tensors_to_concat = [self.dof_pos, self.dof_vel, self.tip_positions, self.tip_velocities,
+                                 self.target_positions, self.target_velocities,
+                                 self.smoothed_u, self.prev_rail_velocity]
         elif OBSERVATION_TYPE == ObservationType.POS_AND_FD_VEL:
-            tensors_to_concat = [self.dof_pos, self.finite_difference_dof_vel, self.tip_positions,
-                                 self.finite_difference_tip_velocities, self.target_positions, self.target_velocities, self.smoothed_u]
+            tensors_to_concat = [self.dof_pos, self.finite_difference_dof_vel, self.tip_positions, self.finite_difference_tip_velocities,
+                                 self.target_positions, self.target_velocities,
+                                 self.smoothed_u, self.prev_rail_velocity]
         elif OBSERVATION_TYPE == ObservationType.POS_AND_PREV_POS:
-            tensors_to_concat = [self.dof_pos, self.prev_dof_pos, self.tip_positions,
-                                 self.prev_tip_positions, self.target_positions, self.target_velocities, self.smoothed_u]
+            tensors_to_concat = [self.dof_pos, self.prev_dof_pos, self.tip_positions, self.prev_tip_positions,
+                                 self.target_positions, self.target_velocities,
+                                 self.smoothed_u, self.prev_rail_velocity]
         self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
 
         return self.obs_buf
@@ -626,7 +667,6 @@ class Vine5LinkMovingBase(VecTask):
     def reset_idx(self, env_ids):
         # randomization can happen only at reset time, since it can reset actor positions on GPU
         if self.randomize:
-            print("Applying randomization")
             self.apply_randomizations(self.randomization_params)
 
         if RANDOMIZE_DOF_INIT:
@@ -639,8 +679,10 @@ class Vine5LinkMovingBase(VecTask):
 
             num_prismatic_joints = len(self.prismatic_dof_lowers)
             for i in range(num_prismatic_joints):
-                self.dof_pos[env_ids, self.prismatic_dof_indices[i]] = torch.FloatTensor(len(env_ids)).uniform_(
-                    self.prismatic_dof_lowers[i], self.prismatic_dof_uppers[i]).to(self.device)
+                min_dist = max(self.prismatic_dof_lowers[i], -RAIL_SOFT_LIMIT)
+                max_dist = min(self.prismatic_dof_uppers[i], RAIL_SOFT_LIMIT)
+                self.dof_pos[env_ids, self.prismatic_dof_indices[i]] = torch.FloatTensor(
+                    len(env_ids)).uniform_(min_dist, max_dist).to(self.device)
         else:
             self.dof_pos[env_ids, :] = 0
 
@@ -670,16 +712,16 @@ class Vine5LinkMovingBase(VecTask):
         target_positions = torch.zeros(num_envs, NUM_XYZ, device=self.device)
         if RANDOMIZE_TARGETS:
             # TODO Find the best way to set targets
-            angles = torch.FloatTensor(num_envs).uniform_(MIN_EFFECTIVE_ANGLE, MAX_EFFECTIVE_ANGLE).to(self.device)
-            target_positions[:, 1] = torch.sin(angles) * VINE_LENGTH
-            target_positions[:, 2] = INIT_Z - torch.cos(angles) * VINE_LENGTH
+            # angles = torch.FloatTensor(num_envs).uniform_(MIN_EFFECTIVE_ANGLE, MAX_EFFECTIVE_ANGLE).to(self.device)
+            # target_positions[:, 1] = torch.sin(angles) * VINE_LENGTH
+            # target_positions[:, 2] = INIT_Z - torch.cos(angles) * VINE_LENGTH
 
-            # target_positions[:, 0] = torch.FloatTensor(num_envs).uniform_(
-            #     TARGET_POS_MIN_X, TARGET_POS_MAX_X).to(self.device)
-            # target_positions[:, 1] = torch.FloatTensor(num_envs).uniform_(
-            #     TARGET_POS_MIN_Y, TARGET_POS_MAX_Y).to(self.device)
-            # target_positions[:, 2] = torch.FloatTensor(num_envs).uniform_(
-            #     TARGET_POS_MIN_Z, TARGET_POS_MAX_Z).to(self.device)
+            target_positions[:, 0] = torch.FloatTensor(num_envs).uniform_(
+                TARGET_POS_MIN_X, TARGET_POS_MAX_X).to(self.device)
+            target_positions[:, 1] = torch.FloatTensor(num_envs).uniform_(
+                TARGET_POS_MIN_Y, TARGET_POS_MAX_Y).to(self.device)
+            target_positions[:, 2] = torch.FloatTensor(num_envs).uniform_(
+                TARGET_POS_MIN_Z, TARGET_POS_MAX_Z).to(self.device)
         else:
             target_positions[:, 1] = TARGET_POS_MAX_Y
             target_positions[:, 2] = TARGET_POS_MIN_Z
@@ -693,90 +735,80 @@ class Vine5LinkMovingBase(VecTask):
     def pre_physics_step(self, actions):
         self.raw_actions = actions.clone().to(self.device)
 
-        if DOF_MODE == "FORCE":
-            if PD_TARGET_ALL_JOINTS:
-                REVOLUTE_FORCE_SCALING = 1.0
-                PRISMATIC_FORCE_SCALING = 1000.0
-                dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
+        dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
 
-                # Revolute
-                for idx in self.revolute_dof_indices:
-                    dof_efforts[:, idx] = self.raw_actions[:, idx] * REVOLUTE_FORCE_SCALING
-                for idx in self.prismatic_dof_indices:
-                    dof_efforts[:, idx] = self.raw_actions[:, idx] * PRISMATIC_FORCE_SCALING
-                self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
-            else:
-                dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
-
-                # Break apart actions and states
-                if N_PRISMATIC_DOFS == 1:
-                    self.rail_force = rescale_to_rail_force(self.raw_actions[:, 0:1])  # (num_envs, 1)
-                    self.u = rescale_to_u(self.raw_actions[:, 1:2])  # (num_envs, 1)
-                    q = self.dof_pos[:, 1:]  # (num_envs, 5)
-                    qd = self.dof_vel[:, 1:]  # (num_envs, 5)
-                elif N_PRISMATIC_DOFS == 0:
-                    self.rail_force = torch.zeros_like(self.raw_actions[:, 0:1], device=self.device)  # (num_envs, 1)
-                    self.u = rescale_to_u(self.raw_actions)  # (num_envs, 1)
-                    q = self.dof_pos[:]  # (num_envs, 5)
-                    qd = self.dof_vel[:]  # (num_envs, 5)
-                else:
-                    raise ValueError(f"Can't have N_PRISMATIC_DOFS = {N_PRISMATIC_DOFS}")
-
-                # Manual intervention
-                if self.MOVE_LEFT_COUNTER > 0:
-                    self.rail_force[:] = -RAIL_FORCE_SCALE
-                    self.MOVE_LEFT_COUNTER -= 1
-                if self.MOVE_RIGHT_COUNTER > 0:
-                    self.rail_force[:] = RAIL_FORCE_SCALE
-                    self.MOVE_RIGHT_COUNTER -= 1
-
-                if self.MAX_PRESSURE_COUNTER > 0:
-                    self.u[:] = U_MAX
-                    self.MAX_PRESSURE_COUNTER -= 1
-                if self.MIN_PRESSURE_COUNTER > 0:
-                    self.u[:] = U_MIN
-                    self.MIN_PRESSURE_COUNTER -= 1
-
-                if USE_SIMPLE_POLICY:
-                    tip_y_velocities = self.tip_velocities[:, 1]  # (num_envs,)
-                    self.u = torch.where(tip_y_velocities <= 0, U_MAX, U_MIN).reshape(self.num_envs, 1)  # (num_envs, 1)
-
-                # Compute smoothed u
-                alphas = torch.where(self.u > self.smoothed_u, SMOOTHING_ALPHA_INFLATE, SMOOTHING_ALPHA_DEFLATE)
-                self.smoothed_u = alphas * self.smoothed_u + (1 - alphas) * self.u
-
-                if self.A is None:
-                    # torque = - Kq - Cqd - b - Bu;
-                    #        = - [K C diag(b) diag(B)] @ [q; qd; ones(5), u*ones(5)]
-                    #        = - A @ x
-                    K = torch.diag(torch.tensor([1.0822678619473745, 1.3960597815085283,
-                                                 0.7728716674414156, 0.566602254820747, 0.20000000042282678], device=self.device))
-                    C = torch.diag(torch.tensor([0.010098832804688505, 0.008001446516454621,
-                                                 0.01352315902253585, 0.021895211325047674, 0.017533205699630634], device=self.device))
-                    b = -torch.tensor([-0.002961879962361915, -0.019149230853283454, -0.01339719175569314, -
-                                       0.011436913019114144, -0.0031035566743229624], device=self.device)
-                    B = -torch.tensor([-0.02525783894248118, -0.06298872026151316, -0.049676622868418834, -
-                                       0.029474741498381096, -0.015412936470522515], device=self.device)
-                    A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
-                    self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
-
-                u_to_use = self.smoothed_u if USE_SMOOTHED_U else self.u
-                x = torch.cat([q, qd, torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device), u_to_use *
-                              torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
-                torques = -torch.matmul(self.A, x).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
-
-                # Set efforts
-                if N_PRISMATIC_DOFS == 1:
-                    dof_efforts[:, 0:1] = self.rail_force
-                    dof_efforts[:, 1:] = torques
-                elif N_PRISMATIC_DOFS == 0:
-                    dof_efforts[:, :] = torques
-                self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
-
-        elif DOF_MODE == "POSITION":
-            raise ValueError(f"Unable to run with {DOF_MODE}")
+        # Break apart actions and states
+        if N_PRISMATIC_DOFS == 1:
+            self.rail_velocity = rescale_to_rail_velocity(self.raw_actions[:, 0:1])  # (num_envs, 1)
+            self.u = rescale_to_u(self.raw_actions[:, 1:2])  # (num_envs, 1)
+            q = self.dof_pos[:, 1:]  # (num_envs, 5)
+            qd = self.dof_vel[:, 1:]  # (num_envs, 5)
+        elif N_PRISMATIC_DOFS == 0:
+            self.rail_velocity = torch.zeros_like(self.raw_actions[:, 0:1], device=self.device)  # (num_envs, 1)
+            self.u = rescale_to_u(self.raw_actions)  # (num_envs, 1)
+            q = self.dof_pos[:]  # (num_envs, 5)
+            qd = self.dof_vel[:]  # (num_envs, 5)
         else:
-            raise ValueError(f"Invalid DOF_MODE = {DOF_MODE}")
+            raise ValueError(f"Can't have N_PRISMATIC_DOFS = {N_PRISMATIC_DOFS}")
+
+        # Manual intervention
+        if self.MOVE_LEFT_COUNTER > 0:
+            self.rail_velocity[:] = -RAIL_VELOCITY_SCALE
+            self.MOVE_LEFT_COUNTER -= 1
+        if self.MOVE_RIGHT_COUNTER > 0:
+            self.rail_velocity[:] = RAIL_VELOCITY_SCALE
+            self.MOVE_RIGHT_COUNTER -= 1
+
+        if self.MAX_PRESSURE_COUNTER > 0:
+            self.u[:] = U_MAX
+            self.MAX_PRESSURE_COUNTER -= 1
+        if self.MIN_PRESSURE_COUNTER > 0:
+            self.u[:] = U_MIN
+            self.MIN_PRESSURE_COUNTER -= 1
+
+        if USE_SIMPLE_POLICY:
+            tip_y_velocities = self.tip_velocities[:, 1]  # (num_envs,)
+            self.u = torch.where(tip_y_velocities <= 0, U_MAX, U_MIN).reshape(self.num_envs, 1)  # (num_envs, 1)
+
+        if FORCE_U_ZERO:
+            self.u[:] = 0
+
+        # Compute smoothed u
+        alphas = torch.where(self.u > self.smoothed_u, SMOOTHING_ALPHA_INFLATE, SMOOTHING_ALPHA_DEFLATE)
+        self.smoothed_u = alphas * self.smoothed_u + (1 - alphas) * self.u
+
+        # Compute torques
+        if self.A is None:
+            # torque = - Kq - Cqd - b - Bu;
+            #        = - [K C diag(b) diag(B)] @ [q; qd; ones(5), u*ones(5)]
+            #        = - A @ x
+            K = torch.diag(torch.tensor([1.0822678619473745, 1.3960597815085283,
+                                         0.7728716674414156, 0.566602254820747, 0.20000000042282678], device=self.device))
+            C = torch.diag(torch.tensor([0.010098832804688505, 0.008001446516454621,
+                                         0.01352315902253585, 0.021895211325047674, 0.017533205699630634], device=self.device))
+            b = -torch.tensor([-0.002961879962361915, -0.019149230853283454, -0.01339719175569314, -
+                               0.011436913019114144, -0.0031035566743229624], device=self.device)
+            B = -torch.tensor([-0.02525783894248118, -0.06298872026151316, -0.049676622868418834, -
+                               0.029474741498381096, -0.015412936470522515], device=self.device)
+            A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
+            self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
+
+        u_to_use = self.smoothed_u if USE_SMOOTHED_U else self.u
+        x = torch.cat([q, qd, torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device), u_to_use *
+                       torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
+        torques = -torch.matmul(self.A, x).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
+
+        # Compute rail force
+        cart_vel_y = self.cart_velocities[:, 1:2]  # (num_envs, 1)
+        self.rail_force = RAIL_P_GAIN * (self.rail_velocity - cart_vel_y)
+
+        # Set efforts
+        if N_PRISMATIC_DOFS == 1:
+            dof_efforts[:, 0:1] = self.rail_force
+            dof_efforts[:, 1:] = torques
+        elif N_PRISMATIC_DOFS == 0:
+            dof_efforts[:, :] = torques
+        self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
 
     def post_physics_step(self):
         self.progress_buf += 1
@@ -789,6 +821,9 @@ class Vine5LinkMovingBase(VecTask):
         # Compute observations and reward
         self.compute_observations()
         self.compute_reward()
+
+        # Compute prev rail velocity
+        self.prev_rail_velocity = self.rail_velocity.clone()
 
         # Draw debug info
         if self.viewer and self.enable_viewer_sync:
@@ -850,8 +885,8 @@ def rescale_to_u(u):
     return (u + 1.0) / 2.0 * (U_MAX-U_MIN) + U_MIN
 
 
-def rescale_to_rail_force(rail_force):
-    return rail_force * RAIL_FORCE_SCALE
+def rescale_to_rail_velocity(rail_velocity):
+    return rail_velocity * RAIL_VELOCITY_SCALE
 
 #####################################################################
 ### =========================jit functions=========================###
@@ -859,8 +894,8 @@ def rescale_to_rail_force(rail_force):
 
 
 @torch.jit.script
-def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_velocities, rail_force, u, smoothed_u, reward_weights, reward_names):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, List[str]) -> Tuple[Tensor, Tensor, Tensor]
+def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_velocities, rail_velocity, u, prev_rail_velocity, smoothed_u, limit_hit, reward_weights, reward_names):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, List[str]) -> Tuple[Tensor, Tensor, Tensor]
     # reward = sum(w_i * r_i) with various reward function r_i and weights w_i
 
     # position_reward = -dist_to_target [Try to reach target]
@@ -868,13 +903,16 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
     # position_success_reward = REWARD_BONUS if dist_to_target < SUCCESS_DISTANCE else 0 [Succeed if close enough]
     # velocity_success_reward = -norm(tip_velocity - desired_tip_velocity) if dist_to_target < SUCCESS_DISTANCE else 0 [Succeed if close enough and moving at the right speed]
     # velocity_reward = norm(tip_velocity) [Try to move fast]
-    # rail_force_control_reward = -norm(rail_force) [Punish for using too much actuation]
+    # rail_velocity_control_reward = -norm(rail_velocity) [Punish for using too much actuation]
     # u_control_reward = -norm(u) [Punish for using too much actuation]
+    # rail_velocity_change_reward = -norm(rail_velocity - prev_rail_velocity) [Punish for changing rail_velocity]
     # u_change_reward = -norm(u - smoothed_u) [Punish for changing u]
+    # rail_limit_reward = RAIL_LIMIT_PUNISHMENT if limit_hit else 0 [Punish for getting near rail limits]
     N_REWARDS = torch.numel(reward_weights)
     N_ENVS = dist_to_target.shape[0]
 
     REWARD_BONUS = 1000.0
+    RAIL_LIMIT_PUNISHMENT = -100.0
 
     # Brittle: Ensure reward order matches
     reward_matrix = torch.zeros(N_ENVS, N_REWARDS, device=dist_to_target.device)
@@ -891,12 +929,16 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
                                                0.0)
         elif reward_name == "Velocity":
             reward_matrix[:, i] += torch.norm(tip_velocities, dim=-1)
-        elif reward_name == "Rail Force Control":
-            reward_matrix[:, i] -= torch.norm(rail_force, dim=-1)
+        elif reward_name == "Rail Velocity Control":
+            reward_matrix[:, i] -= torch.norm(rail_velocity, dim=-1)
         elif reward_name == "U Control":
             reward_matrix[:, i] -= torch.norm(u, dim=-1)
+        elif reward_name == "Rail Velocity Change":
+            reward_matrix[:, i] -= torch.norm(rail_velocity - prev_rail_velocity, dim=-1)
         elif reward_name == "U Change":
             reward_matrix[:, i] -= torch.norm(u - smoothed_u, dim=-1)
+        elif reward_name == "Rail Limit":
+            reward_matrix[:, i] += torch.where(limit_hit, RAIL_LIMIT_PUNISHMENT, 0.0)
         else:
             raise ValueError(f"Invalid reward name: {reward_name}")
 
@@ -906,8 +948,9 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
     return total_reward, reward_matrix, weighted_reward_matrix
 
 
-def compute_reset_jit(reset_buf, progress_buf, max_episode_length, target_reached):
-    # type: (Tensor, Tensor, float, Tensor) -> Tensor
+def compute_reset_jit(reset_buf, progress_buf, max_episode_length, target_reached, limit_hit):
+    # type: (Tensor, Tensor, float, Tensor, Tensor) -> Tensor
     reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset_buf)
     reset = torch.where(target_reached, torch.ones_like(reset), reset)
+    reset = torch.where(limit_hit, torch.ones_like(reset), reset)
     return reset
