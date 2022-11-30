@@ -9,13 +9,15 @@
     <visual>
       <origin xyz="0 0 0.0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../meshes/shelf.stl" />
+        <mesh filename="../meshes/shelf.obj" />
+        <!-- <mesh filename="../meshes/shelf.stl" /> -->
       </geometry>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh filename="../meshes/shelf.stl" />
+        <mesh filename="../meshes/shelf.obj" />
+        <!-- <mesh filename="../meshes/shelf.stl" /> -->
       </geometry>
     </collision>
   </link>
