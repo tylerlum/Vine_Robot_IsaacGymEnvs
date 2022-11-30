@@ -778,7 +778,8 @@ class Vine5LinkMovingBase(VecTask):
         alphas = torch.where(self.u > self.smoothed_u, SMOOTHING_ALPHA_INFLATE, SMOOTHING_ALPHA_DEFLATE)
 
         if self.randomize:
-            alphas *= torch.FloatTensor(*alphas.shape).uniform_(DOMAIN_RANDOMIZATION_SCALING_MIN, DOMAIN_RANDOMIZATION_SCALING_MAX).to(alphas.device)
+            alphas *= torch.FloatTensor(*alphas.shape).uniform_(DOMAIN_RANDOMIZATION_SCALING_MIN,
+                                                                DOMAIN_RANDOMIZATION_SCALING_MAX).to(alphas.device)
 
         self.smoothed_u = alphas * self.smoothed_u + (1 - alphas) * self.u
 
@@ -800,7 +801,8 @@ class Vine5LinkMovingBase(VecTask):
             self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
 
         if self.randomize:
-            A = self.A * torch.FloatTensor(*self.A.shape).uniform_(DOMAIN_RANDOMIZATION_SCALING_MIN, DOMAIN_RANDOMIZATION_SCALING_MAX).to(self.A.device)
+            A = self.A * torch.FloatTensor(*self.A.shape).uniform_(DOMAIN_RANDOMIZATION_SCALING_MIN,
+                                                                   DOMAIN_RANDOMIZATION_SCALING_MAX).to(self.A.device)
         else:
             A = self.A
 
@@ -815,7 +817,8 @@ class Vine5LinkMovingBase(VecTask):
         self.rail_force = RAIL_P_GAIN * (self.rail_velocity - cart_vel_y)
 
         if self.randomize:
-            self.rail_force *= torch.FloatTensor(*self.rail_force.shape).uniform_(DOMAIN_RANDOMIZATION_SCALING_MIN, DOMAIN_RANDOMIZATION_SCALING_MAX).to(self.rail_force.device)
+            self.rail_force *= torch.FloatTensor(*self.rail_force.shape).uniform_(
+                DOMAIN_RANDOMIZATION_SCALING_MIN, DOMAIN_RANDOMIZATION_SCALING_MAX).to(self.rail_force.device)
 
         # Set efforts
         if N_PRISMATIC_DOFS == 1:
