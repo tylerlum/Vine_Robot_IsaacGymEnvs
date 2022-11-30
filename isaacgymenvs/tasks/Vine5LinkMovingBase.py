@@ -464,7 +464,7 @@ class Vine5LinkMovingBase(VecTask):
             shelf_init_pose = gymapi.Transform()
             shelf_init_pose.p.y = 0.5
             shelf_init_pose.p.z = 0.0
-            shelf_handle = self.gym.create_actor(env_ptr, self.shelf_asset, shelf_init_pose, "shelf", group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 1)
+            # shelf_handle = self.gym.create_actor(env_ptr, self.shelf_asset, shelf_init_pose, "shelf", group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 1)
 
             sushi_shelf_init_pose = gymapi.Transform()
             sushi_shelf_init_pose.p.y = -0.5
@@ -482,7 +482,6 @@ class Vine5LinkMovingBase(VecTask):
             # shelf_super_market2_handle = self.gym.create_actor(env_ptr, self.shelf_super_market2_asset, shelf_super_market2_init_pose, "shelf_super_market2", group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 4)
 
             new_scale = 0.1
-            self.gym.set_actor_scale(env_ptr, shelf_handle, new_scale)
             # self.gym.set_actor_scale(env_ptr, sushi_shelf_handle, new_scale)
             # self.gym.set_actor_scale(env_ptr, shelf_super_market1_handle, new_scale)
             # self.gym.set_actor_scale(env_ptr, shelf_super_market2_handle, new_scale)
@@ -501,8 +500,12 @@ class Vine5LinkMovingBase(VecTask):
 
             self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
 
+
+            shelf_handle = self.gym.create_actor(env_ptr, self.shelf_asset, shelf_init_pose, "shelf", group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 1)
+            self.gym.set_actor_scale(env_ptr, shelf_handle, new_scale)
+
             self.envs.append(env_ptr)
-            self.shelf_handles += [shelf_handle]
+            self.shelf_handles.append(shelf_handle)
             # self.shelf_handles += [shelf_handle, sushi_shelf_handle, shelf_super_market1_handle, shelf_super_market2_handle]
             self.vine_handles.append(vine_handle)
 
