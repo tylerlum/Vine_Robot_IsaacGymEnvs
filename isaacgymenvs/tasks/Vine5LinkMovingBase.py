@@ -34,6 +34,7 @@ import datetime
 from enum import Enum
 
 from isaacgym import gymutil, gymtorch, gymapi
+from isaacgym.torch_utils import to_torch
 from .base.vec_task import VecTask
 import wandb
 
@@ -119,7 +120,7 @@ else:
                                           math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
 TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
 
-RANDOMIZE_DOF_INIT = True
+RANDOMIZE_DOF_INIT = False
 RANDOMIZE_TARGETS = True
 
 # GLOBALS
@@ -465,9 +466,9 @@ class Vine5LinkMovingBase(VecTask):
 
             # Create other obstacles
             shelf_init_pose = gymapi.Transform()
-            shelf_init_pose.p.y = 0.5
+            shelf_init_pose.p.y = 0.2
             shelf_init_pose.p.z = 0.0
-            shelf_handle = self.gym.create_actor(env_ptr, self.shelf_asset, shelf_init_pose, "shelf", group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 1)
+            shelf_handle = self.gym.create_actor(env_ptr, self.shelf_asset, shelf_init_pose, "shelf", group=collision_group, filter=collision_filter + 1, segmentationId=segmentation_id + 1)
             new_scale = 0.1
             self.gym.set_actor_scale(env_ptr, shelf_handle, new_scale)
 
@@ -490,6 +491,9 @@ class Vine5LinkMovingBase(VecTask):
 
             self.shelf_indices.append(self.gym.get_actor_index(env_ptr, shelf_handle, gymapi.DOMAIN_SIM))
             self.vine_indices.append(self.gym.get_actor_index(env_ptr, vine_handle, gymapi.DOMAIN_SIM))
+
+        self.vine_indices = to_torch(self.vine_indices, dtype=torch.long, device=self.device)
+        self.shelf_indices = to_torch(self.shelf_indices, dtype=torch.long, device=self.device)
 
         PRINT_ASSET_INFO = False
         if PRINT_ASSET_INFO:
