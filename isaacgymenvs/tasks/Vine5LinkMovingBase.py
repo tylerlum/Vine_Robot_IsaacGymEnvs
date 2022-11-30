@@ -57,6 +57,7 @@ USE_SMOOTHED_U = True
 FORCE_U_ZERO = False
 SMOOTHING_ALPHA_INFLATE = 0.81
 SMOOTHING_ALPHA_DEFLATE = 0.86
+DOMAIN_RANDOMIZATION_SCALING_MIN, DOMAIN_RANDOMIZATION_SCALING_MAX = 0.95, 1.05
 
 CAPTURE_VIDEO = True
 
@@ -775,6 +776,10 @@ class Vine5LinkMovingBase(VecTask):
 
         # Compute smoothed u
         alphas = torch.where(self.u > self.smoothed_u, SMOOTHING_ALPHA_INFLATE, SMOOTHING_ALPHA_DEFLATE)
+
+        if self.randomize:
+            alphas *= torch.FloatTensor(*alphas.shape).uniform_(DOMAIN_RANDOMIZATION_SCALING_MIN, DOMAIN_RANDOMIZATION_SCALING_MAX).to(alphas.device)
+
         self.smoothed_u = alphas * self.smoothed_u + (1 - alphas) * self.u
 
         # Compute torques
@@ -790,17 +795,27 @@ class Vine5LinkMovingBase(VecTask):
                                0.011436913019114144, -0.0031035566743229624], device=self.device)
             B = -torch.tensor([-0.02525783894248118, -0.06298872026151316, -0.049676622868418834, -
                                0.029474741498381096, -0.015412936470522515], device=self.device)
+
             A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
             self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
+
+        if self.randomize:
+            A = self.A * torch.FloatTensor(*self.A.shape).uniform_(DOMAIN_RANDOMIZATION_SCALING_MIN, DOMAIN_RANDOMIZATION_SCALING_MAX).to(self.A.device)
+        else:
+            A = self.A
 
         u_to_use = self.smoothed_u if USE_SMOOTHED_U else self.u
         x = torch.cat([q, qd, torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device), u_to_use *
                        torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
-        torques = -torch.matmul(self.A, x).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
+        torques = -torch.matmul(A, x).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
 
         # Compute rail force
         cart_vel_y = self.cart_velocities[:, 1:2]  # (num_envs, 1)
+
         self.rail_force = RAIL_P_GAIN * (self.rail_velocity - cart_vel_y)
+
+        if self.randomize:
+            self.rail_force *= torch.FloatTensor(*self.rail_force.shape).uniform_(DOMAIN_RANDOMIZATION_SCALING_MIN, DOMAIN_RANDOMIZATION_SCALING_MAX).to(self.rail_force.device)
 
         # Set efforts
         if N_PRISMATIC_DOFS == 1:
