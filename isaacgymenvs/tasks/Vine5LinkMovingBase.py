@@ -50,12 +50,6 @@ START_QUAT_IDX, END_QUAT_IDX = 3, 7
 START_LIN_VEL_IDX, END_LIN_VEL_IDX = 7, 10
 START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 
-# Note: fragile/brittle assuming order of links, create vine robot last
-TIP_LINK_IDX = -1
-N_LINKS_IN_VINE = N_REVOLUTE_DOFS + 2 + 1  # 2 for rail and cart, 1 for tip
-BASE_LINK_IDX = TIP_LINK_IDX - (N_LINKS_IN_VINE - 1)  # tip -> base
-CART_LINK_IDX = BASE_LINK_IDX + 1  # base -> cart
-
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = True
 USE_SIMPLE_POLICY = False
@@ -111,7 +105,7 @@ REWARD_WEIGHTS = [POSITION_REWARD_WEIGHT, CONST_NEGATIVE_REWARD_WEIGHT, POSITION
 
 N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
-INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.5
+INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 0.55
 
 MIN_EFFECTIVE_ANGLE = math.radians(-60)
 MAX_EFFECTIVE_ANGLE = math.radians(-40)
@@ -252,21 +246,24 @@ class Vine5LinkMovingBase(VecTask):
         self.prev_dof_pos = self.dof_pos.clone()
 
         # Store rigid body state tensor
+        # rigid_body_names = self.gym.get_asset_rigid_body_dict(self.vine_asset)
         rigid_body_state_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
         self.rigid_body_state = gymtorch.wrap_tensor(rigid_body_state_tensor)
 
-        # For now, only care about last link to get tip location
-        # rigid_body_names = self.gym.get_asset_rigid_body_dict(self.vine_asset)
+        arbitrary_idx = 0
+        tip_idx = self.gym.find_actor_rigid_body_index(self.envs[arbitrary_idx], self.vine_handles[arbitrary_idx], "tip", gymapi.DOMAIN_ENV)
+        cart_idx = self.gym.find_actor_rigid_body_index(self.envs[arbitrary_idx], self.vine_handles[arbitrary_idx], "cart", gymapi.DOMAIN_ENV)
+
         rigid_body_state_by_env = self.rigid_body_state.view(
-            self.num_envs, self.num_rigid_bodies, NUM_STATES)
+            self.num_envs, -1, NUM_STATES)
 
         self.link_positions = rigid_body_state_by_env[:, :, START_POS_IDX:END_POS_IDX]
-        self.tip_positions = self.link_positions[:, TIP_LINK_IDX]
-        self.cart_positions = self.link_positions[:, CART_LINK_IDX]
+        self.tip_positions = self.link_positions[:, tip_idx]
+        self.cart_positions = self.link_positions[:, cart_idx]
 
         self.link_velocities = rigid_body_state_by_env[:, :, START_LIN_VEL_IDX:END_LIN_VEL_IDX]
-        self.tip_velocities = self.link_velocities[:, TIP_LINK_IDX]
-        self.cart_velocities = self.link_velocities[:, CART_LINK_IDX]
+        self.tip_velocities = self.link_velocities[:, tip_idx]
+        self.cart_velocities = self.link_velocities[:, cart_idx]
         self.prev_tip_positions = self.tip_positions.clone()
 
     def refresh_state_tensors(self):
@@ -393,7 +390,10 @@ class Vine5LinkMovingBase(VecTask):
         upper = gymapi.Vec3(0.5 * spacing, spacing, spacing)
 
         # Create objects
-        self.shelf_asset = self.get_shelf_asset()
+        self.shelf_asset = self.get_obstacle_asset("urdf/shelf/urdf/shelf.urdf")
+        self.sushi_shelf_asset = self.get_obstacle_asset("urdf/sushi_shelf/urdf/sushi_shelf.urdf")
+        self.shelf_super_market1_asset = self.get_obstacle_asset("urdf/shelf_super_market1/urdf/shelf_super_market1.urdf")
+        self.shelf_super_market2_asset = self.get_obstacle_asset("urdf/shelf_super_market2/urdf/shelf_super_market2.urdf")
 
         # Create vine asset and store useful variables
         self.vine_asset = self.get_vine_asset()
@@ -449,7 +449,7 @@ class Vine5LinkMovingBase(VecTask):
 
         self.vine_handles = []
         self.envs = []
-        self.object_handles = []
+        self.shelf_handles = []
         for i in range(num_envs):
             # create env instance
             env_ptr = self.gym.create_env(
@@ -459,6 +459,33 @@ class Vine5LinkMovingBase(VecTask):
             # Different collision_groups so that different envs don't interact
             # collision_filter = 0 for enabled self-collision, collision_filter > 0 disable self-collisions
             collision_group, collision_filter, segmentation_id = i, 1, 0
+
+            # Create other obstacles before vine
+            shelf_init_pose = gymapi.Transform()
+            shelf_init_pose.p.y = 0.5
+            shelf_init_pose.p.z = 0.0
+            shelf_handle = self.gym.create_actor(env_ptr, self.shelf_asset, shelf_init_pose, "shelf", group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 1)
+
+            sushi_shelf_init_pose = gymapi.Transform()
+            sushi_shelf_init_pose.p.y = -0.5
+            sushi_shelf_init_pose.p.z = 0.0
+            sushi_shelf_handle = self.gym.create_actor(env_ptr, self.sushi_shelf_asset, sushi_shelf_init_pose, "sushi_shelf", group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 2)
+
+            shelf_super_market1_init_pose = gymapi.Transform()
+            shelf_super_market1_init_pose.p.y = -1.0
+            shelf_super_market1_init_pose.p.z = 0.0
+            shelf_super_market1_handle = self.gym.create_actor(env_ptr, self.shelf_super_market1_asset, shelf_super_market1_init_pose, "shelf_super_market1", group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 3)
+
+            shelf_super_market2_init_pose = gymapi.Transform()
+            shelf_super_market2_init_pose.p.y = 1.0
+            shelf_super_market2_init_pose.p.z = 0.0
+            shelf_super_market2_handle = self.gym.create_actor(env_ptr, self.shelf_super_market2_asset, shelf_super_market2_init_pose, "shelf_super_market2", group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 4)
+
+            new_scale = 0.1
+            self.gym.set_actor_scale(env_ptr, shelf_handle, new_scale)
+            self.gym.set_actor_scale(env_ptr, sushi_shelf_handle, new_scale)
+            self.gym.set_actor_scale(env_ptr, shelf_super_market1_handle, new_scale)
+            self.gym.set_actor_scale(env_ptr, shelf_super_market2_handle, new_scale)
 
             # Create vine robots
             vine_handle = self.gym.create_actor(
@@ -475,20 +502,20 @@ class Vine5LinkMovingBase(VecTask):
             self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
 
             self.envs.append(env_ptr)
+            self.shelf_handles += [shelf_handle, sushi_shelf_handle, shelf_super_market1_handle, shelf_super_market2_handle]
             self.vine_handles.append(vine_handle)
 
         PRINT_ASSET_INFO = False
         if PRINT_ASSET_INFO:
             self._print_asset_info(self.vine_asset)
 
-    def get_shelf_asset(self):
-        shelf_asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
-        shelf_asset_file = "" # TODO
+    def get_obstacle_asset(self, asset_file):
+        asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
 
-        shelf_asset_options = gymapi.AssetOptions()
-        shelf_asset_options.fix_base_link = True  # Fixed base for shelf
-        shelf_asset = self.gym.load_asset(self.sim, shelf_asset_root, shelf_asset_file, shelf_asset_options)
-        return shelf_asset
+        obstacle_asset_options = gymapi.AssetOptions()
+        obstacle_asset_options.fix_base_link = True  # Fixed base for obstacles
+        obstacle_asset = self.gym.load_asset(self.sim, asset_root, asset_file, obstacle_asset_options)
+        return obstacle_asset
 
     def get_vine_asset(self):
         # Find asset file
