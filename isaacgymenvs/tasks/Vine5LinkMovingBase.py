@@ -50,6 +50,12 @@ START_QUAT_IDX, END_QUAT_IDX = 3, 7
 START_LIN_VEL_IDX, END_LIN_VEL_IDX = 7, 10
 START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 
+# Note: fragile/brittle assuming order of links, create vine robot last
+TIP_LINK_IDX = -1
+N_LINKS_IN_VINE = N_REVOLUTE_DOFS + 2 + 1  # 2 for rail and cart, 1 for tip
+BASE_LINK_IDX = TIP_LINK_IDX - (N_LINKS_IN_VINE - 1)  # tip -> base
+CART_LINK_IDX = BASE_LINK_IDX + 1  # base -> cart
+
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = True
 USE_SIMPLE_POLICY = False
@@ -255,11 +261,12 @@ class Vine5LinkMovingBase(VecTask):
             self.num_envs, self.num_rigid_bodies, NUM_STATES)
 
         self.link_positions = rigid_body_state_by_env[:, :, START_POS_IDX:END_POS_IDX]
-        self.tip_positions = self.link_positions[:, -1]
-        self.cart_positions = self.link_positions[:, 1]
+        self.tip_positions = self.link_positions[:, TIP_LINK_IDX]
+        self.cart_positions = self.link_positions[:, CART_LINK_IDX]
+
         self.link_velocities = rigid_body_state_by_env[:, :, START_LIN_VEL_IDX:END_LIN_VEL_IDX]
-        self.tip_velocities = self.link_velocities[:, -1]
-        self.cart_velocities = self.link_velocities[:, 1]
+        self.tip_velocities = self.link_velocities[:, TIP_LINK_IDX]
+        self.cart_velocities = self.link_velocities[:, CART_LINK_IDX]
         self.prev_tip_positions = self.tip_positions.clone()
 
     def refresh_state_tensors(self):
