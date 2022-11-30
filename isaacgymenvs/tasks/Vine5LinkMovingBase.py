@@ -469,23 +469,23 @@ class Vine5LinkMovingBase(VecTask):
             sushi_shelf_init_pose = gymapi.Transform()
             sushi_shelf_init_pose.p.y = -0.5
             sushi_shelf_init_pose.p.z = 0.0
-            sushi_shelf_handle = self.gym.create_actor(env_ptr, self.sushi_shelf_asset, sushi_shelf_init_pose, "sushi_shelf", group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 2)
+            # sushi_shelf_handle = self.gym.create_actor(env_ptr, self.sushi_shelf_asset, sushi_shelf_init_pose, "sushi_shelf", group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 2)
 
             shelf_super_market1_init_pose = gymapi.Transform()
             shelf_super_market1_init_pose.p.y = -1.0
             shelf_super_market1_init_pose.p.z = 0.0
-            shelf_super_market1_handle = self.gym.create_actor(env_ptr, self.shelf_super_market1_asset, shelf_super_market1_init_pose, "shelf_super_market1", group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 3)
+            # shelf_super_market1_handle = self.gym.create_actor(env_ptr, self.shelf_super_market1_asset, shelf_super_market1_init_pose, "shelf_super_market1", group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 3)
 
             shelf_super_market2_init_pose = gymapi.Transform()
             shelf_super_market2_init_pose.p.y = 1.0
             shelf_super_market2_init_pose.p.z = 0.0
-            shelf_super_market2_handle = self.gym.create_actor(env_ptr, self.shelf_super_market2_asset, shelf_super_market2_init_pose, "shelf_super_market2", group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 4)
+            # shelf_super_market2_handle = self.gym.create_actor(env_ptr, self.shelf_super_market2_asset, shelf_super_market2_init_pose, "shelf_super_market2", group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 4)
 
             new_scale = 0.1
             self.gym.set_actor_scale(env_ptr, shelf_handle, new_scale)
-            self.gym.set_actor_scale(env_ptr, sushi_shelf_handle, new_scale)
-            self.gym.set_actor_scale(env_ptr, shelf_super_market1_handle, new_scale)
-            self.gym.set_actor_scale(env_ptr, shelf_super_market2_handle, new_scale)
+            # self.gym.set_actor_scale(env_ptr, sushi_shelf_handle, new_scale)
+            # self.gym.set_actor_scale(env_ptr, shelf_super_market1_handle, new_scale)
+            # self.gym.set_actor_scale(env_ptr, shelf_super_market2_handle, new_scale)
 
             # Create vine robots
             vine_handle = self.gym.create_actor(
@@ -502,7 +502,8 @@ class Vine5LinkMovingBase(VecTask):
             self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
 
             self.envs.append(env_ptr)
-            self.shelf_handles += [shelf_handle, sushi_shelf_handle, shelf_super_market1_handle, shelf_super_market2_handle]
+            self.shelf_handles += [shelf_handle]
+            # self.shelf_handles += [shelf_handle, sushi_shelf_handle, shelf_super_market1_handle, shelf_super_market2_handle]
             self.vine_handles.append(vine_handle)
 
         PRINT_ASSET_INFO = False
@@ -742,13 +743,23 @@ class Vine5LinkMovingBase(VecTask):
         # TODO: Need to reset prev_tip_positions as well?
 
         # Update dofs
-        env_ids_int32 = env_ids.to(dtype=torch.int32)
+        env_ids_int32 = env_ids.clone().to(dtype=torch.int32)
+        print(f"self.dof_pos = {self.dof_pos}")
+        print(f"self.dof_vel = {self.dof_vel}")
+        print(f"self.dof_states = {self.dof_state}")
+        print(f"env_ids_int32 = {env_ids_int32}")
+        print(f"env_ids = {env_ids}")
         if len(env_ids_int32) == self.num_envs:
+            print(111)
             self.gym.set_dof_state_tensor(self.sim, gymtorch.unwrap_tensor(self.dof_state))
         else:
+            print(222)
             self.gym.set_dof_state_tensor_indexed(self.sim,
                                                   gymtorch.unwrap_tensor(self.dof_state),
                                                   gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
+        print(f"1`232414134")
+        print(f"env_ids_int32 = {env_ids_int32}")
+        print(f"env_ids = {env_ids}")
         self.reset_buf[env_ids] = 0
         self.progress_buf[env_ids] = 0
         self.rew_buf[env_ids] = 0
