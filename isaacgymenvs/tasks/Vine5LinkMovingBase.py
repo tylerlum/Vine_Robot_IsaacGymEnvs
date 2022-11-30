@@ -392,20 +392,11 @@ class Vine5LinkMovingBase(VecTask):
                             0.0) if self.up_axis == 'z' else gymapi.Vec3(0.5 * -spacing, 0.0, -spacing)
         upper = gymapi.Vec3(0.5 * spacing, spacing, spacing)
 
-        # Find asset file
-        vine_asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
-        vine_asset_file = "urdf/Vine5LinkMovingBase.urdf" if USE_MOVING_BASE else "urdf/Vine5LinkFixedBase.urdf"
+        # Create objects
+        self.shelf_asset = self.get_shelf_asset()
 
-        vine_asset_path = os.path.join(vine_asset_root, vine_asset_file)
-        vine_asset_root = os.path.dirname(vine_asset_path)
-        vine_asset_file = os.path.basename(vine_asset_path)
-
-        # Create vine asset
-        vine_asset_options = gymapi.AssetOptions()
-        vine_asset_options.fix_base_link = True  # Fixed base for vine
-        self.vine_asset = self.gym.load_asset(self.sim, vine_asset_root, vine_asset_file, vine_asset_options)
-
-        # Store useful variables
+        # Create vine asset and store useful variables
+        self.vine_asset = self.get_vine_asset()
         self.num_dof = self.gym.get_asset_dof_count(self.vine_asset)
         self.num_rigid_bodies = self.gym.get_asset_rigid_body_count(self.vine_asset)
 
@@ -489,6 +480,30 @@ class Vine5LinkMovingBase(VecTask):
         PRINT_ASSET_INFO = False
         if PRINT_ASSET_INFO:
             self._print_asset_info(self.vine_asset)
+
+    def get_shelf_asset(self):
+        shelf_asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
+        shelf_asset_file = "" # TODO
+
+        shelf_asset_options = gymapi.AssetOptions()
+        shelf_asset_options.fix_base_link = True  # Fixed base for shelf
+        shelf_asset = self.gym.load_asset(self.sim, shelf_asset_root, shelf_asset_file, shelf_asset_options)
+        return shelf_asset
+
+    def get_vine_asset(self):
+        # Find asset file
+        vine_asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
+        vine_asset_file = "urdf/Vine5LinkMovingBase.urdf" if USE_MOVING_BASE else "urdf/Vine5LinkFixedBase.urdf"
+
+        vine_asset_path = os.path.join(vine_asset_root, vine_asset_file)
+        vine_asset_root = os.path.dirname(vine_asset_path)
+        vine_asset_file = os.path.basename(vine_asset_path)
+
+        # Create vine asset
+        vine_asset_options = gymapi.AssetOptions()
+        vine_asset_options.fix_base_link = True  # Fixed base for vine
+        vine_asset = self.gym.load_asset(self.sim, vine_asset_root, vine_asset_file, vine_asset_options)
+        return vine_asset
 
     def _print_asset_info(self, asset):
         """
