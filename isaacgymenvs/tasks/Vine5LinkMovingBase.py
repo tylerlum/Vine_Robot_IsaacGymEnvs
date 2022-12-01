@@ -34,6 +34,7 @@ import datetime
 from enum import Enum
 
 from isaacgym import gymutil, gymtorch, gymapi
+from isaacgym.torch_utils import to_torch
 from .base.vec_task import VecTask
 import wandb
 
@@ -105,7 +106,7 @@ REWARD_WEIGHTS = [POSITION_REWARD_WEIGHT, CONST_NEGATIVE_REWARD_WEIGHT, POSITION
 
 N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
-INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.5
+INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 0.55
 
 MIN_EFFECTIVE_ANGLE = math.radians(-60)
 MAX_EFFECTIVE_ANGLE = math.radians(-40)
@@ -119,7 +120,7 @@ else:
                                           math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
 TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
 
-RANDOMIZE_DOF_INIT = True
+RANDOMIZE_DOF_INIT = False
 RANDOMIZE_TARGETS = True
 
 # GLOBALS
@@ -245,26 +246,37 @@ class Vine5LinkMovingBase(VecTask):
         self.dof_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 1]
         self.prev_dof_pos = self.dof_pos.clone()
 
+        # Store root states
+        root_state_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
+        self.root_state = gymtorch.wrap_tensor(root_state_tensor)
+
         # Store rigid body state tensor
+        # rigid_body_names = self.gym.get_asset_rigid_body_dict(self.vine_asset)
         rigid_body_state_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
         self.rigid_body_state = gymtorch.wrap_tensor(rigid_body_state_tensor)
 
-        # For now, only care about last link to get tip location
-        # rigid_body_names = self.gym.get_asset_rigid_body_dict(self.vine_asset)
+        arbitrary_idx = 0
+        tip_idx = self.gym.find_actor_rigid_body_index(
+            self.envs[arbitrary_idx], self.vine_handles[arbitrary_idx], "tip", gymapi.DOMAIN_ENV)
+        cart_idx = self.gym.find_actor_rigid_body_index(
+            self.envs[arbitrary_idx], self.vine_handles[arbitrary_idx], "cart", gymapi.DOMAIN_ENV)
+
         rigid_body_state_by_env = self.rigid_body_state.view(
-            self.num_envs, self.num_rigid_bodies, NUM_STATES)
+            self.num_envs, -1, NUM_STATES)
 
         self.link_positions = rigid_body_state_by_env[:, :, START_POS_IDX:END_POS_IDX]
-        self.tip_positions = self.link_positions[:, -1]
-        self.cart_positions = self.link_positions[:, 1]
+        self.tip_positions = self.link_positions[:, tip_idx]
+        self.cart_positions = self.link_positions[:, cart_idx]
+
         self.link_velocities = rigid_body_state_by_env[:, :, START_LIN_VEL_IDX:END_LIN_VEL_IDX]
-        self.tip_velocities = self.link_velocities[:, -1]
-        self.cart_velocities = self.link_velocities[:, 1]
+        self.tip_velocities = self.link_velocities[:, tip_idx]
+        self.cart_velocities = self.link_velocities[:, cart_idx]
         self.prev_tip_positions = self.tip_positions.clone()
 
     def refresh_state_tensors(self):
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
+        self.gym.refresh_actor_root_state_tensor(self.sim)
 
     def log_wandb_dict(self):
         # Only wandb log if working
@@ -385,20 +397,16 @@ class Vine5LinkMovingBase(VecTask):
                             0.0) if self.up_axis == 'z' else gymapi.Vec3(0.5 * -spacing, 0.0, -spacing)
         upper = gymapi.Vec3(0.5 * spacing, spacing, spacing)
 
-        # Find asset file
-        vine_asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
-        vine_asset_file = "urdf/Vine5LinkMovingBase.urdf" if USE_MOVING_BASE else "urdf/Vine5LinkFixedBase.urdf"
+        # Create objects
+        self.shelf_asset = self.get_obstacle_asset("urdf/shelf/urdf/shelf.urdf")
+        self.sushi_shelf_asset = self.get_obstacle_asset("urdf/sushi_shelf/urdf/sushi_shelf.urdf")
+        self.shelf_super_market1_asset = self.get_obstacle_asset(
+            "urdf/shelf_super_market1/urdf/shelf_super_market1.urdf")
+        self.shelf_super_market2_asset = self.get_obstacle_asset(
+            "urdf/shelf_super_market2/urdf/shelf_super_market2.urdf")
 
-        vine_asset_path = os.path.join(vine_asset_root, vine_asset_file)
-        vine_asset_root = os.path.dirname(vine_asset_path)
-        vine_asset_file = os.path.basename(vine_asset_path)
-
-        # Create vine asset
-        vine_asset_options = gymapi.AssetOptions()
-        vine_asset_options.fix_base_link = True  # Fixed base for vine
-        self.vine_asset = self.gym.load_asset(self.sim, vine_asset_root, vine_asset_file, vine_asset_options)
-
-        # Store useful variables
+        # Create vine asset and store useful variables
+        self.vine_asset = self.get_vine_asset()
         self.num_dof = self.gym.get_asset_dof_count(self.vine_asset)
         self.num_rigid_bodies = self.gym.get_asset_rigid_body_count(self.vine_asset)
 
@@ -449,9 +457,12 @@ class Vine5LinkMovingBase(VecTask):
         vine_init_pose.p.z = INIT_Z
         vine_init_pose.r = INIT_QUAT
 
-        self.vine_handles = []
         self.envs = []
-        self.object_handles = []
+        self.vine_handles = []
+        self.shelf_handles = []
+
+        self.vine_indices = []
+        self.shelf_indices = []
         for i in range(num_envs):
             # create env instance
             env_ptr = self.gym.create_env(
@@ -462,26 +473,64 @@ class Vine5LinkMovingBase(VecTask):
             # collision_filter = 0 for enabled self-collision, collision_filter > 0 disable self-collisions
             collision_group, collision_filter, segmentation_id = i, 1, 0
 
+            # Create other obstacles
+            shelf_init_pose = gymapi.Transform()
+            shelf_init_pose.p.y = 0.2
+            shelf_init_pose.p.z = 0.0
+            shelf_handle = self.gym.create_actor(env_ptr, self.shelf_asset, shelf_init_pose, "shelf",
+                                                 group=collision_group, filter=collision_filter + 1, segmentationId=segmentation_id + 1)
+            new_scale = 0.1
+            self.gym.set_actor_scale(env_ptr, shelf_handle, new_scale)
+
             # Create vine robots
             vine_handle = self.gym.create_actor(
                 env_ptr, self.vine_asset, vine_init_pose, "vine", group=collision_group, filter=collision_filter, segmentationId=segmentation_id)
 
             # Set dof properties
             dof_props = self.gym.get_actor_dof_properties(env_ptr, vine_handle)
-
             # TODO: Can have prismatic and revolute specific props, but has bug with gpu
             dof_props['driveMode'].fill(DOF_MODE)
             dof_props['stiffness'].fill(STIFFNESS)
             dof_props['damping'].fill(DAMPING)
-
             self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
 
+            # Store handles and indices
             self.envs.append(env_ptr)
+            self.shelf_handles.append(shelf_handle)
             self.vine_handles.append(vine_handle)
+
+            self.shelf_indices.append(self.gym.get_actor_index(env_ptr, shelf_handle, gymapi.DOMAIN_SIM))
+            self.vine_indices.append(self.gym.get_actor_index(env_ptr, vine_handle, gymapi.DOMAIN_SIM))
+
+        self.vine_indices = to_torch(self.vine_indices, dtype=torch.long, device=self.device)
+        self.shelf_indices = to_torch(self.shelf_indices, dtype=torch.long, device=self.device)
 
         PRINT_ASSET_INFO = False
         if PRINT_ASSET_INFO:
             self._print_asset_info(self.vine_asset)
+
+    def get_obstacle_asset(self, asset_file):
+        asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
+
+        obstacle_asset_options = gymapi.AssetOptions()
+        obstacle_asset_options.fix_base_link = True  # Fixed base for obstacles
+        obstacle_asset = self.gym.load_asset(self.sim, asset_root, asset_file, obstacle_asset_options)
+        return obstacle_asset
+
+    def get_vine_asset(self):
+        # Find asset file
+        vine_asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
+        vine_asset_file = "urdf/Vine5LinkMovingBase.urdf" if USE_MOVING_BASE else "urdf/Vine5LinkFixedBase.urdf"
+
+        vine_asset_path = os.path.join(vine_asset_root, vine_asset_file)
+        vine_asset_root = os.path.dirname(vine_asset_path)
+        vine_asset_file = os.path.basename(vine_asset_path)
+
+        # Create vine asset
+        vine_asset_options = gymapi.AssetOptions()
+        vine_asset_options.fix_base_link = True  # Fixed base for vine
+        vine_asset = self.gym.load_asset(self.sim, vine_asset_root, vine_asset_file, vine_asset_options)
+        return vine_asset
 
     def _print_asset_info(self, asset):
         """
@@ -693,13 +742,10 @@ class Vine5LinkMovingBase(VecTask):
         # TODO: Need to reset prev_tip_positions as well?
 
         # Update dofs
-        env_ids_int32 = env_ids.to(dtype=torch.int32)
-        if len(env_ids_int32) == self.num_envs:
-            self.gym.set_dof_state_tensor(self.sim, gymtorch.unwrap_tensor(self.dof_state))
-        else:
-            self.gym.set_dof_state_tensor_indexed(self.sim,
-                                                  gymtorch.unwrap_tensor(self.dof_state),
-                                                  gymtorch.unwrap_tensor(env_ids_int32), len(env_ids_int32))
+        vine_indices = self.vine_indices[env_ids].to(dtype=torch.int32)
+        self.gym.set_dof_state_tensor_indexed(self.sim,
+                                              gymtorch.unwrap_tensor(self.dof_state),
+                                              gymtorch.unwrap_tensor(vine_indices), len(vine_indices))
         self.reset_buf[env_ids] = 0
         self.progress_buf[env_ids] = 0
         self.rew_buf[env_ids] = 0
@@ -708,6 +754,19 @@ class Vine5LinkMovingBase(VecTask):
         # New target positions
         self.target_positions[env_ids, :] = self.sample_target_positions(len(env_ids))
         self.target_velocities[env_ids, :] = self.sample_target_velocities(len(env_ids))
+
+        # TODO: Update obstacle positions based on targets?
+        # self.root_state[self.shelf_indices[env_ids], START_POS_IDX:END_POS_IDX] = torch.stack([torch.FloatTensor(len(env_ids)).uniform_(0, 0),
+        #                                                                                        torch.FloatTensor(
+        #                                                                                            len(env_ids)).uniform_(-0.5, 0.5),
+        #                                                                                        torch.FloatTensor(len(env_ids)).uniform_(0, 0)], dim=-1).to(self.device)
+        # # self.root_state[self.shelf_indices[env_ids], START_QUAT_IDX:END_QUAT_IDX] = self.goal_states[env_ids, 3:7]
+        # self.root_state[self.shelf_indices[env_ids], START_LIN_VEL_IDX:END_LIN_VEL_IDX] = 0
+        # self.root_state[self.shelf_indices[env_ids], START_ANG_VEL_IDX:END_ANG_VEL_IDX] = 0
+
+        # shelf_indices = self.shelf_indices[env_ids].to(dtype=torch.int32)
+        # self.gym.set_actor_root_state_tensor_indexed(self.sim, gymtorch.unwrap_tensor(
+        #     self.root_state), gymtorch.unwrap_tensor(shelf_indices), len(shelf_indices))
 
     def sample_target_positions(self, num_envs):
         target_positions = torch.zeros(num_envs, NUM_XYZ, device=self.device)
