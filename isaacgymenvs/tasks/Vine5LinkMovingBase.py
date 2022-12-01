@@ -61,6 +61,7 @@ SMOOTHING_ALPHA_DEFLATE = 0.86
 DOMAIN_RANDOMIZATION_SCALING_MIN, DOMAIN_RANDOMIZATION_SCALING_MAX = 0.95, 1.05
 
 CAPTURE_VIDEO = True
+CREATE_SHELF = False
 
 U_MIN, U_MAX = -0.1, 3.0
 RAIL_VELOCITY_SCALE = 1.0
@@ -478,9 +479,10 @@ class Vine5LinkMovingBase(VecTask):
             shelf_init_pose.p.y = 0.2
             shelf_init_pose.p.z = 0.0
             shelf_handle = self.gym.create_actor(env_ptr, self.shelf_asset, shelf_init_pose, "shelf",
-                                                 group=collision_group, filter=collision_filter + 1, segmentationId=segmentation_id + 1)
-            new_scale = 0.1
-            self.gym.set_actor_scale(env_ptr, shelf_handle, new_scale)
+                                                 group=collision_group, filter=collision_filter + 1, segmentationId=segmentation_id + 1) if CREATE_SHELF else None
+            if CREATE_SHELF:
+                new_scale = 0.1
+                self.gym.set_actor_scale(env_ptr, shelf_handle, new_scale)
 
             # Create vine robots
             vine_handle = self.gym.create_actor(
@@ -499,11 +501,13 @@ class Vine5LinkMovingBase(VecTask):
             self.shelf_handles.append(shelf_handle)
             self.vine_handles.append(vine_handle)
 
-            self.shelf_indices.append(self.gym.get_actor_index(env_ptr, shelf_handle, gymapi.DOMAIN_SIM))
+            self.shelf_indices.append(self.gym.get_actor_index(
+                env_ptr, shelf_handle, gymapi.DOMAIN_SIM) if CREATE_SHELF else None)
             self.vine_indices.append(self.gym.get_actor_index(env_ptr, vine_handle, gymapi.DOMAIN_SIM))
 
+        if CREATE_SHELF:
+            self.shelf_indices = to_torch(self.shelf_indices, dtype=torch.long, device=self.device)
         self.vine_indices = to_torch(self.vine_indices, dtype=torch.long, device=self.device)
-        self.shelf_indices = to_torch(self.shelf_indices, dtype=torch.long, device=self.device)
 
         PRINT_ASSET_INFO = False
         if PRINT_ASSET_INFO:
@@ -756,6 +760,7 @@ class Vine5LinkMovingBase(VecTask):
         self.target_velocities[env_ids, :] = self.sample_target_velocities(len(env_ids))
 
         # TODO: Update obstacle positions based on targets?
+        # if CREATE_SHELF:
         # self.root_state[self.shelf_indices[env_ids], START_POS_IDX:END_POS_IDX] = torch.stack([torch.FloatTensor(len(env_ids)).uniform_(0, 0),
         #                                                                                        torch.FloatTensor(
         #                                                                                            len(env_ids)).uniform_(-0.5, 0.5),
