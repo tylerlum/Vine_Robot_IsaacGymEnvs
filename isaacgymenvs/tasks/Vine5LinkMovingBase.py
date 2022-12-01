@@ -55,7 +55,7 @@ START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 USE_MOVING_BASE = True
 USE_SIMPLE_POLICY = False
 USE_SMOOTHED_U = True
-FORCE_U_ZERO = True
+FORCE_U_ZERO = False
 SMOOTHING_ALPHA_INFLATE = 0.81
 SMOOTHING_ALPHA_DEFLATE = 0.86
 DOMAIN_RANDOMIZATION_SCALING_MIN, DOMAIN_RANDOMIZATION_SCALING_MAX = 0.95, 1.05
@@ -70,7 +70,7 @@ DAMPING = 1e-2
 STIFFNESS = 0.0
 DOF_MODE = gymapi.DOF_MODE_EFFORT
 
-RAIL_SOFT_LIMIT = 100
+RAIL_SOFT_LIMIT = 0.2
 # Want max accel of 2m/s^2, if max v_error = 2m/s, then F = m*a = k*v_error, so k = m*a/v_error = 0.52 * 2 / 2 = 0.52
 # But that doesn't account for the vine robot swinging, so make it bigger
 RAIL_P_GAIN = 10.0
@@ -849,7 +849,7 @@ class Vine5LinkMovingBase(VecTask):
 
         if FORCE_U_ZERO:
             self.u[:] = 0.0
-            self.rail_velocity[:] = 1.0
+            # self.rail_velocity[:] = 1.0
 
         # Compute smoothed u
         alphas = torch.where(self.u > self.smoothed_u, SMOOTHING_ALPHA_INFLATE, SMOOTHING_ALPHA_DEFLATE)
@@ -892,13 +892,11 @@ class Vine5LinkMovingBase(VecTask):
         cart_vel_y = self.cart_velocities[:, 1:2]  # (num_envs, 1)
 
         cart_vel_error = self.rail_velocity - cart_vel_y
-        print(f"P part is {RAIL_P_GAIN * cart_vel_error }")
-        print(f"D part is {RAIL_D_GAIN * (cart_vel_error - self.prev_cart_vel_error)}")
-        print()
         self.rail_force = RAIL_P_GAIN * cart_vel_error + RAIL_D_GAIN * (cart_vel_error - self.prev_cart_vel_error)
         self.prev_cart_vel_error = cart_vel_error
 
         if self.randomize:
+            # TODO: Maybe remove because handled by action noise?
             self.rail_force *= torch.FloatTensor(*self.rail_force.shape).uniform_(
                 DOMAIN_RANDOMIZATION_SCALING_MIN, DOMAIN_RANDOMIZATION_SCALING_MAX).to(self.rail_force.device)
 
