@@ -848,8 +848,8 @@ class Vine5LinkMovingBase(VecTask):
             self.u = torch.where(tip_y_velocities <= 0, U_MAX, U_MIN).reshape(self.num_envs, 1)  # (num_envs, 1)
 
         if FORCE_U_ZERO:
-            self.u[:] = 0.0
-            # self.rail_velocity[:] = 1.0
+            self.u[:] = U_MAX
+            self.rail_velocity[:] = 0.0
 
         # Compute smoothed u
         alphas = torch.where(self.u > self.smoothed_u, SMOOTHING_ALPHA_INFLATE, SMOOTHING_ALPHA_DEFLATE)
