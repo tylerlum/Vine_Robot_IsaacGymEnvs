@@ -65,12 +65,12 @@ CREATE_SHELF = False
 MAT_FILE = ""
 
 U_MIN, U_MAX = -0.1, 3.0
-RAIL_VELOCITY_SCALE = 0.4
+RAIL_VELOCITY_SCALE = 0.8
 DAMPING = 1e-2
 STIFFNESS = 0.0
 DOF_MODE = gymapi.DOF_MODE_EFFORT
 
-RAIL_SOFT_LIMIT = 0.2
+RAIL_SOFT_LIMIT = 0.15
 # Want max accel of 2m/s^2, if max v_error = 2m/s, then F = m*a = k*v_error, so k = m*a/v_error = 0.52 * 2 / 2 = 0.52
 # But that doesn't account for the vine robot swinging, so make it bigger
 RAIL_P_GAIN = 10.0
@@ -94,11 +94,11 @@ OBSERVATION_TYPE = ObservationType.POS_AND_FD_VEL
 REWARD_NAMES = ["Position", "Const Negative", "Position Success",
                 "Velocity Success", "Velocity", "Rail Velocity Control",
                 "U Control", "Rail Velocity Change", "U Change", "Rail Limit"]
-POSITION_REWARD_WEIGHT = 1.0
+POSITION_REWARD_WEIGHT = 0.0
 CONST_NEGATIVE_REWARD_WEIGHT = 0.0
-POSITION_SUCCESS_REWARD_WEIGHT = 1.0
+POSITION_SUCCESS_REWARD_WEIGHT = 0.0
 VELOCITY_SUCCESS_REWARD_WEIGHT = 0.0
-VELOCITY_REWARD_WEIGHT = 0.0
+VELOCITY_REWARD_WEIGHT = 1.0
 RAIL_VELOCITY_CONTROL_REWARD_WEIGHT = 0.1
 U_CONTROL_REWARD_WEIGHT = 0.1
 RAIL_VELOCITY_CHANGE_REWARD_WEIGHT = 0.1
