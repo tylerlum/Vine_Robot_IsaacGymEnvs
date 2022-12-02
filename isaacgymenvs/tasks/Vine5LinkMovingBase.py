@@ -57,7 +57,7 @@ USE_SMOOTHED_U = True
 SMOOTHING_ALPHA_INFLATE = 0.81
 SMOOTHING_ALPHA_DEFLATE = 0.86
 
-CAPTURE_VIDEO = True
+CAPTURE_VIDEO = False
 PD_TARGET_ALL_JOINTS = False
 
 U_MIN, U_MAX = -0.1, 3.0
@@ -81,7 +81,7 @@ REWARD_NAMES = ["Position", "Const Negative", "Position Success",
                 "Velocity Success", "Velocity", "Rail Force Control", "U Control", "U Change"]
 POSITION_REWARD_WEIGHT = 0.0
 CONST_NEGATIVE_REWARD_WEIGHT = 0.0
-POSITION_SUCCESS_REWARD_WEIGHT = 0.0
+POSITION_SUCCESS_REWARD_WEIGHT = 0.1
 VELOCITY_SUCCESS_REWARD_WEIGHT = 0.0
 VELOCITY_REWARD_WEIGHT = 1.0
 RAIL_FORCE_CONTROL_REWARD_WEIGHT = 0.0
@@ -95,8 +95,8 @@ N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.5
 
-MIN_EFFECTIVE_ANGLE = math.radians(-60)
-MAX_EFFECTIVE_ANGLE = math.radians(-40)
+MIN_EFFECTIVE_ANGLE = math.radians(-20)
+MAX_EFFECTIVE_ANGLE = math.radians(15)
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 
 TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
@@ -106,7 +106,7 @@ TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MIN_EFFECTIVE_ANGLE)*VINE_LENGTH
 TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
 
 DOF_MODE = "FORCE"  # "FORCE" OR "POSITION"
-RANDOMIZE_DOF_INIT = True
+RANDOMIZE_DOF_INIT = False
 RANDOMIZE_TARGETS = True
 
 # GLOBALS
@@ -525,7 +525,7 @@ class Vine5LinkMovingBase(VecTask):
     def compute_reward(self):
         dist_tip_to_target = torch.linalg.norm(self.tip_positions - self.target_positions, dim=-1)
 
-        ONLY_CARE_ABOUT_Y_TARGET = True
+        ONLY_CARE_ABOUT_Y_TARGET = False
         if ONLY_CARE_ABOUT_Y_TARGET:
             target_reached = self.tip_positions[:, 1] < self.target_positions[:, 1]  # More negative in y dir BRITTLE
         else:
@@ -620,13 +620,13 @@ class Vine5LinkMovingBase(VecTask):
             tensors_to_concat = [self.dof_pos, self.prev_dof_pos, self.tip_positions,
                                  self.prev_tip_positions, self.target_positions, self.target_velocities, self.smoothed_u]
         self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
+        print(f"self.obs_buf = {self.obs_buf}")
 
         return self.obs_buf
 
     def reset_idx(self, env_ids):
         # randomization can happen only at reset time, since it can reset actor positions on GPU
         if self.randomize:
-            print("Applying randomization")
             self.apply_randomizations(self.randomization_params)
 
         if RANDOMIZE_DOF_INIT:
