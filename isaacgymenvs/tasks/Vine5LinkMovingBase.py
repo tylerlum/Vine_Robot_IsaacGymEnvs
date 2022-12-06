@@ -60,7 +60,7 @@ SMOOTHING_ALPHA_INFLATE = 0.81
 SMOOTHING_ALPHA_DEFLATE = 0.86
 DOMAIN_RANDOMIZATION_SCALING_MIN, DOMAIN_RANDOMIZATION_SCALING_MAX = 0.7, 1.3
 
-CAPTURE_VIDEO = True
+CAPTURE_VIDEO = False
 CREATE_SHELF = False
 MAT_FILE = ""
 
@@ -73,7 +73,7 @@ DOF_MODE = gymapi.DOF_MODE_EFFORT
 RAIL_SOFT_LIMIT = 0.15
 # Want max accel of 2m/s^2, if max v_error = 2m/s, then F = m*a = k*v_error, so k = m*a/v_error = 0.52 * 2 / 2 = 0.52
 # But that doesn't account for the vine robot swinging, so make it bigger
-RAIL_P_GAIN = 10.0
+RAIL_P_GAIN = 5.0
 RAIL_D_GAIN = 0.0
 
 
@@ -111,7 +111,7 @@ REWARD_WEIGHTS = [POSITION_REWARD_WEIGHT, CONST_NEGATIVE_REWARD_WEIGHT, POSITION
 
 N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
-INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 0.55
+INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.0
 
 MIN_EFFECTIVE_ANGLE = math.radians(-30)
 MAX_EFFECTIVE_ANGLE = math.radians(-10)
@@ -858,6 +858,7 @@ class Vine5LinkMovingBase(VecTask):
         if self.randomize:
             alphas *= torch.FloatTensor(*alphas.shape).uniform_(DOMAIN_RANDOMIZATION_SCALING_MIN,
                                                                 DOMAIN_RANDOMIZATION_SCALING_MAX).to(alphas.device)
+            alphas = torch.clamp(alphas, min=0.0, max=1.0)
 
         self.smoothed_u = alphas * self.smoothed_u + (1 - alphas) * self.u
 
