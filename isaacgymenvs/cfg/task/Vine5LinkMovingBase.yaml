@@ -45,15 +45,15 @@ task:
   randomization_params:
     frequency: 720   # Define how many simulation steps between generating new randomizations
     observations:
-      range: [0, .05] # range for the white noise
-      range_correlated: [0, .025 ] # range for correlated noise, refreshed with freq `frequency`
+      range: [0, .1] # range for the white noise
+      range_correlated: [0, .05 ] # range for correlated noise, refreshed with freq `frequency`
       operation: "additive"
       distribution: "gaussian"
       # schedule: "linear"   # "constant" is to turn on noise after `schedule_steps` num steps
       # schedule_steps: 40000
     actions:
-      range: [0., .1]
-      range_correlated: [0, .05] # range for correlated noise, refreshed with freq `frequency`
+      range: [0., .2]
+      range_correlated: [0, .1] # range for correlated noise, refreshed with freq `frequency`
       operation: "additive"
       distribution: "gaussian"
       # schedule: "linear"  # "linear" will linearly interpolate between no rand and max rand
