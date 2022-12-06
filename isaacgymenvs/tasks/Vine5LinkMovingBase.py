@@ -668,7 +668,7 @@ class Vine5LinkMovingBase(VecTask):
         for i, idx in enumerate(self.prismatic_dof_indices):
             self.wandb_dict[f"prismatic_q{i} at self.index_to_view"] = self.dof_pos[self.index_to_view, idx]
             self.wandb_dict[f"prismatic_qd{i} at self.index_to_view"] = self.dof_vel[self.index_to_view, idx]
-            self.wandb_dict[f"finite_diff_qd{i} at self.index_to_view"] = self.finite_difference_dof_vel[self.index_to_view, idx]
+            self.wandb_dict[f"prismatic_finite_diff_qd{i} at self.index_to_view"] = self.finite_difference_dof_vel[self.index_to_view, idx]
 
         for i, idx in enumerate(self.revolute_dof_indices):
             self.wandb_dict[f"q{i} at self.index_to_view"] = self.dof_pos[self.index_to_view, idx]
