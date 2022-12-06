@@ -73,7 +73,7 @@ DOF_MODE = gymapi.DOF_MODE_EFFORT
 RAIL_SOFT_LIMIT = 0.15
 # Want max accel of 2m/s^2, if max v_error = 2m/s, then F = m*a = k*v_error, so k = m*a/v_error = 0.52 * 2 / 2 = 0.52
 # But that doesn't account for the vine robot swinging, so make it bigger
-RAIL_P_GAIN = 5.0
+RAIL_P_GAIN = 7.5
 RAIL_D_GAIN = 0.0
 
 
@@ -902,7 +902,10 @@ class Vine5LinkMovingBase(VecTask):
         cart_vel_y = self.cart_velocities[:, 1:2]  # (num_envs, 1)
 
         cart_vel_error = self.rail_velocity - cart_vel_y
-        self.rail_force = RAIL_P_GAIN * cart_vel_error + RAIL_D_GAIN * (cart_vel_error - self.prev_cart_vel_error)
+        RAIL_FORCE_MAX = RAIL_P_GAIN * RAIL_VELOCITY_SCALE / 10
+        rail_force_pid = RAIL_P_GAIN * cart_vel_error + RAIL_D_GAIN * (cart_vel_error - self.prev_cart_vel_error)
+        rail_force_minmax = torch.where(cart_vel_error > 0, torch.tensor(RAIL_FORCE_MAX, device=self.device), torch.tensor(-RAIL_FORCE_MAX, device=self.device))
+        self.rail_force = torch.where(torch.abs(cart_vel_error) > 0.1, rail_force_minmax, rail_force_pid)
         self.prev_cart_vel_error = cart_vel_error
 
         if self.randomize:
@@ -1063,7 +1066,8 @@ def compute_reset_jit(reset_buf, progress_buf, max_episode_length, target_reache
     USE_TARGET_REACHED_RESET = False
     reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset_buf)
 
-    reset_for_target_reached = torch.logical_and(target_reached, torch.tensor([USE_TARGET_REACHED_RESET], device=target_reached.device))
+    reset_for_target_reached = torch.logical_and(target_reached, torch.tensor(
+        [USE_TARGET_REACHED_RESET], device=target_reached.device))
     reset = torch.where(reset_for_target_reached, torch.ones_like(reset), reset)
     reset = torch.where(limit_hit, torch.ones_like(reset), reset)
     return reset
