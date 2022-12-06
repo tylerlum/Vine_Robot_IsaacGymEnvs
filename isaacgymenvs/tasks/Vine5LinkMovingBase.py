@@ -93,7 +93,7 @@ OBSERVATION_TYPE = ObservationType.POS_AND_FD_VEL
 # Brittle: Ensure reward order matches
 REWARD_NAMES = ["Position", "Const Negative", "Position Success",
                 "Velocity Success", "Velocity", "Rail Velocity Control",
-                "U Control", "Rail Velocity Change", "U Change", "Rail Limit"]
+                "U Control", "Rail Velocity Change", "U Change", "Rail Limit", "Cart Y"]
 POSITION_REWARD_WEIGHT = 0.0
 CONST_NEGATIVE_REWARD_WEIGHT = 0.0
 POSITION_SUCCESS_REWARD_WEIGHT = 0.0
@@ -104,9 +104,10 @@ U_CONTROL_REWARD_WEIGHT = 0.1
 RAIL_VELOCITY_CHANGE_REWARD_WEIGHT = 0.1
 U_CHANGE_REWARD_WEIGHT = 0.1
 RAIL_LIMIT_REWARD_WEIGHT = 0.1
+CART_Y_REWARD_WEIGHT = 3.0
 REWARD_WEIGHTS = [POSITION_REWARD_WEIGHT, CONST_NEGATIVE_REWARD_WEIGHT, POSITION_SUCCESS_REWARD_WEIGHT,
                   VELOCITY_SUCCESS_REWARD_WEIGHT, VELOCITY_REWARD_WEIGHT, RAIL_VELOCITY_CONTROL_REWARD_WEIGHT,
-                  U_CONTROL_REWARD_WEIGHT, RAIL_VELOCITY_CHANGE_REWARD_WEIGHT, U_CHANGE_REWARD_WEIGHT, RAIL_LIMIT_REWARD_WEIGHT]
+                  U_CONTROL_REWARD_WEIGHT, RAIL_VELOCITY_CHANGE_REWARD_WEIGHT, U_CHANGE_REWARD_WEIGHT, RAIL_LIMIT_REWARD_WEIGHT, CART_Y_REWARD_WEIGHT]
 
 N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
@@ -645,7 +646,7 @@ class Vine5LinkMovingBase(VecTask):
         self.rew_buf[:], reward_matrix, weighted_reward_matrix = compute_reward_jit(
             dist_to_target=dist_tip_to_target, target_reached=target_reached, tip_velocities=self.tip_velocities,
             target_velocities=self.target_velocities, rail_velocity=self.rail_velocity, u=self.u, prev_rail_velocity=self.prev_rail_velocity,
-            smoothed_u=self.smoothed_u, limit_hit=limit_hit, reward_weights=self.reward_weights, reward_names=REWARD_NAMES
+            smoothed_u=self.smoothed_u, limit_hit=limit_hit, cart_y=cart_y, reward_weights=self.reward_weights, reward_names=REWARD_NAMES
         )
         self.aggregated_rew_buf += self.rew_buf
 
@@ -992,8 +993,8 @@ def rescale_to_rail_velocity(rail_velocity):
 
 
 @torch.jit.script
-def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_velocities, rail_velocity, u, prev_rail_velocity, smoothed_u, limit_hit, reward_weights, reward_names):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, List[str]) -> Tuple[Tensor, Tensor, Tensor]
+def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_velocities, rail_velocity, u, prev_rail_velocity, smoothed_u, limit_hit, cart_y, reward_weights, reward_names):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, List[str]) -> Tuple[Tensor, Tensor, Tensor]
     # reward = sum(w_i * r_i) with various reward function r_i and weights w_i
 
     # position_reward = -dist_to_target [Try to reach target]
@@ -1037,6 +1038,8 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
             reward_matrix[:, i] -= torch.norm(u - smoothed_u, dim=-1)
         elif reward_name == "Rail Limit":
             reward_matrix[:, i] += torch.where(limit_hit, RAIL_LIMIT_PUNISHMENT, 0.0)
+        elif reward_name == "Cart Y":
+            reward_matrix[:, i] -= torch.abs(cart_y)
         else:
             raise ValueError(f"Invalid reward name: {reward_name}")
 
@@ -1048,7 +1051,10 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
 
 def compute_reset_jit(reset_buf, progress_buf, max_episode_length, target_reached, limit_hit):
     # type: (Tensor, Tensor, float, Tensor, Tensor) -> Tensor
+    USE_TARGET_REACHED_RESET = False
     reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset_buf)
-    reset = torch.where(target_reached, torch.ones_like(reset), reset)
+
+    reset_for_target_reached = torch.logical_and(target_reached, torch.tensor([USE_TARGET_REACHED_RESET], device=target_reached.device))
+    reset = torch.where(reset_for_target_reached, torch.ones_like(reset), reset)
     reset = torch.where(limit_hit, torch.ones_like(reset), reset)
     return reset
