@@ -67,7 +67,7 @@ MAT_FILE = ""
 U_MIN, U_MAX = -0.1, 3.0
 RAIL_VELOCITY_SCALE = 0.8
 DAMPING = 1e-2
-STIFFNESS = 0.0
+STIFFNESS = 1e-1
 DOF_MODE = gymapi.DOF_MODE_EFFORT
 
 RAIL_SOFT_LIMIT = 0.15
@@ -503,10 +503,18 @@ class Vine5LinkMovingBase(VecTask):
 
             # Set dof properties
             dof_props = self.gym.get_actor_dof_properties(env_ptr, vine_handle)
-            # TODO: Can have prismatic and revolute specific props, but has bug with gpu
+
+            # Set stiffness and damping
             dof_props['driveMode'].fill(DOF_MODE)
-            dof_props['stiffness'].fill(STIFFNESS)
             dof_props['damping'].fill(DAMPING)
+            for j in range(self.gym.get_asset_dof_count(self.vine_asset)):
+                dof_type = self.gym.get_asset_dof_type(self.vine_asset, j)
+                if dof_type not in [gymapi.DofType.DOF_ROTATION, gymapi.DofType.DOF_TRANSLATION]:
+                    raise ValueError(f"Invalid dof_type = {dof_type}")
+
+                # Prismatic joint should have no stiffness
+                dof_props['stiffness'][j] = STIFFNESS if dof_type == gymapi.DofType.DOF_ROTATION else 0.0
+
             self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
 
             # Store handles and indices
