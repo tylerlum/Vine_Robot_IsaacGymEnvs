@@ -54,7 +54,7 @@ START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = True
 USE_SMOOTHED_U = True
-FORCE_U_ZERO = False
+FORCE_U_ZERO = True
 SMOOTHING_ALPHA_INFLATE = 0.81
 SMOOTHING_ALPHA_DEFLATE = 0.86
 DOMAIN_RANDOMIZATION_SCALING_MIN, DOMAIN_RANDOMIZATION_SCALING_MAX = 0.7, 1.3
@@ -72,7 +72,7 @@ DOF_MODE = gymapi.DOF_MODE_EFFORT
 RAIL_SOFT_LIMIT = 0.15
 # Want max accel of 2m/s^2, if max v_error = 2m/s, then F = m*a = k*v_error, so k = m*a/v_error = 0.52 * 2 / 2 = 0.52
 # But that doesn't account for the vine robot swinging, so make it bigger
-RAIL_P_GAIN = 8
+RAIL_P_GAIN = 3
 RAIL_D_GAIN = 0.0
 
 
@@ -709,13 +709,12 @@ class Vine5LinkMovingBase(VecTask):
             env_ids = np.arange(self.num_envs)
 
         # Refresh tensors
-        self.prev_dof_pos = self.dof_pos.clone()
-        self.prev_tip_positions = self.tip_positions.clone()
         self.refresh_state_tensors()
 
         # Finite difference to get velocities
-        self.finite_difference_dof_vel = (self.dof_pos - self.prev_dof_pos) / self.dt
-        self.finite_difference_tip_velocities = (self.tip_positions - self.prev_tip_positions) / self.dt
+        control_dt = self.dt * self.control_freq_inv
+        self.finite_difference_dof_vel = (self.dof_pos - self.prev_dof_pos) / control_dt
+        self.finite_difference_tip_velocities = (self.tip_positions - self.prev_tip_positions) / control_dt
 
         # Populate obs_buf
         # tensors_to_add elements must all be (num_envs, X)
@@ -736,6 +735,7 @@ class Vine5LinkMovingBase(VecTask):
                                  self.smoothed_u, self.prev_rail_velocity]
         self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
 
+        print(f"obs_buf: {self.obs_buf}")
         return self.obs_buf
 
     def reset_idx(self, env_ids):
@@ -859,8 +859,8 @@ class Vine5LinkMovingBase(VecTask):
             self.MIN_PRESSURE_COUNTER -= 1
 
         if FORCE_U_ZERO:
-            self.u[:] = U_MAX
-            self.rail_velocity[:] = 0.0
+            self.u[:] = 0.0
+            self.rail_velocity[:] = RAIL_VELOCITY_SCALE
 
     def compute_and_set_dof_actuation_force_tensor(self):
         dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
@@ -910,6 +910,7 @@ class Vine5LinkMovingBase(VecTask):
         rail_force_minmax = torch.where(cart_vel_error > 0, torch.tensor(RAIL_FORCE_MAX, device=self.device), torch.tensor(-RAIL_FORCE_MAX, device=self.device))
         self.rail_force = torch.where(torch.abs(cart_vel_error) > 0.1, rail_force_minmax, rail_force_pid)
         self.prev_cart_vel_error = cart_vel_error
+        print(f"cart_vel_error: {cart_vel_error}, rail_force_pid: {rail_force_pid}, rail_force_minmax: {rail_force_minmax}, rail_force: {self.rail_force}")
 
         if self.randomize:
             # TODO: Maybe remove because handled by action noise?
@@ -930,6 +931,10 @@ class Vine5LinkMovingBase(VecTask):
         self.rail_velocity, self.u = self.raw_actions_to_actions(self.raw_actions)
         self.manual_intervention()
         self.smoothed_u = self.u_to_smoothed_u(self.u, self.smoothed_u)
+
+        # Store prevs
+        self.prev_dof_pos = self.dof_pos.clone()
+        self.prev_tip_positions = self.tip_positions.clone()
 
         # Compute and set joint actutation
         self.compute_and_set_dof_actuation_force_tensor()
