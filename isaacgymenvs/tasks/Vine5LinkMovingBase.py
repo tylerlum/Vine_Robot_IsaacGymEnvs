@@ -72,7 +72,7 @@ DOF_MODE = gymapi.DOF_MODE_EFFORT
 RAIL_SOFT_LIMIT = 0.15
 # Want max accel of 2m/s^2, if max v_error = 2m/s, then F = m*a = k*v_error, so k = m*a/v_error = 0.52 * 2 / 2 = 0.52
 # But that doesn't account for the vine robot swinging, so make it bigger
-RAIL_P_GAIN = 7.5
+RAIL_P_GAIN = 8
 RAIL_D_GAIN = 0.0
 
 
@@ -905,7 +905,7 @@ class Vine5LinkMovingBase(VecTask):
         # Compute rail force
         cart_vel_y = self.cart_velocities[:, 1:2]  # (num_envs, 1)
         cart_vel_error = self.rail_velocity - cart_vel_y
-        RAIL_FORCE_MAX = RAIL_P_GAIN * RAIL_VELOCITY_SCALE / 3
+        RAIL_FORCE_MAX = RAIL_P_GAIN * RAIL_VELOCITY_SCALE
         rail_force_pid = RAIL_P_GAIN * cart_vel_error + RAIL_D_GAIN * (cart_vel_error - self.prev_cart_vel_error)
         rail_force_minmax = torch.where(cart_vel_error > 0, torch.tensor(RAIL_FORCE_MAX, device=self.device), torch.tensor(-RAIL_FORCE_MAX, device=self.device))
         self.rail_force = torch.where(torch.abs(cart_vel_error) > 0.1, rail_force_minmax, rail_force_pid)
