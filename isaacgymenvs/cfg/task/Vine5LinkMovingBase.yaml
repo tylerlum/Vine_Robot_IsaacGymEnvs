@@ -19,7 +19,7 @@ env:
 
 sim:
   dt: 0.01 # 100 Hz
-  substeps: 10  # Default 2
+  substeps: 10  # Default 2, may set to 1 to avoid collisions
   up_axis: "z"
   use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
   gravity: [0.0, 0.0, -9.81]

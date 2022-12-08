@@ -335,10 +335,29 @@ class VecTask(Env):
         self.pre_physics_step(action_tensor)
 
         # step physics and render each frame
-        for i in range(self.control_freq_inv):
+        print(f"self.control_freq_inv: {self.control_freq_inv}")
+        for i in range(10 * self.control_freq_inv):
             if self.force_render:
                 self.render()
+            print(f"Before: self.dof_pos: {self.dof_pos}")
             self.gym.simulate(self.sim)
+            self.refresh_state_tensors()
+
+            USE_SMOOTHED_U = True
+            N_REVOLUTE_DOFS = 5
+            u_to_use = self.smoothed_u if USE_SMOOTHED_U else self.u
+            q = self.dof_pos[:, 1:]  # (num_envs, 5)
+            qd = self.dof_vel[:, 1:]  # (num_envs, 5)
+            x = torch.cat([q, qd, torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device), u_to_use *
+                        torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
+            torques = -torch.matmul(self.A, x).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
+            dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
+            dof_efforts[:, 0:1] = self.rail_force
+            dof_efforts[:, 1:] = torques
+            self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
+
+            print(f"After: self.dof_pos: {self.dof_pos}")
+            print()
 
         # to fix!
         if self.device == 'cpu':

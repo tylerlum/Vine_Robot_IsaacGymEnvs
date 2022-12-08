@@ -70,7 +70,7 @@ DAMPING = 1e-2
 STIFFNESS = 1e-1
 DOF_MODE = gymapi.DOF_MODE_EFFORT
 
-RAIL_SOFT_LIMIT = 0.15
+RAIL_SOFT_LIMIT = 1.0
 # Want max accel of 2m/s^2, if max v_error = 2m/s, then F = m*a = k*v_error, so k = m*a/v_error = 0.52 * 2 / 2 = 0.52
 # But that doesn't account for the vine robot swinging, so make it bigger
 RAIL_P_GAIN = 7.5
@@ -819,7 +819,11 @@ class Vine5LinkMovingBase(VecTask):
         return torch.zeros(num_envs, NUM_XYZ, device=self.device)
 
     def pre_physics_step(self, actions):
-        self.raw_actions = actions.clone().to(self.device)
+        NUM_FRAME_SKIP = 1
+        if self.num_steps % NUM_FRAME_SKIP == 0:
+            self.raw_actions = actions.clone().to(self.device)
+            # self.raw_actions[:] = 1
+        print(f"num_steps = {self.num_steps}, raw_actions = {self.raw_actions}")
 
         dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
 
@@ -871,6 +875,7 @@ class Vine5LinkMovingBase(VecTask):
         self.smoothed_u = alphas * self.smoothed_u + (1 - alphas) * self.u
 
         # Compute torques
+        # Derivative term, move all this into the simulate so it has different dof efforts each step (but same "raw_action")
         if self.A is None:
             # torque = - Kq - Cqd - b - Bu;
             #        = - [K C diag(b) diag(B)] @ [q; qd; ones(5), u*ones(5)]
@@ -879,6 +884,7 @@ class Vine5LinkMovingBase(VecTask):
                                          0.7728716674414156, 0.566602254820747, 0.20000000042282678], device=self.device))
             C = torch.diag(torch.tensor([0.010098832804688505, 0.008001446516454621,
                                          0.01352315902253585, 0.021895211325047674, 0.017533205699630634], device=self.device))
+            # C = C * 0.0
             b = -torch.tensor([-0.002961879962361915, -0.019149230853283454, -0.01339719175569314, -
                                0.011436913019114144, -0.0031035566743229624], device=self.device)
             B = -torch.tensor([-0.02525783894248118, -0.06298872026151316, -0.049676622868418834, -
@@ -919,6 +925,7 @@ class Vine5LinkMovingBase(VecTask):
             dof_efforts[:, 1:] = torques
         elif N_PRISMATIC_DOFS == 0:
             dof_efforts[:, :] = torques
+        print(f"dof_efforts = {dof_efforts}")
         self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
 
     def post_physics_step(self):
