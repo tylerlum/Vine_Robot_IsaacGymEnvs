@@ -13,13 +13,13 @@ env:
   clipActions: 1.0
 
   maxEpisodeLength: 1000
-  controlFrequencyInv: ${resolve_default:10,${...control_frequency_inv}}
+  controlFrequencyInv: ${resolve_default:4,${...control_frequency_inv}}
 
   # set to True if you use camera sensors in the environment
   enableCameraSensors: False
 
 sim:
-  dt: 0.01 # 100 Hz
+  dt: 0.00833 # 120 Hz
   substeps: 10  # Default 2
   up_axis: "z"
   use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
