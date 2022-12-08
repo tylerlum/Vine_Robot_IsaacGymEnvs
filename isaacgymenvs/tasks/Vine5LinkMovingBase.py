@@ -54,7 +54,7 @@ START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = True
 USE_SMOOTHED_U = True
-FORCE_U_ZERO = True
+FORCE_U_ZERO = False
 SMOOTHING_ALPHA_INFLATE = 0.81
 SMOOTHING_ALPHA_DEFLATE = 0.86
 DOMAIN_RANDOMIZATION_SCALING_MIN, DOMAIN_RANDOMIZATION_SCALING_MAX = 0.7, 1.3
@@ -735,7 +735,6 @@ class Vine5LinkMovingBase(VecTask):
                                  self.smoothed_u, self.prev_rail_velocity]
         self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
 
-        print(f"obs_buf: {self.obs_buf}")
         return self.obs_buf
 
     def reset_idx(self, env_ids):
@@ -910,7 +909,6 @@ class Vine5LinkMovingBase(VecTask):
         rail_force_minmax = torch.where(cart_vel_error > 0, torch.tensor(RAIL_FORCE_MAX, device=self.device), torch.tensor(-RAIL_FORCE_MAX, device=self.device))
         self.rail_force = torch.where(torch.abs(cart_vel_error) > 0.1, rail_force_minmax, rail_force_pid)
         self.prev_cart_vel_error = cart_vel_error
-        print(f"cart_vel_error: {cart_vel_error}, rail_force_pid: {rail_force_pid}, rail_force_minmax: {rail_force_minmax}, rail_force: {self.rail_force}")
 
         if self.randomize:
             # TODO: Maybe remove because handled by action noise?
