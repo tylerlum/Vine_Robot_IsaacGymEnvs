@@ -177,6 +177,25 @@
         </collision>
     </link>
     <link name="tip"/>
+    <!-- Visual limits -->
+    <link name="left_limit">
+        <visual>
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <box size="0.03 0.03 0.2" />
+            </geometry>
+            <material name="red" />
+        </visual>
+    </link>
+    <link name="right_limit">
+        <visual>
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <box size="0.03 0.03 0.2" />
+            </geometry>
+            <material name="red" />
+        </visual>
+    </link>
 
     <!-- JOINTS -->
     <!-- 1 slider joint, 5 revolute joints -->
@@ -239,5 +258,17 @@
         <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_4" />
         <child link="tip" />
+    </joint>
+
+    <!-- Brittleness warning: Need to modify this position based on code -->
+    <joint name="slider_to_left_limit" type="fixed">
+        <origin xyz="0.0 -0.15 0.0" rpy="0.0 0.0 0.0" />
+        <parent link="slider" />
+        <child link="left_limit" />
+    </joint>
+    <joint name="slider_to_right_limit" type="fixed">
+        <origin xyz="0.0 0.15 0.0" rpy="0.0 0.0 0.0" />
+        <parent link="slider" />
+        <child link="right_limit" />
     </joint>
 </robot>
