@@ -53,7 +53,6 @@ START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = True
-USE_SIMPLE_POLICY = False
 USE_SMOOTHED_U = True
 FORCE_U_ZERO = False
 SMOOTHING_ALPHA_INFLATE = 0.81
@@ -710,13 +709,12 @@ class Vine5LinkMovingBase(VecTask):
             env_ids = np.arange(self.num_envs)
 
         # Refresh tensors
-        self.prev_dof_pos = self.dof_pos.clone()
-        self.prev_tip_positions = self.tip_positions.clone()
         self.refresh_state_tensors()
 
         # Finite difference to get velocities
-        self.finite_difference_dof_vel = (self.dof_pos - self.prev_dof_pos) / self.dt
-        self.finite_difference_tip_velocities = (self.tip_positions - self.prev_tip_positions) / self.dt
+        control_dt = self.dt * self.control_freq_inv
+        self.finite_difference_dof_vel = (self.dof_pos - self.prev_dof_pos) / control_dt
+        self.finite_difference_tip_velocities = (self.tip_positions - self.prev_tip_positions) / control_dt
 
         # Populate obs_buf
         # tensors_to_add elements must all be (num_envs, X)
@@ -763,7 +761,7 @@ class Vine5LinkMovingBase(VecTask):
 
         # Set dof velocities to 0
         self.dof_vel[env_ids, :] = 0.0
-        self.prev_dof_pos = self.dof_pos.clone()
+        self.prev_dof_pos[env_ids, :] = self.dof_pos[env_ids, :].clone()
         # TODO: Need to reset prev_tip_positions as well?
 
         # Update dofs
@@ -818,25 +816,32 @@ class Vine5LinkMovingBase(VecTask):
         # TODO
         return torch.zeros(num_envs, NUM_XYZ, device=self.device)
 
-    def pre_physics_step(self, actions):
-        self.raw_actions = actions.clone().to(self.device)
-
-        dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
-
+    def raw_actions_to_actions(self, raw_actions):
         # Break apart actions and states
         if N_PRISMATIC_DOFS == 1:
-            self.rail_velocity = rescale_to_rail_velocity(self.raw_actions[:, 0:1])  # (num_envs, 1)
-            self.u = rescale_to_u(self.raw_actions[:, 1:2])  # (num_envs, 1)
-            q = self.dof_pos[:, 1:]  # (num_envs, 5)
-            qd = self.dof_vel[:, 1:]  # (num_envs, 5)
+            rail_velocity = rescale_to_rail_velocity(raw_actions[:, 0:1])  # (num_envs, 1)
+            u = rescale_to_u(raw_actions[:, 1:2])  # (num_envs, 1)
         elif N_PRISMATIC_DOFS == 0:
-            self.rail_velocity = torch.zeros_like(self.raw_actions[:, 0:1], device=self.device)  # (num_envs, 1)
-            self.u = rescale_to_u(self.raw_actions)  # (num_envs, 1)
-            q = self.dof_pos[:]  # (num_envs, 5)
-            qd = self.dof_vel[:]  # (num_envs, 5)
+            rail_velocity = torch.zeros_like(raw_actions[:, 0:1], device=raw_actions.device)  # (num_envs, 1)
+            u = rescale_to_u(raw_actions)  # (num_envs, 1)
         else:
             raise ValueError(f"Can't have N_PRISMATIC_DOFS = {N_PRISMATIC_DOFS}")
 
+        return rail_velocity, u
+
+    def u_to_smoothed_u(self, u, smoothed_u):
+        # Compute smoothed u
+        alphas = torch.where(u > smoothed_u, SMOOTHING_ALPHA_INFLATE, SMOOTHING_ALPHA_DEFLATE)
+
+        if self.randomize:
+            alphas *= torch.FloatTensor(*alphas.shape).uniform_(DOMAIN_RANDOMIZATION_SCALING_MIN,
+                                                                DOMAIN_RANDOMIZATION_SCALING_MAX).to(alphas.device)
+            alphas = torch.clamp(alphas, min=0.0, max=1.0)
+
+        smoothed_u = alphas * smoothed_u + (1 - alphas) * u
+        return smoothed_u
+
+    def manual_intervention(self):
         # Manual intervention
         if self.MOVE_LEFT_COUNTER > 0:
             self.rail_velocity[:] = -RAIL_VELOCITY_SCALE
@@ -852,23 +857,21 @@ class Vine5LinkMovingBase(VecTask):
             self.u[:] = U_MIN
             self.MIN_PRESSURE_COUNTER -= 1
 
-        if USE_SIMPLE_POLICY:
-            tip_y_velocities = self.tip_velocities[:, 1]  # (num_envs,)
-            self.u = torch.where(tip_y_velocities <= 0, U_MAX, U_MIN).reshape(self.num_envs, 1)  # (num_envs, 1)
-
         if FORCE_U_ZERO:
-            self.u[:] = U_MAX
-            self.rail_velocity[:] = 0.0
+            self.u[:] = 0.0
+            self.rail_velocity[:] = RAIL_VELOCITY_SCALE
 
-        # Compute smoothed u
-        alphas = torch.where(self.u > self.smoothed_u, SMOOTHING_ALPHA_INFLATE, SMOOTHING_ALPHA_DEFLATE)
+    def compute_and_set_dof_actuation_force_tensor(self):
+        dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
 
-        if self.randomize:
-            alphas *= torch.FloatTensor(*alphas.shape).uniform_(DOMAIN_RANDOMIZATION_SCALING_MIN,
-                                                                DOMAIN_RANDOMIZATION_SCALING_MAX).to(alphas.device)
-            alphas = torch.clamp(alphas, min=0.0, max=1.0)
-
-        self.smoothed_u = alphas * self.smoothed_u + (1 - alphas) * self.u
+        if N_PRISMATIC_DOFS == 1:
+            q = self.dof_pos[:, 1:]  # (num_envs, 5)
+            qd = self.dof_vel[:, 1:]  # (num_envs, 5)
+        elif N_PRISMATIC_DOFS == 0:
+            q = self.dof_pos[:]  # (num_envs, 5)
+            qd = self.dof_vel[:]  # (num_envs, 5)
+        else:
+            raise ValueError(f"Can't have N_PRISMATIC_DOFS = {N_PRISMATIC_DOFS}")
 
         # Compute torques
         if self.A is None:
@@ -900,9 +903,11 @@ class Vine5LinkMovingBase(VecTask):
 
         # Compute rail force
         cart_vel_y = self.cart_velocities[:, 1:2]  # (num_envs, 1)
-
         cart_vel_error = self.rail_velocity - cart_vel_y
-        self.rail_force = RAIL_P_GAIN * cart_vel_error + RAIL_D_GAIN * (cart_vel_error - self.prev_cart_vel_error)
+        RAIL_FORCE_MAX = RAIL_P_GAIN * RAIL_VELOCITY_SCALE
+        rail_force_pid = RAIL_P_GAIN * cart_vel_error + RAIL_D_GAIN * (cart_vel_error - self.prev_cart_vel_error)
+        rail_force_minmax = torch.where(cart_vel_error > 0, torch.tensor(RAIL_FORCE_MAX, device=self.device), torch.tensor(-RAIL_FORCE_MAX, device=self.device))
+        self.rail_force = torch.where(torch.abs(cart_vel_error) > 0.1, rail_force_minmax, rail_force_pid)
         self.prev_cart_vel_error = cart_vel_error
 
         if self.randomize:
@@ -917,6 +922,20 @@ class Vine5LinkMovingBase(VecTask):
         elif N_PRISMATIC_DOFS == 0:
             dof_efforts[:, :] = torques
         self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
+
+    def pre_physics_step(self, actions):
+        # Compute high level actions
+        self.raw_actions = actions.clone().to(self.device)
+        self.rail_velocity, self.u = self.raw_actions_to_actions(self.raw_actions)
+        self.manual_intervention()
+        self.smoothed_u = self.u_to_smoothed_u(self.u, self.smoothed_u)
+
+        # Store prevs
+        self.prev_dof_pos = self.dof_pos.clone()
+        self.prev_tip_positions = self.tip_positions.clone()
+
+        # Compute and set joint actutation
+        self.compute_and_set_dof_actuation_force_tensor()
 
     def post_physics_step(self):
         self.progress_buf += 1
@@ -1063,7 +1082,8 @@ def compute_reset_jit(reset_buf, progress_buf, max_episode_length, target_reache
     USE_TARGET_REACHED_RESET = False
     reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset_buf)
 
-    reset_for_target_reached = torch.logical_and(target_reached, torch.tensor([USE_TARGET_REACHED_RESET], device=target_reached.device))
+    reset_for_target_reached = torch.logical_and(target_reached, torch.tensor(
+        [USE_TARGET_REACHED_RESET], device=target_reached.device))
     reset = torch.where(reset_for_target_reached, torch.ones_like(reset), reset)
     reset = torch.where(limit_hit, torch.ones_like(reset), reset)
     return reset
