@@ -72,7 +72,7 @@ DOF_MODE = gymapi.DOF_MODE_EFFORT
 RAIL_SOFT_LIMIT = 0.15
 # Want max accel of 2m/s^2, if max v_error = 2m/s, then F = m*a = k*v_error, so k = m*a/v_error = 0.52 * 2 / 2 = 0.52
 # But that doesn't account for the vine robot swinging, so make it bigger
-RAIL_P_GAIN = 3
+RAIL_P_GAIN = 5.0
 RAIL_D_GAIN = 0.0
 
 
@@ -761,7 +761,7 @@ class Vine5LinkMovingBase(VecTask):
 
         # Set dof velocities to 0
         self.dof_vel[env_ids, :] = 0.0
-        self.prev_dof_pos = self.dof_pos.clone()
+        self.prev_dof_pos[env_ids, :] = self.dof_pos[env_ids, :].clone()
         # TODO: Need to reset prev_tip_positions as well?
 
         # Update dofs
