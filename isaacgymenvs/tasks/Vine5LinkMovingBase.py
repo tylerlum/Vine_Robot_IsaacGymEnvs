@@ -925,11 +925,13 @@ class Vine5LinkMovingBase(VecTask):
         self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
 
     def pre_physics_step(self, actions):
+        # Compute high level actions
         self.raw_actions = actions.clone().to(self.device)
-
         self.rail_velocity, self.u = self.raw_actions_to_actions(self.raw_actions)
         self.manual_intervention()
         self.smoothed_u = self.u_to_smoothed_u(self.u, self.smoothed_u)
+
+        # Compute and set joint actutation
         self.compute_and_set_dof_actuation_force_tensor()
 
     def post_physics_step(self):

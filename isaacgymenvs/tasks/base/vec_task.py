@@ -339,9 +339,11 @@ class VecTask(Env):
             if self.force_render:
                 self.render()
             self.gym.simulate(self.sim)
+
             # TYLER ADDITION START: Manually added event
             IS_VINE = hasattr(self, "cfg") and "name" in self.cfg.keys() and self.cfg["name"] == "Vine5LinkMovingBase"
             if IS_VINE:
+                # Update state and actuation force tensors
                 self.refresh_state_tensors()
                 self.compute_and_set_dof_actuation_force_tensor()
             # TYLER ADDITION END: Manually added event
