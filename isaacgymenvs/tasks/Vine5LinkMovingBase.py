@@ -26,8 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# TODO: Change from prev rail to current rail
-
 import numpy as np
 import os
 import torch
@@ -146,8 +144,8 @@ class Vine5LinkMovingBase(VecTask):
         * Joint positions
         * Tip position
         * Target position
-        * p_fpam
-        * prev rail velocity
+        * current p_fpam
+        * current rail velocity
       POS_AND_VEL = 1
         * Joint positions
         * Joint velocities
@@ -155,8 +153,8 @@ class Vine5LinkMovingBase(VecTask):
         * Tip velocity
         * Target position
         * Target velocity
-        * p_fpam
-        * prev rail velocity
+        * current p_fpam
+        * current rail velocity
       POS_AND_FD_VEL = 2
         * Joint positions
         * Joint velocities (finite difference)
@@ -164,8 +162,8 @@ class Vine5LinkMovingBase(VecTask):
         * Tip velocity (finite difference)
         * Target position
         * Target velocity (finite difference)
-        * p_fpam
-        * prev rail velocity
+        * current p_fpam
+        * current rail velocity
       POS_AND_PREV_POS = 3
         * Joint positions
         * Prev joint positions
@@ -173,8 +171,8 @@ class Vine5LinkMovingBase(VecTask):
         * Prev tip position
         * Target position
         * Prev target position
-        * p_fpam
-        * prev rail velocity
+        * current p_fpam
+        * current rail velocity
     Action:
       * 1 for u_rail_velocity prismatic joint
       * 1 for u_fpam pressure
@@ -242,9 +240,9 @@ class Vine5LinkMovingBase(VecTask):
         # Perform smoothing of actions
         self.smoothed_u_fpam = torch.zeros(self.num_envs, N_PRESSURE_ACTIONS, device=self.device)
         self.prev_u_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device)
+        self.prev_cart_vel_error = torch.zeros(self.num_envs, 1, device=self.device)
 
         self.wandb_dict = {}
-        self.prev_cart_vel_error = torch.zeros(self.num_envs, 1, device=self.device)
 
         if len(MAT_FILE) > 0:
             self.mat = self.read_mat_file(MAT_FILE)
@@ -963,6 +961,7 @@ class Vine5LinkMovingBase(VecTask):
         # Store prevs
         self.prev_dof_pos = self.dof_pos.clone()
         self.prev_tip_positions = self.tip_positions.clone()
+        self.prev_u_rail_velocity = self.u_rail_velocity.clone()
 
         # Compute and set joint actutation
         self.compute_and_set_dof_actuation_force_tensor()
@@ -978,9 +977,6 @@ class Vine5LinkMovingBase(VecTask):
         # Compute observations and reward
         self.compute_observations()
         self.compute_reward()
-
-        # Compute prev rail velocity
-        self.prev_u_rail_velocity = self.u_rail_velocity.clone()
 
         # Draw debug info
         if self.viewer and self.enable_viewer_sync:
