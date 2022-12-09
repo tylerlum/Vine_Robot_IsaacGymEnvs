@@ -40,7 +40,8 @@ import wandb
 
 # CONSTANTS (RARELY CHANGE)
 NUM_STATES = 13  # xyz, quat, v_xyz, w_xyz
-NUM_XYZ = 3
+XYZ_LIST = ['x', 'y', 'z']
+NUM_XYZ = len(XYZ_LIST)
 NUM_RGBA = 4
 LENGTH_RAIL = 0.8
 LENGTH_PER_LINK = 0.0885
@@ -674,7 +675,7 @@ class Vine5LinkMovingBase(VecTask):
             self.wandb_dict[f"qd{i} at self.index_to_view"] = self.dof_vel[self.index_to_view, idx]
             self.wandb_dict[f"finite_diff_qd{i} at self.index_to_view"] = self.finite_difference_dof_vel[self.index_to_view, idx]
 
-        for i, dir in enumerate(["x", "y", "z"]):
+        for i, dir in enumerate(XYZ_LIST):
             self.wandb_dict[f"tip_vel_{dir} at self.index_to_view"] = self.tip_velocities[self.index_to_view, i]
             self.wandb_dict[f"cart_vel_{dir} at self.index_to_view"] = self.cart_velocities[self.index_to_view, i]
             self.wandb_dict[f"target_vel_{dir} at self.index_to_view"] = self.target_velocities[self.index_to_view, i]
@@ -735,6 +736,31 @@ class Vine5LinkMovingBase(VecTask):
                                  self.smoothed_u, self.prev_rail_velocity]
         self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
 
+        if self.num_steps % 100 == 99:
+            print(f"Creating histogram at self.num_steps {self.num_steps}")
+
+            # BRITTLE: Depends on observations above
+            observation_names = [*[f"joint_pos_{i}" for i in range(self.num_dof)],
+                                 *[f"joint_vel_{i}" for i in range(self.num_dof)],
+                                 *[f"tip_pos_{i}" for i in XYZ_LIST],
+                                 *[f"tip_vel_{i}" for i in XYZ_LIST],
+                                 *[f"target_pos_{i}" for i in XYZ_LIST],
+                                 *[f"target_vel_{i}" for i in XYZ_LIST],
+                                 "smoothed_u", "prev_rail_vel"]
+            # Each entry is a row in the table
+            # TODO: Maybe store lots of obs_bufs of one env and use that, rather than using all envs
+            # TODO: Maybe use keyboard command to create this
+            table_data = [self.obs_buf[i, :].cpu().numpy().tolist() for i in range(self.obs_buf.shape[0])]
+            table = wandb.Table(data=table_data, columns=observation_names)
+            ALL_HISTOGRAMS = True
+            names_to_plot = observation_names if ALL_HISTOGRAMS else [
+                "tip_pos_y", "tip_pos_z", "tip_vel_y", "tip_vel_z"]
+            histograms_dict = {f'{name}_histogram': wandb.plot.histogram(
+                table, name, title=f"{name} Histogram") for name in names_to_plot}
+            wandb.log(histograms_dict)
+
+        self.wandb_dict["obs_buf"] = self.obs_buf[self.index_to_view]
+
         return self.obs_buf
 
     def reset_idx(self, env_ids):
@@ -769,6 +795,7 @@ class Vine5LinkMovingBase(VecTask):
         self.gym.set_dof_state_tensor_indexed(self.sim,
                                               gymtorch.unwrap_tensor(self.dof_state),
                                               gymtorch.unwrap_tensor(vine_indices), len(vine_indices))
+
         self.reset_buf[env_ids] = 0
         self.progress_buf[env_ids] = 0
         self.rew_buf[env_ids] = 0
@@ -906,7 +933,8 @@ class Vine5LinkMovingBase(VecTask):
         cart_vel_error = self.rail_velocity - cart_vel_y
         RAIL_FORCE_MAX = RAIL_P_GAIN * RAIL_VELOCITY_SCALE
         rail_force_pid = RAIL_P_GAIN * cart_vel_error + RAIL_D_GAIN * (cart_vel_error - self.prev_cart_vel_error)
-        rail_force_minmax = torch.where(cart_vel_error > 0, torch.tensor(RAIL_FORCE_MAX, device=self.device), torch.tensor(-RAIL_FORCE_MAX, device=self.device))
+        rail_force_minmax = torch.where(cart_vel_error > 0, torch.tensor(
+            RAIL_FORCE_MAX, device=self.device), torch.tensor(-RAIL_FORCE_MAX, device=self.device))
         self.rail_force = torch.where(torch.abs(cart_vel_error) > 0.1, rail_force_minmax, rail_force_pid)
         self.prev_cart_vel_error = cart_vel_error
 
