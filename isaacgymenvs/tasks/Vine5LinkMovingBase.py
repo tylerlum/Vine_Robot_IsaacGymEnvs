@@ -239,6 +239,10 @@ class Vine5LinkMovingBase(VecTask):
 
         # Perform smoothing of actions
         self.smoothed_u_fpam = torch.zeros(self.num_envs, N_PRESSURE_ACTIONS, device=self.device)
+
+        # Keep track of prevs
+        self.prev_dof_pos = self.dof_pos.clone()
+        self.prev_tip_positions = self.tip_positions.clone()
         self.prev_u_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device)
         self.prev_cart_vel_error = torch.zeros(self.num_envs, 1, device=self.device)
 
@@ -258,7 +262,6 @@ class Vine5LinkMovingBase(VecTask):
         self.dof_state = gymtorch.wrap_tensor(dof_state_tensor)
         self.dof_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 0]
         self.dof_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 1]
-        self.prev_dof_pos = self.dof_pos.clone()
 
         # Store root states
         root_state_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
@@ -285,7 +288,6 @@ class Vine5LinkMovingBase(VecTask):
         self.link_velocities = rigid_body_state_by_env[:, :, START_LIN_VEL_IDX:END_LIN_VEL_IDX]
         self.tip_velocities = self.link_velocities[:, tip_idx]
         self.cart_velocities = self.link_velocities[:, cart_idx]
-        self.prev_tip_positions = self.tip_positions.clone()
 
     def refresh_state_tensors(self):
         self.gym.refresh_dof_state_tensor(self.sim)
@@ -788,7 +790,11 @@ class Vine5LinkMovingBase(VecTask):
         # Set dof velocities to 0
         self.dof_vel[env_ids, :] = 0.0
         self.prev_dof_pos[env_ids, :] = self.dof_pos[env_ids, :].clone()
+
         # TODO: Need to reset prev_tip_positions as well? Need to do forward kinematics
+        self.prev_tip_positions[env_ids] = self.tip_positions.clone()
+        self.prev_u_rail_velocity[env_ids] = torch.zeros(len(env_ids), N_PRISMATIC_DOFS, device=self.device)
+        self.prev_cart_vel_error[env_ids] = torch.zeros(len(env_ids), 1, device=self.device)
 
         # Update dofs
         vine_indices = self.vine_indices[env_ids].to(dtype=torch.int32)
