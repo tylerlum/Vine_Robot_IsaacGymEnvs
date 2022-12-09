@@ -26,6 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+# TODO: Change from prev rail to current rail
+
 import numpy as np
 import os
 import torch
@@ -54,8 +56,8 @@ START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = True
-USE_SMOOTHED_U = True
-FORCE_U_ZERO = False
+USE_SMOOTHED_FPAM = True
+FORCE_U = False
 SMOOTHING_ALPHA_INFLATE = 0.81
 SMOOTHING_ALPHA_DEFLATE = 0.86
 DOMAIN_RANDOMIZATION_SCALING_MIN, DOMAIN_RANDOMIZATION_SCALING_MAX = 0.7, 1.3
@@ -64,7 +66,7 @@ CAPTURE_VIDEO = False
 CREATE_SHELF = False
 MAT_FILE = ""
 
-U_MIN, U_MAX = -0.1, 3.0
+FPAM_MIN, FPAM_MAX = -0.1, 3.0
 RAIL_VELOCITY_SCALE = 0.8
 DAMPING = 1e-2
 STIFFNESS = 1e-1
@@ -93,21 +95,21 @@ OBSERVATION_TYPE = ObservationType.POS_AND_FD_VEL
 # Brittle: Ensure reward order matches
 REWARD_NAMES = ["Position", "Const Negative", "Position Success",
                 "Velocity Success", "Velocity", "Rail Velocity Control",
-                "U Control", "Rail Velocity Change", "U Change", "Rail Limit", "Cart Y"]
+                "FPAM Control", "Rail Velocity Change", "FPAM Change", "Rail Limit", "Cart Y"]
 POSITION_REWARD_WEIGHT = 0.0
 CONST_NEGATIVE_REWARD_WEIGHT = 0.0
 POSITION_SUCCESS_REWARD_WEIGHT = 0.0
 VELOCITY_SUCCESS_REWARD_WEIGHT = 0.0
 VELOCITY_REWARD_WEIGHT = 1.0
-RAIL_VELOCITY_CONTROL_REWARD_WEIGHT = 0.1
-U_CONTROL_REWARD_WEIGHT = 0.1
+U_RAIL_VELOCITY_CONTROL_REWARD_WEIGHT = 0.1
+U_FPAM_CONTROL_REWARD_WEIGHT = 0.1
 RAIL_VELOCITY_CHANGE_REWARD_WEIGHT = 0.1
-U_CHANGE_REWARD_WEIGHT = 0.1
+U_FPAM_CHANGE_REWARD_WEIGHT = 0.1
 RAIL_LIMIT_REWARD_WEIGHT = 0.1
 CART_Y_REWARD_WEIGHT = 3.0
 REWARD_WEIGHTS = [POSITION_REWARD_WEIGHT, CONST_NEGATIVE_REWARD_WEIGHT, POSITION_SUCCESS_REWARD_WEIGHT,
-                  VELOCITY_SUCCESS_REWARD_WEIGHT, VELOCITY_REWARD_WEIGHT, RAIL_VELOCITY_CONTROL_REWARD_WEIGHT,
-                  U_CONTROL_REWARD_WEIGHT, RAIL_VELOCITY_CHANGE_REWARD_WEIGHT, U_CHANGE_REWARD_WEIGHT, RAIL_LIMIT_REWARD_WEIGHT, CART_Y_REWARD_WEIGHT]
+                  VELOCITY_SUCCESS_REWARD_WEIGHT, VELOCITY_REWARD_WEIGHT, U_RAIL_VELOCITY_CONTROL_REWARD_WEIGHT,
+                  U_FPAM_CONTROL_REWARD_WEIGHT, RAIL_VELOCITY_CHANGE_REWARD_WEIGHT, U_FPAM_CHANGE_REWARD_WEIGHT, RAIL_LIMIT_REWARD_WEIGHT, CART_Y_REWARD_WEIGHT]
 
 N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
@@ -174,8 +176,8 @@ class Vine5LinkMovingBase(VecTask):
         * p_fpam
         * prev rail velocity
     Action:
-      * 1 for rail_velocity prismatic joint
-      * 1 for u pressure
+      * 1 for u_rail_velocity prismatic joint
+      * 1 for u_fpam pressure
     Reward:
       * -Dist to target
     Environment:
@@ -238,8 +240,8 @@ class Vine5LinkMovingBase(VecTask):
         self.gym.set_camera_location(self.camera_handle, self.envs[self.index_to_view], cam_pos, cam_target)
 
         # Perform smoothing of actions
-        self.smoothed_u = torch.zeros(self.num_envs, N_PRESSURE_ACTIONS, device=self.device)
-        self.prev_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device)
+        self.smoothed_u_fpam = torch.zeros(self.num_envs, N_PRESSURE_ACTIONS, device=self.device)
+        self.prev_u_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device)
 
         self.wandb_dict = {}
         self.prev_cart_vel_error = torch.zeros(self.num_envs, 1, device=self.device)
@@ -642,19 +644,19 @@ class Vine5LinkMovingBase(VecTask):
             "max_tip_z": self.tip_positions[:, 2].max().item(),
             "tip_velocities": torch.norm(self.tip_velocities, dim=-1).mean().item(),
             "tip_velocities_max": torch.norm(self.tip_velocities, dim=-1).max().item(),
-            "rail_velocity": torch.norm(self.rail_velocity, dim=-1).mean().item(),
-            "prev_rail_velocity": torch.norm(self.prev_rail_velocity, dim=-1).mean().item(),
+            "u_rail_velocity": torch.norm(self.u_rail_velocity, dim=-1).mean().item(),
+            "prev_u_rail_velocity": torch.norm(self.prev_u_rail_velocity, dim=-1).mean().item(),
             "rail_force": torch.norm(self.rail_force, dim=-1).mean().item(),
-            "u": torch.norm(self.u, dim=-1).mean().item(),
-            "smoothed_u": torch.norm(self.smoothed_u, dim=-1).mean().item(),
+            "u_fpam": torch.norm(self.u_fpam, dim=-1).mean().item(),
+            "smoothed_u_fpam": torch.norm(self.smoothed_u_fpam, dim=-1).mean().item(),
             "tip_target_velocity_difference": torch.norm(self.tip_velocities - self.target_velocities, dim=-1).mean().item(),
             "progress_buf": self.progress_buf.float().mean().item(),
         })
 
         self.rew_buf[:], reward_matrix, weighted_reward_matrix = compute_reward_jit(
             dist_to_target=dist_tip_to_target, target_reached=target_reached, tip_velocities=self.tip_velocities,
-            target_velocities=self.target_velocities, rail_velocity=self.rail_velocity, u=self.u, prev_rail_velocity=self.prev_rail_velocity,
-            smoothed_u=self.smoothed_u, limit_hit=limit_hit, cart_y=cart_y, reward_weights=self.reward_weights, reward_names=REWARD_NAMES
+            target_velocities=self.target_velocities, u_rail_velocity=self.u_rail_velocity, u_fpam=self.u_fpam, prev_u_rail_velocity=self.prev_u_rail_velocity,
+            smoothed_u_fpam=self.smoothed_u_fpam, limit_hit=limit_hit, cart_y=cart_y, reward_weights=self.reward_weights, reward_names=REWARD_NAMES
         )
         self.aggregated_rew_buf += self.rew_buf
 
@@ -685,9 +687,9 @@ class Vine5LinkMovingBase(VecTask):
             self.wandb_dict[f"cart_pos_{dir} at self.index_to_view"] = self.cart_positions[self.index_to_view, i]
             self.wandb_dict[f"target_pos_{dir} at self.index_to_view"] = self.target_positions[self.index_to_view, i]
 
-        self.wandb_dict["u at self.index_to_view"] = self.u[self.index_to_view]
-        self.wandb_dict["smoothed u at self.index_to_view"] = self.smoothed_u[self.index_to_view]
-        self.wandb_dict["rail_velocity at self.index_to_view"] = self.rail_velocity[self.index_to_view]
+        self.wandb_dict["u_fpam at self.index_to_view"] = self.u_fpam[self.index_to_view]
+        self.wandb_dict["smoothed u_fpam at self.index_to_view"] = self.smoothed_u_fpam[self.index_to_view]
+        self.wandb_dict["u_rail_velocity at self.index_to_view"] = self.u_rail_velocity[self.index_to_view]
         self.wandb_dict["rail_force at self.index_to_view"] = self.rail_force[self.index_to_view]
 
         for i, reward_name in enumerate(REWARD_NAMES):
@@ -721,19 +723,19 @@ class Vine5LinkMovingBase(VecTask):
         # tensors_to_add elements must all be (num_envs, X)
         if OBSERVATION_TYPE == ObservationType.POS_ONLY:
             tensors_to_concat = [self.dof_pos, self.tip_positions, self.target_positions,
-                                 self.smoothed_u, self.prev_rail_velocity]
+                                 self.smoothed_u_fpam, self.prev_u_rail_velocity]
         elif OBSERVATION_TYPE == ObservationType.POS_AND_VEL:
             tensors_to_concat = [self.dof_pos, self.dof_vel, self.tip_positions, self.tip_velocities,
                                  self.target_positions, self.target_velocities,
-                                 self.smoothed_u, self.prev_rail_velocity]
+                                 self.smoothed_u_fpam, self.prev_u_rail_velocity]
         elif OBSERVATION_TYPE == ObservationType.POS_AND_FD_VEL:
             tensors_to_concat = [self.dof_pos, self.finite_difference_dof_vel, self.tip_positions, self.finite_difference_tip_velocities,
                                  self.target_positions, self.target_velocities,
-                                 self.smoothed_u, self.prev_rail_velocity]
+                                 self.smoothed_u_fpam, self.prev_u_rail_velocity]
         elif OBSERVATION_TYPE == ObservationType.POS_AND_PREV_POS:
             tensors_to_concat = [self.dof_pos, self.prev_dof_pos, self.tip_positions, self.prev_tip_positions,
                                  self.target_positions, self.target_velocities,
-                                 self.smoothed_u, self.prev_rail_velocity]
+                                 self.smoothed_u_fpam, self.prev_u_rail_velocity]
         self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
 
         if self.num_steps % 100 == 99:
@@ -746,7 +748,7 @@ class Vine5LinkMovingBase(VecTask):
                                  *[f"tip_vel_{i}" for i in XYZ_LIST],
                                  *[f"target_pos_{i}" for i in XYZ_LIST],
                                  *[f"target_vel_{i}" for i in XYZ_LIST],
-                                 "smoothed_u", "prev_rail_vel"]
+                                 "smoothed_u_fpam", "prev_u_rail_vel"]
             # Each entry is a row in the table
             # TODO: Maybe store lots of obs_bufs of one env and use that, rather than using all envs
             # TODO: Maybe use keyboard command to create this
@@ -788,7 +790,7 @@ class Vine5LinkMovingBase(VecTask):
         # Set dof velocities to 0
         self.dof_vel[env_ids, :] = 0.0
         self.prev_dof_pos[env_ids, :] = self.dof_pos[env_ids, :].clone()
-        # TODO: Need to reset prev_tip_positions as well?
+        # TODO: Need to reset prev_tip_positions as well? Need to do forward kinematics
 
         # Update dofs
         vine_indices = self.vine_indices[env_ids].to(dtype=torch.int32)
@@ -846,47 +848,47 @@ class Vine5LinkMovingBase(VecTask):
     def raw_actions_to_actions(self, raw_actions):
         # Break apart actions and states
         if N_PRISMATIC_DOFS == 1:
-            rail_velocity = rescale_to_rail_velocity(raw_actions[:, 0:1])  # (num_envs, 1)
-            u = rescale_to_u(raw_actions[:, 1:2])  # (num_envs, 1)
+            u_rail_velocity = rescale_to_u_rail_velocity(raw_actions[:, 0:1])  # (num_envs, 1)
+            u_fpam = rescale_to_u(raw_actions[:, 1:2])  # (num_envs, 1)
         elif N_PRISMATIC_DOFS == 0:
-            rail_velocity = torch.zeros_like(raw_actions[:, 0:1], device=raw_actions.device)  # (num_envs, 1)
-            u = rescale_to_u(raw_actions)  # (num_envs, 1)
+            u_rail_velocity = torch.zeros_like(raw_actions[:, 0:1], device=raw_actions.device)  # (num_envs, 1)
+            u_fpam = rescale_to_u(raw_actions)  # (num_envs, 1)
         else:
             raise ValueError(f"Can't have N_PRISMATIC_DOFS = {N_PRISMATIC_DOFS}")
 
-        return rail_velocity, u
+        return u_rail_velocity, u_fpam
 
-    def u_to_smoothed_u(self, u, smoothed_u):
-        # Compute smoothed u
-        alphas = torch.where(u > smoothed_u, SMOOTHING_ALPHA_INFLATE, SMOOTHING_ALPHA_DEFLATE)
+    def u_fpam_to_smoothed_u_fpam(self, u_fpam, smoothed_u_fpam):
+        # Compute smoothed u_fpam
+        alphas = torch.where(u_fpam > smoothed_u_fpam, SMOOTHING_ALPHA_INFLATE, SMOOTHING_ALPHA_DEFLATE)
 
         if self.randomize:
             alphas *= torch.FloatTensor(*alphas.shape).uniform_(DOMAIN_RANDOMIZATION_SCALING_MIN,
                                                                 DOMAIN_RANDOMIZATION_SCALING_MAX).to(alphas.device)
             alphas = torch.clamp(alphas, min=0.0, max=1.0)
 
-        smoothed_u = alphas * smoothed_u + (1 - alphas) * u
-        return smoothed_u
+        smoothed_u_fpam = alphas * smoothed_u_fpam + (1 - alphas) * u_fpam
+        return smoothed_u_fpam
 
     def manual_intervention(self):
         # Manual intervention
         if self.MOVE_LEFT_COUNTER > 0:
-            self.rail_velocity[:] = -RAIL_VELOCITY_SCALE
+            self.u_rail_velocity[:] = -RAIL_VELOCITY_SCALE
             self.MOVE_LEFT_COUNTER -= 1
         if self.MOVE_RIGHT_COUNTER > 0:
-            self.rail_velocity[:] = RAIL_VELOCITY_SCALE
+            self.u_rail_velocity[:] = RAIL_VELOCITY_SCALE
             self.MOVE_RIGHT_COUNTER -= 1
 
         if self.MAX_PRESSURE_COUNTER > 0:
-            self.u[:] = U_MAX
+            self.u_fpam[:] = FPAM_MAX
             self.MAX_PRESSURE_COUNTER -= 1
         if self.MIN_PRESSURE_COUNTER > 0:
-            self.u[:] = U_MIN
+            self.u_fpam[:] = FPAM_MIN
             self.MIN_PRESSURE_COUNTER -= 1
 
-        if FORCE_U_ZERO:
-            self.u[:] = 0.0
-            self.rail_velocity[:] = RAIL_VELOCITY_SCALE
+        if FORCE_U:
+            self.u_fpam[:] = 0.0
+            self.u_rail_velocity[:] = RAIL_VELOCITY_SCALE
 
     def compute_and_set_dof_actuation_force_tensor(self):
         dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
@@ -903,7 +905,7 @@ class Vine5LinkMovingBase(VecTask):
         # Compute torques
         if self.A is None:
             # torque = - Kq - Cqd - b - Bu;
-            #        = - [K C diag(b) diag(B)] @ [q; qd; ones(5), u*ones(5)]
+            #        = - [K C diag(b) diag(B)] @ [q; qd; ones(5), u_fpam*ones(5)]
             #        = - A @ x
             K = torch.diag(torch.tensor([1.0822678619473745, 1.3960597815085283,
                                          0.7728716674414156, 0.566602254820747, 0.20000000042282678], device=self.device))
@@ -923,14 +925,14 @@ class Vine5LinkMovingBase(VecTask):
         else:
             A = self.A
 
-        u_to_use = self.smoothed_u if USE_SMOOTHED_U else self.u
-        x = torch.cat([q, qd, torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device), u_to_use *
+        u_fpam_to_use = self.smoothed_u_fpam if USE_SMOOTHED_FPAM else self.u_fpam
+        x = torch.cat([q, qd, torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device), u_fpam_to_use *
                        torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
         torques = -torch.matmul(A, x).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
 
         # Compute rail force
         cart_vel_y = self.cart_velocities[:, 1:2]  # (num_envs, 1)
-        cart_vel_error = self.rail_velocity - cart_vel_y
+        cart_vel_error = self.u_rail_velocity - cart_vel_y
         RAIL_FORCE_MAX = RAIL_P_GAIN * RAIL_VELOCITY_SCALE
         rail_force_pid = RAIL_P_GAIN * cart_vel_error + RAIL_D_GAIN * (cart_vel_error - self.prev_cart_vel_error)
         rail_force_minmax = torch.where(cart_vel_error > 0, torch.tensor(
@@ -954,9 +956,9 @@ class Vine5LinkMovingBase(VecTask):
     def pre_physics_step(self, actions):
         # Compute high level actions
         self.raw_actions = actions.clone().to(self.device)
-        self.rail_velocity, self.u = self.raw_actions_to_actions(self.raw_actions)
+        self.u_rail_velocity, self.u_fpam = self.raw_actions_to_actions(self.raw_actions)
         self.manual_intervention()
-        self.smoothed_u = self.u_to_smoothed_u(self.u, self.smoothed_u)
+        self.smoothed_u_fpam = self.u_fpam_to_smoothed_u_fpam(self.u_fpam, self.smoothed_u_fpam)
 
         # Store prevs
         self.prev_dof_pos = self.dof_pos.clone()
@@ -978,7 +980,7 @@ class Vine5LinkMovingBase(VecTask):
         self.compute_reward()
 
         # Compute prev rail velocity
-        self.prev_rail_velocity = self.rail_velocity.clone()
+        self.prev_u_rail_velocity = self.u_rail_velocity.clone()
 
         # Draw debug info
         if self.viewer and self.enable_viewer_sync:
@@ -1036,12 +1038,12 @@ class Vine5LinkMovingBase(VecTask):
         self.log_wandb_dict()
 
 
-def rescale_to_u(u):
-    return (u + 1.0) / 2.0 * (U_MAX-U_MIN) + U_MIN
+def rescale_to_u(u_fpam):
+    return (u_fpam + 1.0) / 2.0 * (FPAM_MAX-FPAM_MIN) + FPAM_MIN
 
 
-def rescale_to_rail_velocity(rail_velocity):
-    return rail_velocity * RAIL_VELOCITY_SCALE
+def rescale_to_u_rail_velocity(u_rail_velocity):
+    return u_rail_velocity * RAIL_VELOCITY_SCALE
 
 #####################################################################
 ### =========================jit functions=========================###
@@ -1049,7 +1051,7 @@ def rescale_to_rail_velocity(rail_velocity):
 
 
 @torch.jit.script
-def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_velocities, rail_velocity, u, prev_rail_velocity, smoothed_u, limit_hit, cart_y, reward_weights, reward_names):
+def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_velocities, u_rail_velocity, u_fpam, prev_u_rail_velocity, smoothed_u_fpam, limit_hit, cart_y, reward_weights, reward_names):
     # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, List[str]) -> Tuple[Tensor, Tensor, Tensor]
     # reward = sum(w_i * r_i) with various reward function r_i and weights w_i
 
@@ -1058,10 +1060,10 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
     # position_success_reward = REWARD_BONUS if dist_to_target < SUCCESS_DISTANCE else 0 [Succeed if close enough]
     # velocity_success_reward = -norm(tip_velocity - desired_tip_velocity) if dist_to_target < SUCCESS_DISTANCE else 0 [Succeed if close enough and moving at the right speed]
     # velocity_reward = norm(tip_velocity) [Try to move fast]
-    # rail_velocity_control_reward = -norm(rail_velocity) [Punish for using too much actuation]
-    # u_control_reward = -norm(u) [Punish for using too much actuation]
-    # rail_velocity_change_reward = -norm(rail_velocity - prev_rail_velocity) [Punish for changing rail_velocity]
-    # u_change_reward = -norm(u - smoothed_u) [Punish for changing u]
+    # u_rail_velocity_control_reward = -norm(u_rail_velocity) [Punish for using too much actuation]
+    # u_control_reward = -norm(u_fpam) [Punish for using too much actuation]
+    # u_rail_velocity_change_reward = -norm(u_rail_velocity - prev_u_rail_velocity) [Punish for changing u_rail_velocity]
+    # u_change_reward = -norm(u_fpam - smoothed_u_fpam) [Punish for changing u_fpam]
     # rail_limit_reward = RAIL_LIMIT_PUNISHMENT if limit_hit else 0 [Punish for getting near rail limits]
     N_REWARDS = torch.numel(reward_weights)
     N_ENVS = dist_to_target.shape[0]
@@ -1085,13 +1087,13 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
         elif reward_name == "Velocity":
             reward_matrix[:, i] += torch.norm(tip_velocities, dim=-1)
         elif reward_name == "Rail Velocity Control":
-            reward_matrix[:, i] -= torch.norm(rail_velocity, dim=-1)
-        elif reward_name == "U Control":
-            reward_matrix[:, i] -= torch.norm(u, dim=-1)
+            reward_matrix[:, i] -= torch.norm(u_rail_velocity, dim=-1)
+        elif reward_name == "FPAM Control":
+            reward_matrix[:, i] -= torch.norm(u_fpam, dim=-1)
         elif reward_name == "Rail Velocity Change":
-            reward_matrix[:, i] -= torch.norm(rail_velocity - prev_rail_velocity, dim=-1)
-        elif reward_name == "U Change":
-            reward_matrix[:, i] -= torch.norm(u - smoothed_u, dim=-1)
+            reward_matrix[:, i] -= torch.norm(u_rail_velocity - prev_u_rail_velocity, dim=-1)
+        elif reward_name == "FPAM Change":
+            reward_matrix[:, i] -= torch.norm(u_fpam - smoothed_u_fpam, dim=-1)
         elif reward_name == "Rail Limit":
             reward_matrix[:, i] += torch.where(limit_hit, RAIL_LIMIT_PUNISHMENT, 0.0)
         elif reward_name == "Cart Y":
