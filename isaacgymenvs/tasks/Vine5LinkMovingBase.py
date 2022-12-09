@@ -62,6 +62,7 @@ DOMAIN_RANDOMIZATION_SCALING_MIN, DOMAIN_RANDOMIZATION_SCALING_MAX = 0.7, 1.3
 
 CAPTURE_VIDEO = False
 CREATE_SHELF = False
+CREATE_HISTOGRAMS = True
 MAT_FILE = ""
 
 FPAM_MIN, FPAM_MAX = -0.1, 3.0
@@ -69,6 +70,8 @@ RAIL_VELOCITY_SCALE = 0.8
 DAMPING = 1e-2
 STIFFNESS = 1e-1
 DOF_MODE = gymapi.DOF_MODE_EFFORT
+
+HISTOGRAM_OBSERVATION_DATA_LIST = []
 
 RAIL_SOFT_LIMIT = 0.15
 # Want max accel of 2m/s^2, if max v_error = 2m/s, then F = m*a = k*v_error, so k = m*a/v_error = 0.52 * 2 / 2 = 0.52
@@ -738,30 +741,33 @@ class Vine5LinkMovingBase(VecTask):
                                  self.smoothed_u_fpam, self.prev_u_rail_velocity]
         self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
 
-        if self.num_steps % 100 == 99:
-            print(f"Creating histogram at self.num_steps {self.num_steps}")
+        if CREATE_HISTOGRAMS:
+            # Store observations
+            new_data = [self.obs_buf[i, :].cpu().numpy().tolist() for i in range(self.obs_buf.shape[0])]  # list of lists (each list has length num_obs)
+            HISTOGRAM_OBSERVATION_DATA_LIST += new_data  # HISTOGRAM_OBSERVATION_DATA_LIST is a list of lists (outer list will be num_rows)
 
-            # BRITTLE: Depends on observations above
-            observation_names = [*[f"joint_pos_{i}" for i in range(self.num_dof)],
-                                 *[f"joint_vel_{i}" for i in range(self.num_dof)],
-                                 *[f"tip_pos_{i}" for i in XYZ_LIST],
-                                 *[f"tip_vel_{i}" for i in XYZ_LIST],
-                                 *[f"target_pos_{i}" for i in XYZ_LIST],
-                                 *[f"target_vel_{i}" for i in XYZ_LIST],
-                                 "smoothed_u_fpam", "prev_u_rail_vel"]
-            # Each entry is a row in the table
-            # TODO: Maybe store lots of obs_bufs of one env and use that, rather than using all envs
-            # TODO: Maybe use keyboard command to create this
-            table_data = [self.obs_buf[i, :].cpu().numpy().tolist() for i in range(self.obs_buf.shape[0])]
-            table = wandb.Table(data=table_data, columns=observation_names)
-            ALL_HISTOGRAMS = True
-            names_to_plot = observation_names if ALL_HISTOGRAMS else [
-                "tip_pos_y", "tip_pos_z", "tip_vel_y", "tip_vel_z"]
-            histograms_dict = {f'{name}_histogram {self.num_steps}': wandb.plot.histogram(
-                table, name, title=f"{name} Histogram {self.num_steps}") for name in names_to_plot}
-            wandb.log(histograms_dict)
+            if self.num_steps % 100 == 99:
+                print(f"Creating histogram at self.num_steps {self.num_steps}")
 
-        self.wandb_dict["obs_buf"] = self.obs_buf[self.index_to_view]
+                # BRITTLE: Depends on observations above
+                observation_names = [*[f"joint_pos_{i}" for i in range(self.num_dof)],
+                                     *[f"joint_vel_{i}" for i in range(self.num_dof)],
+                                     *[f"tip_pos_{i}" for i in XYZ_LIST],
+                                     *[f"tip_vel_{i}" for i in XYZ_LIST],
+                                     *[f"target_pos_{i}" for i in XYZ_LIST],
+                                     *[f"target_vel_{i}" for i in XYZ_LIST],
+                                     "smoothed_u_fpam", "prev_u_rail_vel"]
+                # Each entry is a row in the table
+                table = wandb.Table(data=HISTOGRAM_OBSERVATION_DATA_LIST, columns=observation_names)
+                ALL_HISTOGRAMS = True
+                names_to_plot = observation_names if ALL_HISTOGRAMS else [
+                    "tip_pos_y", "tip_pos_z", "tip_vel_y", "tip_vel_z"]
+                histograms_dict = {f'{name}_histogram {self.num_steps}': wandb.plot.histogram(
+                    table, name, title=f"{name} Histogram {self.num_steps}") for name in names_to_plot}
+                wandb.log(histograms_dict)
+
+                # Reset
+                HISTOGRAM_OBSERVATION_DATA_LIST = []
 
         return self.obs_buf
 
