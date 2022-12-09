@@ -757,8 +757,8 @@ class Vine5LinkMovingBase(VecTask):
             ALL_HISTOGRAMS = True
             names_to_plot = observation_names if ALL_HISTOGRAMS else [
                 "tip_pos_y", "tip_pos_z", "tip_vel_y", "tip_vel_z"]
-            histograms_dict = {f'{name}_histogram': wandb.plot.histogram(
-                table, name, title=f"{name} Histogram") for name in names_to_plot}
+            histograms_dict = {f'{name}_histogram {self.num_steps}': wandb.plot.histogram(
+                table, name, title=f"{name} Histogram {self.num_steps}") for name in names_to_plot}
             wandb.log(histograms_dict)
 
         self.wandb_dict["obs_buf"] = self.obs_buf[self.index_to_view]
