@@ -71,8 +71,6 @@ DAMPING = 1e-2
 STIFFNESS = 1e-1
 DOF_MODE = gymapi.DOF_MODE_EFFORT
 
-HISTOGRAM_OBSERVATION_DATA_LIST = []
-
 RAIL_SOFT_LIMIT = 0.15
 # Want max accel of 2m/s^2, if max v_error = 2m/s, then F = m*a = k*v_error, so k = m*a/v_error = 0.52 * 2 / 2 = 0.52
 # But that doesn't account for the vine robot swinging, so make it bigger
@@ -250,6 +248,7 @@ class Vine5LinkMovingBase(VecTask):
         self.prev_cart_vel_error = torch.zeros(self.num_envs, 1, device=self.device)
 
         self.wandb_dict = {}
+        self.histogram_observation_data_list = []
 
         if len(MAT_FILE) > 0:
             self.mat = self.read_mat_file(MAT_FILE)
@@ -743,8 +742,8 @@ class Vine5LinkMovingBase(VecTask):
 
         if CREATE_HISTOGRAMS:
             # Store observations
-            new_data = [self.obs_buf[i, :].cpu().numpy().tolist() for i in range(self.obs_buf.shape[0])]  # list of lists (each list has length num_obs)
-            HISTOGRAM_OBSERVATION_DATA_LIST += new_data  # HISTOGRAM_OBSERVATION_DATA_LIST is a list of lists (outer list will be num_rows)
+            new_data = [self.obs_buf[i, :].cpu().numpy().tolist() for i in range(self.obs_buf.shape[0])]  # list of lists (inner list has length num_obs)
+            self.histogram_observation_data_list += new_data  # self.histogram_observation_data_list is a list of lists (outer list has length num_rows)
 
             if self.num_steps % 100 == 99:
                 print(f"Creating histogram at self.num_steps {self.num_steps}")
@@ -758,7 +757,7 @@ class Vine5LinkMovingBase(VecTask):
                                      *[f"target_vel_{i}" for i in XYZ_LIST],
                                      "smoothed_u_fpam", "prev_u_rail_vel"]
                 # Each entry is a row in the table
-                table = wandb.Table(data=HISTOGRAM_OBSERVATION_DATA_LIST, columns=observation_names)
+                table = wandb.Table(data=self.histogram_observation_data_list, columns=observation_names)
                 ALL_HISTOGRAMS = True
                 names_to_plot = observation_names if ALL_HISTOGRAMS else [
                     "tip_pos_y", "tip_pos_z", "tip_vel_y", "tip_vel_z"]
@@ -767,7 +766,7 @@ class Vine5LinkMovingBase(VecTask):
                 wandb.log(histograms_dict)
 
                 # Reset
-                HISTOGRAM_OBSERVATION_DATA_LIST = []
+                self.histogram_observation_data_list = []
 
         return self.obs_buf
 
@@ -798,7 +797,7 @@ class Vine5LinkMovingBase(VecTask):
         self.prev_dof_pos[env_ids, :] = self.dof_pos[env_ids, :].clone()
 
         # TODO: Need to reset prev_tip_positions as well? Need to do forward kinematics
-        self.prev_tip_positions[env_ids] = self.tip_positions.clone()
+        self.prev_tip_positions[env_ids] = self.tip_positions[env_ids].clone()
         self.prev_u_rail_velocity[env_ids] = torch.zeros(len(env_ids), N_PRISMATIC_DOFS, device=self.device)
         self.prev_cart_vel_error[env_ids] = torch.zeros(len(env_ids), 1, device=self.device)
 
