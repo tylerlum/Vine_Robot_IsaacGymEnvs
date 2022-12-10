@@ -55,7 +55,8 @@ START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = True
 USE_SMOOTHED_FPAM = True
-FORCE_U = False
+FORCE_U_FPAM = True
+FORCE_U_RAIL_VELOCITY = False
 SMOOTHING_ALPHA_INFLATE = 0.81
 SMOOTHING_ALPHA_DEFLATE = 0.86
 DOMAIN_RANDOMIZATION_SCALING_MIN, DOMAIN_RANDOMIZATION_SCALING_MAX = 0.5, 1.5
@@ -895,8 +896,9 @@ class Vine5LinkMovingBase(VecTask):
             self.u_fpam[:] = FPAM_MIN
             self.MIN_PRESSURE_COUNTER -= 1
 
-        if FORCE_U:
+        if FORCE_U_FPAM:
             self.u_fpam[:] = 0.0
+        if FORCE_U_RAIL_VELOCITY:
             self.u_rail_velocity[:] = RAIL_VELOCITY_SCALE
 
     def compute_and_set_dof_actuation_force_tensor(self):
