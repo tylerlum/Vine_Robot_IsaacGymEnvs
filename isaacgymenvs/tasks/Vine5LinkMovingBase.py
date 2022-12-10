@@ -74,7 +74,7 @@ DOF_MODE = gymapi.DOF_MODE_EFFORT
 RAIL_SOFT_LIMIT = 0.15
 # Want max accel of 2m/s^2, if max v_error = 2m/s, then F = m*a = k*v_error, so k = m*a/v_error = 0.52 * 2 / 2 = 0.52
 # But that doesn't account for the vine robot swinging, so make it bigger
-RAIL_P_GAIN = 5.0
+RAIL_P_GAIN = 3.0
 RAIL_D_GAIN = 0.0
 
 
