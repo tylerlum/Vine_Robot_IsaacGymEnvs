@@ -51,6 +51,7 @@ START_POS_IDX, END_POS_IDX = 0, 3
 START_QUAT_IDX, END_QUAT_IDX = 3, 7
 START_LIN_VEL_IDX, END_LIN_VEL_IDX = 7, 10
 START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
+DOF_MODE = gymapi.DOF_MODE_EFFORT
 
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = True
@@ -70,7 +71,6 @@ FPAM_MIN, FPAM_MAX = -0.1, 3.0
 RAIL_VELOCITY_SCALE = 0.8
 DAMPING = 1e-2
 STIFFNESS = 1e-1
-DOF_MODE = gymapi.DOF_MODE_EFFORT
 
 RAIL_SOFT_LIMIT = 0.15
 # Want max accel of 2m/s^2, if max v_error = 2m/s, then F = m*a = k*v_error, so k = m*a/v_error = 0.52 * 2 / 2 = 0.52
@@ -189,6 +189,8 @@ class Vine5LinkMovingBase(VecTask):
         # Store cfg file and read in parameters
         self.cfg = cfg
         self.log_dir = os.path.join('runs', cfg["name"])
+        self.save_cfg_file_to_wandb()
+
         self.time_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self.max_episode_length = self.cfg["env"]["maxEpisodeLength"]
         self.dt = self.cfg["sim"]["dt"]
@@ -307,6 +309,32 @@ class Vine5LinkMovingBase(VecTask):
                 print("Wandb not initialized, no longer trying to log")
                 USE_WANDB = False
             self.wandb_dict = {}
+
+    def save_cfg_file_to_wandb(self):
+        # BRITTLE: Depends on filename structure
+        import re
+        all_logdir_files = os.listdir(self.log_dir)
+        pattern = re.compile("[a-zA-Z0-9_-]+_rlg_config_dict.pkl")
+        cfg_file = sorted([f for f in all_logdir_files if pattern.match(f)])[-1]
+
+        # Sanity check: Check that datetimes are close
+        try:
+            datetime1 = datetime.datetime(*re.split("-|_", cfg_file)[:6])
+            datetime2 = datetime.datetime(*re.split("-|_", self.time_str)[:6])
+            time_diff = (datetime2 - datetime1).total_seconds()
+            if abs(time_diff) > 10:
+                raise ValueError()
+            cfg_file_path = os.path.join(self.log_dir, cfg_file)
+            print(f"Saving cfg file to wandb: {cfg_file_path}")
+            wandb.save(cfg_file_path)
+        except:
+            print("WARNING: Could not save cfg file to wandb")
+
+    def save_model_to_wandb(self):
+        assumed_model_file = os.path.join(self.log_dir, "nn", f"{self.cfg['name']}.pth")
+        if self.num_steps % 100 == 99 and os.path.exists(assumed_model_file):
+            print(f"Saving model to wandb: {assumed_model_file}")
+            wandb.save(self.assumed_model_file)
 
     ##### KEYBOARD EVENT SUBSCRIPTIONS START #####
     def subscribe_to_keyboard_events(self):
@@ -743,8 +771,10 @@ class Vine5LinkMovingBase(VecTask):
 
         if CREATE_HISTOGRAMS:
             # Store observations
-            new_data = [self.obs_buf[i, :].cpu().numpy().tolist() for i in range(self.obs_buf.shape[0])]  # list of lists (inner list has length num_obs)
-            self.histogram_observation_data_list += new_data  # self.histogram_observation_data_list is a list of lists (outer list has length num_rows)
+            new_data = [self.obs_buf[i, :].cpu().numpy().tolist() for i in range(self.obs_buf.shape[0])
+                        ]  # list of lists (inner list has length num_obs)
+            # self.histogram_observation_data_list is a list of lists (outer list has length num_rows)
+            self.histogram_observation_data_list += new_data
 
             if self.num_steps % 100 == 99:
                 print(f"Creating histogram at self.num_steps {self.num_steps}")
@@ -1045,6 +1075,9 @@ class Vine5LinkMovingBase(VecTask):
 
         # Log info
         self.log_wandb_dict()
+
+        # Save model
+        self.save_model_to_wandb()
 
 
 def rescale_to_u(u_fpam):

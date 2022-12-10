@@ -8,7 +8,6 @@ env:
   numEnvs: ${resolve_default:4096,${...num_envs}}
   envSpacing: 6.0
 
-  # TODO: Define parameters
   clipObservations: 5.0
   clipActions: 1.0
 
@@ -17,6 +16,8 @@ env:
 
   # set to True if you use camera sensors in the environment
   enableCameraSensors: False
+
+  # TODO: Vine specific parameters
 
 sim:
   dt: 0.00833 # 120 Hz
