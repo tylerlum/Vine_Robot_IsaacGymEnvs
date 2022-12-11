@@ -219,6 +219,7 @@ class Vine5LinkMovingBase(VecTask):
 
         # Keep track of prevs
         self.prev_dof_pos = self.dof_pos.clone()
+        self.prev_dof_vel = self.dof_vel.clone()
         self.prev_tip_positions = self.tip_positions.clone()
         self.prev_u_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device)
         self.prev_cart_vel_error = torch.zeros(self.num_envs, 1, device=self.device)
@@ -696,6 +697,7 @@ class Vine5LinkMovingBase(VecTask):
             self.wandb_dict[f"prismatic_q{i} at self.index_to_view"] = self.dof_pos[self.index_to_view, idx]
             self.wandb_dict[f"prismatic_qd{i} at self.index_to_view"] = self.dof_vel[self.index_to_view, idx]
             self.wandb_dict[f"prismatic_finite_diff_qd{i} at self.index_to_view"] = self.finite_difference_dof_vel[self.index_to_view, idx]
+            self.wandb_dict[f"prismatic_finite_diff_qdd{i} at self.index_to_view"] = self.finite_difference_dof_accel[self.index_to_view, idx]
 
         for i, idx in enumerate(self.revolute_dof_indices):
             self.wandb_dict[f"q{i} at self.index_to_view"] = self.dof_pos[self.index_to_view, idx]
@@ -743,6 +745,7 @@ class Vine5LinkMovingBase(VecTask):
         # Finite difference to get velocities
         self.finite_difference_dof_vel = (self.dof_pos - self.prev_dof_pos) / self.control_dt
         self.finite_difference_tip_velocities = (self.tip_positions - self.prev_tip_positions) / self.control_dt
+        self.finite_difference_dof_accel = (self.dof_vel - self.prev_dof_vel) / self.control_dt
 
         # Populate obs_buf
         # tensors_to_add elements must all be (num_envs, X)
@@ -825,6 +828,7 @@ class Vine5LinkMovingBase(VecTask):
         # Set dof velocities to 0
         self.dof_vel[env_ids, :] = 0.0
         self.prev_dof_pos[env_ids, :] = self.dof_pos[env_ids, :].clone()
+        self.prev_dof_vel[env_ids, :] = self.dof_vel[env_ids, :].clone()
 
         # TODO: Need to reset prev_tip_positions as well? Need to do forward kinematics
         self.prev_tip_positions[env_ids] = self.tip_positions[env_ids].clone()
@@ -928,7 +932,8 @@ class Vine5LinkMovingBase(VecTask):
         if self.cfg['env']['FORCE_U_FPAM']:
             self.u_fpam[:] = 0.0
         if self.cfg['env']['FORCE_U_RAIL_VELOCITY']:
-            self.u_rail_velocity[:] = self.cfg['env']['RAIL_VELOCITY_SCALE']
+            # self.u_rail_velocity[:] = self.cfg['env']['RAIL_VELOCITY_SCALE']
+            self.u_rail_velocity[:] = 0.0
 
     def compute_and_set_dof_actuation_force_tensor(self):
         dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
@@ -1002,6 +1007,7 @@ class Vine5LinkMovingBase(VecTask):
 
         # Store prevs
         self.prev_dof_pos = self.dof_pos.clone()
+        self.prev_dof_vel = self.dof_vel.clone()
         self.prev_tip_positions = self.tip_positions.clone()
         self.prev_u_rail_velocity = self.u_rail_velocity.clone()
 

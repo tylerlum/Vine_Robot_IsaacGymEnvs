@@ -23,8 +23,8 @@ env:
   USE_SMOOTHED_FPAM: True
 
   # Forcing
-  FORCE_U_FPAM: False
-  FORCE_U_RAIL_VELOCITY: False
+  FORCE_U_FPAM: True
+  FORCE_U_RAIL_VELOCITY: True
 
   # Smoothing
   SMOOTHING_ALPHA_INFLATE: 0.81
@@ -48,7 +48,7 @@ env:
   # Want max accel of 2m/s^2, if max v_error = 2m/s, then F = m*a = k*v_error, so k = m*a/v_error = 0.52 * 2 / 2 = 0.52
   # But that doesn't account for the vine robot swinging, so make it bigger
   RAIL_P_GAIN: ${resolve_default:0.2,${...RAIL_P_GAIN}}
-  RAIL_D_GAIN: 0.0
+  RAIL_D_GAIN: 30.0
 
   OBSERVATION_TYPE: ${resolve_default:POS_AND_FD_VEL,${...OBSERVATION_TYPE}}
 
