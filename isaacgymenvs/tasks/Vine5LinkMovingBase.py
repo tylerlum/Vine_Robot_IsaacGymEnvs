@@ -55,29 +55,9 @@ DOF_MODE = gymapi.DOF_MODE_EFFORT
 
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = True
-USE_SMOOTHED_FPAM = True
-FORCE_U_FPAM = True
-FORCE_U_RAIL_VELOCITY = False
-SMOOTHING_ALPHA_INFLATE = 0.81
-SMOOTHING_ALPHA_DEFLATE = 0.86
-DOMAIN_RANDOMIZATION_SCALING_MIN, DOMAIN_RANDOMIZATION_SCALING_MAX = 0.5, 1.5
 
-CAPTURE_VIDEO = False
-CREATE_SHELF = False
-CREATE_HISTOGRAMS = False
-MAT_FILE = ""
-
-FPAM_MIN, FPAM_MAX = -0.1, 3.0
-RAIL_VELOCITY_SCALE = 0.8
-DAMPING = 1e-2
-STIFFNESS = 1e-1
-
-RAIL_SOFT_LIMIT = 0.15
 # Want max accel of 2m/s^2, if max v_error = 2m/s, then F = m*a = k*v_error, so k = m*a/v_error = 0.52 * 2 / 2 = 0.52
 # But that doesn't account for the vine robot swinging, so make it bigger
-RAIL_P_GAIN = 1.0
-RAIL_D_GAIN = 0.0
-
 
 # Observations
 
@@ -251,8 +231,8 @@ class Vine5LinkMovingBase(VecTask):
         self.wandb_dict = {}
         self.histogram_observation_data_list = []
 
-        if len(MAT_FILE) > 0:
-            self.mat = self.read_mat_file(MAT_FILE)
+        if len(self.cfg['env']['MAT_FILE']) > 0:
+            self.mat = self.read_mat_file(self.cfg['env']['MAT_FILE'])
 
     def read_mat_file(self, filename):
         import scipy.io
@@ -525,8 +505,8 @@ class Vine5LinkMovingBase(VecTask):
             shelf_init_pose.p.y = 0.2
             shelf_init_pose.p.z = 0.0
             shelf_handle = self.gym.create_actor(env_ptr, self.shelf_asset, shelf_init_pose, "shelf",
-                                                 group=collision_group, filter=collision_filter + 1, segmentationId=segmentation_id + 1) if CREATE_SHELF else None
-            if CREATE_SHELF:
+                                                 group=collision_group, filter=collision_filter + 1, segmentationId=segmentation_id + 1) if self.cfg['env']['CREATE_SHELF'] else None
+            if self.cfg['env']['CREATE_SHELF']:
                 new_scale = 0.1
                 self.gym.set_actor_scale(env_ptr, shelf_handle, new_scale)
 
@@ -539,14 +519,14 @@ class Vine5LinkMovingBase(VecTask):
 
             # Set stiffness and damping
             dof_props['driveMode'].fill(DOF_MODE)
-            dof_props['damping'].fill(DAMPING)
+            dof_props['damping'].fill(self.cfg['env']['DAMPING'])
             for j in range(self.gym.get_asset_dof_count(self.vine_asset)):
                 dof_type = self.gym.get_asset_dof_type(self.vine_asset, j)
                 if dof_type not in [gymapi.DofType.DOF_ROTATION, gymapi.DofType.DOF_TRANSLATION]:
                     raise ValueError(f"Invalid dof_type = {dof_type}")
 
                 # Prismatic joint should have no stiffness
-                dof_props['stiffness'][j] = STIFFNESS if dof_type == gymapi.DofType.DOF_ROTATION else 0.0
+                dof_props['stiffness'][j] = self.cfg['env']['STIFFNESS'] if dof_type == gymapi.DofType.DOF_ROTATION else 0.0
 
             self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
 
@@ -556,10 +536,10 @@ class Vine5LinkMovingBase(VecTask):
             self.vine_handles.append(vine_handle)
 
             self.shelf_indices.append(self.gym.get_actor_index(
-                env_ptr, shelf_handle, gymapi.DOMAIN_SIM) if CREATE_SHELF else None)
+                env_ptr, shelf_handle, gymapi.DOMAIN_SIM) if self.cfg['env']['CREATE_SHELF'] else None)
             self.vine_indices.append(self.gym.get_actor_index(env_ptr, vine_handle, gymapi.DOMAIN_SIM))
 
-        if CREATE_SHELF:
+        if self.cfg['env']['CREATE_SHELF']:
             self.shelf_indices = to_torch(self.shelf_indices, dtype=torch.long, device=self.device)
         self.vine_indices = to_torch(self.vine_indices, dtype=torch.long, device=self.device)
 
@@ -663,7 +643,7 @@ class Vine5LinkMovingBase(VecTask):
 
         # Limit hit
         cart_y = self.cart_positions[:, 1]
-        limit_hit = torch.logical_or(cart_y > RAIL_SOFT_LIMIT, cart_y < -RAIL_SOFT_LIMIT)
+        limit_hit = torch.logical_or(cart_y > self.cfg['env']['RAIL_SOFT_LIMIT'], cart_y < -self.cfg['env']['RAIL_SOFT_LIMIT'])
 
         self.wandb_dict.update({
             "dist_tip_to_target": dist_tip_to_target.mean().item(),
@@ -769,7 +749,7 @@ class Vine5LinkMovingBase(VecTask):
                                  self.smoothed_u_fpam, self.prev_u_rail_velocity]
         self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
 
-        if CREATE_HISTOGRAMS:
+        if self.cfg['env']['CREATE_HISTOGRAMS']:
             # Store observations
             new_data = [self.obs_buf[i, :].cpu().numpy().tolist() for i in range(self.obs_buf.shape[0])
                         ]  # list of lists (inner list has length num_obs)
@@ -816,8 +796,8 @@ class Vine5LinkMovingBase(VecTask):
 
             num_prismatic_joints = len(self.prismatic_dof_lowers)
             for i in range(num_prismatic_joints):
-                min_dist = max(self.prismatic_dof_lowers[i], -RAIL_SOFT_LIMIT)
-                max_dist = min(self.prismatic_dof_uppers[i], RAIL_SOFT_LIMIT)
+                min_dist = max(self.prismatic_dof_lowers[i], -self.cfg['env']['RAIL_SOFT_LIMIT'])
+                max_dist = min(self.prismatic_dof_uppers[i], self.cfg['env']['RAIL_SOFT_LIMIT'])
                 self.dof_pos[env_ids, self.prismatic_dof_indices[i]] = torch.FloatTensor(
                     len(env_ids)).uniform_(min_dist, max_dist).to(self.device)
         else:
@@ -848,7 +828,7 @@ class Vine5LinkMovingBase(VecTask):
         self.target_velocities[env_ids, :] = self.sample_target_velocities(len(env_ids))
 
         # TODO: Update obstacle positions based on targets?
-        # if CREATE_SHELF:
+        # if self.cfg['env']['CREATE_SHELF']:
         # self.root_state[self.shelf_indices[env_ids], START_POS_IDX:END_POS_IDX] = torch.stack([torch.FloatTensor(len(env_ids)).uniform_(0, 0),
         #                                                                                        torch.FloatTensor(
         #                                                                                            len(env_ids)).uniform_(-0.5, 0.5),
@@ -888,11 +868,11 @@ class Vine5LinkMovingBase(VecTask):
     def raw_actions_to_actions(self, raw_actions):
         # Break apart actions and states
         if N_PRISMATIC_DOFS == 1:
-            u_rail_velocity = rescale_to_u_rail_velocity(raw_actions[:, 0:1])  # (num_envs, 1)
-            u_fpam = rescale_to_u(raw_actions[:, 1:2])  # (num_envs, 1)
+            u_rail_velocity = rescale_to_u_rail_velocity(raw_actions[:, 0:1], self.cfg['env']['RAIL_VELOCITY_SCALE'])  # (num_envs, 1)
+            u_fpam = rescale_to_u(raw_actions[:, 1:2], self.cfg['env']['FPAM_MIN'], self.cfg['env']['FPAM_MAX'])  # (num_envs, 1)
         elif N_PRISMATIC_DOFS == 0:
             u_rail_velocity = torch.zeros_like(raw_actions[:, 0:1], device=raw_actions.device)  # (num_envs, 1)
-            u_fpam = rescale_to_u(raw_actions)  # (num_envs, 1)
+            u_fpam = rescale_to_u(raw_actions, self.cfg['env']['FPAM_MIN'])  # (num_envs, 1)
         else:
             raise ValueError(f"Can't have N_PRISMATIC_DOFS = {N_PRISMATIC_DOFS}")
 
@@ -900,11 +880,11 @@ class Vine5LinkMovingBase(VecTask):
 
     def u_fpam_to_smoothed_u_fpam(self, u_fpam, smoothed_u_fpam):
         # Compute smoothed u_fpam
-        alphas = torch.where(u_fpam > smoothed_u_fpam, SMOOTHING_ALPHA_INFLATE, SMOOTHING_ALPHA_DEFLATE)
+        alphas = torch.where(u_fpam > smoothed_u_fpam, self.cfg['env']['SMOOTHING_ALPHA_INFLATE'], self.cfg['env']['SMOOTHING_ALPHA_DEFLATE'])
 
         if self.randomize:
-            alphas *= torch.FloatTensor(*alphas.shape).uniform_(DOMAIN_RANDOMIZATION_SCALING_MIN,
-                                                                DOMAIN_RANDOMIZATION_SCALING_MAX).to(alphas.device)
+            alphas *= torch.FloatTensor(*alphas.shape).uniform_(self.cfg['env']['DOMAIN_RANDOMIZATION_SCALING_MIN'],
+                                                                self.cfg['env']['DOMAIN_RANDOMIZATION_SCALING_MAX']).to(alphas.device)
             alphas = torch.clamp(alphas, min=0.0, max=1.0)
 
         smoothed_u_fpam = alphas * smoothed_u_fpam + (1 - alphas) * u_fpam
@@ -913,23 +893,23 @@ class Vine5LinkMovingBase(VecTask):
     def manual_intervention(self):
         # Manual intervention
         if self.MOVE_LEFT_COUNTER > 0:
-            self.u_rail_velocity[:] = -RAIL_VELOCITY_SCALE
+            self.u_rail_velocity[:] = -self.cfg['env']['RAIL_VELOCITY_SCALE']
             self.MOVE_LEFT_COUNTER -= 1
         if self.MOVE_RIGHT_COUNTER > 0:
-            self.u_rail_velocity[:] = RAIL_VELOCITY_SCALE
+            self.u_rail_velocity[:] = self.cfg['env']['RAIL_VELOCITY_SCALE']
             self.MOVE_RIGHT_COUNTER -= 1
 
         if self.MAX_PRESSURE_COUNTER > 0:
-            self.u_fpam[:] = FPAM_MAX
+            self.u_fpam[:] = self.cfg['env']['FPAM_MAX']
             self.MAX_PRESSURE_COUNTER -= 1
         if self.MIN_PRESSURE_COUNTER > 0:
-            self.u_fpam[:] = FPAM_MIN
+            self.u_fpam[:] = self.cfg['env']['FPAM_MIN']
             self.MIN_PRESSURE_COUNTER -= 1
 
-        if FORCE_U_FPAM:
+        if self.cfg['env']['FORCE_U_FPAM']:
             self.u_fpam[:] = 0.0
-        if FORCE_U_RAIL_VELOCITY:
-            self.u_rail_velocity[:] = RAIL_VELOCITY_SCALE
+        if self.cfg['env']['FORCE_U_RAIL_VELOCITY']:
+            self.u_rail_velocity[:] = self.cfg['env']['RAIL_VELOCITY_SCALE']
 
     def compute_and_set_dof_actuation_force_tensor(self):
         dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
@@ -961,12 +941,12 @@ class Vine5LinkMovingBase(VecTask):
             self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
 
         if self.randomize:
-            A = self.A * torch.FloatTensor(*self.A.shape).uniform_(DOMAIN_RANDOMIZATION_SCALING_MIN,
-                                                                   DOMAIN_RANDOMIZATION_SCALING_MAX).to(self.A.device)
+            A = self.A * torch.FloatTensor(*self.A.shape).uniform_(self.cfg['env']['DOMAIN_RANDOMIZATION_SCALING_MIN'],
+                                                                   self.cfg['env']['DOMAIN_RANDOMIZATION_SCALING_MAX']).to(self.A.device)
         else:
             A = self.A
 
-        u_fpam_to_use = self.smoothed_u_fpam if USE_SMOOTHED_FPAM else self.u_fpam
+        u_fpam_to_use = self.smoothed_u_fpam if self.cfg['env']['USE_SMOOTHED_FPAM'] else self.u_fpam
         x = torch.cat([q, qd, torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device), u_fpam_to_use *
                        torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
         torques = -torch.matmul(A, x).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
@@ -974,8 +954,8 @@ class Vine5LinkMovingBase(VecTask):
         # Compute rail force
         cart_vel_y = self.cart_velocities[:, 1:2]  # (num_envs, 1)
         cart_vel_error = self.u_rail_velocity - cart_vel_y
-        RAIL_FORCE_MAX = RAIL_P_GAIN * RAIL_VELOCITY_SCALE
-        rail_force_pid = RAIL_P_GAIN * cart_vel_error + RAIL_D_GAIN * (cart_vel_error - self.prev_cart_vel_error)
+        RAIL_FORCE_MAX = self.cfg['env']['RAIL_P_GAIN'] * self.cfg['env']['RAIL_VELOCITY_SCALE']
+        rail_force_pid = self.cfg['env']['RAIL_P_GAIN'] * cart_vel_error + self.cfg['env']['RAIL_D_GAIN'] * (cart_vel_error - self.prev_cart_vel_error)
         rail_force_minmax = torch.where(cart_vel_error > 0, torch.tensor(
             RAIL_FORCE_MAX, device=self.device), torch.tensor(-RAIL_FORCE_MAX, device=self.device))
         self.rail_force = torch.where(torch.abs(cart_vel_error) > 0.1, rail_force_minmax, rail_force_pid)
@@ -984,7 +964,7 @@ class Vine5LinkMovingBase(VecTask):
         if self.randomize:
             # TODO: Maybe remove because handled by action noise?
             self.rail_force *= torch.FloatTensor(*self.rail_force.shape).uniform_(
-                DOMAIN_RANDOMIZATION_SCALING_MIN, DOMAIN_RANDOMIZATION_SCALING_MAX).to(self.rail_force.device)
+                self.cfg['env']['DOMAIN_RANDOMIZATION_SCALING_MIN'], self.cfg['env']['DOMAIN_RANDOMIZATION_SCALING_MAX']).to(self.rail_force.device)
 
         # Set efforts
         if N_PRISMATIC_DOFS == 1:
@@ -1039,7 +1019,7 @@ class Vine5LinkMovingBase(VecTask):
         # Create video
         should_start_video_capture = self.num_steps % self.capture_video_every == 0
         video_capture_in_progress = len(self.video_frames) > 0
-        if CAPTURE_VIDEO and (should_start_video_capture or video_capture_in_progress):
+        if self.cfg['env']['CAPTURE_VIDEO'] and (should_start_video_capture or video_capture_in_progress):
             if not video_capture_in_progress:
                 print("-" * 100)
                 print("Starting to capture video frames...")
@@ -1082,12 +1062,12 @@ class Vine5LinkMovingBase(VecTask):
             self.save_cfg_file_to_wandb()
 
 
-def rescale_to_u(u_fpam):
-    return (u_fpam + 1.0) / 2.0 * (FPAM_MAX-FPAM_MIN) + FPAM_MIN
+def rescale_to_u(u_fpam, min, max):
+    return (u_fpam + 1.0) / 2.0 * (max - min) + min
 
 
-def rescale_to_u_rail_velocity(u_rail_velocity):
-    return u_rail_velocity * RAIL_VELOCITY_SCALE
+def rescale_to_u_rail_velocity(u_rail_velocity, scale):
+    return u_rail_velocity * scale
 
 #####################################################################
 ### =========================jit functions=========================###
