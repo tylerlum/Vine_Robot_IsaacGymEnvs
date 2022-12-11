@@ -75,7 +75,7 @@ STIFFNESS = 1e-1
 RAIL_SOFT_LIMIT = 0.15
 # Want max accel of 2m/s^2, if max v_error = 2m/s, then F = m*a = k*v_error, so k = m*a/v_error = 0.52 * 2 / 2 = 0.52
 # But that doesn't account for the vine robot swinging, so make it bigger
-RAIL_P_GAIN = 3.0
+RAIL_P_GAIN = 1.0
 RAIL_D_GAIN = 0.0
 
 
@@ -189,8 +189,6 @@ class Vine5LinkMovingBase(VecTask):
         # Store cfg file and read in parameters
         self.cfg = cfg
         self.log_dir = os.path.join('runs', cfg["name"])
-        self.save_cfg_file_to_wandb()
-
         self.time_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self.max_episode_length = self.cfg["env"]["maxEpisodeLength"]
         self.dt = self.cfg["sim"]["dt"]
@@ -319,8 +317,10 @@ class Vine5LinkMovingBase(VecTask):
 
         # Sanity check: Check that datetimes are close
         try:
-            datetime1 = datetime.datetime(*re.split("-|_", cfg_file)[:6])
-            datetime2 = datetime.datetime(*re.split("-|_", self.time_str)[:6])
+            datetime1_split = re.split('-|_', cfg_file)[:6]
+            datetime2_split = re.split('-|_', self.time_str)[:6]
+            datetime1 = datetime.datetime(*[int(x) for x in datetime1_split])
+            datetime2 = datetime.datetime(*[int(x) for x in datetime2_split])
             time_diff = (datetime2 - datetime1).total_seconds()
             if abs(time_diff) > 10:
                 raise ValueError()
@@ -334,7 +334,7 @@ class Vine5LinkMovingBase(VecTask):
         assumed_model_file = os.path.join(self.log_dir, "nn", f"{self.cfg['name']}.pth")
         if self.num_steps % 100 == 99 and os.path.exists(assumed_model_file):
             print(f"Saving model to wandb: {assumed_model_file}")
-            wandb.save(self.assumed_model_file)
+            wandb.save(assumed_model_file)
 
     ##### KEYBOARD EVENT SUBSCRIPTIONS START #####
     def subscribe_to_keyboard_events(self):
@@ -1078,6 +1078,8 @@ class Vine5LinkMovingBase(VecTask):
 
         # Save model
         self.save_model_to_wandb()
+        if self.num_steps == 1:
+            self.save_cfg_file_to_wandb()
 
 
 def rescale_to_u(u_fpam):
