@@ -143,8 +143,6 @@ class Vine5LinkMovingBase(VecTask):
         self.log_dir = os.path.join('runs', cfg["name"])
         self.time_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self.max_episode_length = self.cfg["env"]["maxEpisodeLength"]
-        self.dt = self.cfg["sim"]["dt"]
-        self.control_dt = self.dt * self.control_freq_inv
 
         # Randomization
         self.randomize = self.cfg["task"]["randomize"]
@@ -214,6 +212,10 @@ class Vine5LinkMovingBase(VecTask):
 
         # Perform smoothing of actions
         self.smoothed_u_fpam = torch.zeros(self.num_envs, N_PRESSURE_ACTIONS, device=self.device)
+
+        # Dt
+        self.dt = self.cfg["sim"]["dt"]
+        self.control_dt = self.dt * self.control_freq_inv
 
         # Keep track of prevs
         self.prev_dof_pos = self.dof_pos.clone()

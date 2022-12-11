@@ -11,6 +11,12 @@ minibatch_size: ''
 control_frequency_inv: ''
 randomize: ''
 
+CAPTURE_VIDEO: ''
+RAIL_VELOCITY_SCALE: ''
+RAIL_SOFT_LIMIT: ''
+RAIL_P_GAIN: ''
+OBSERVATION_TYPE: ''
+
 # seed - set to -1 to choose random seed
 seed: 42
 # set to True for deterministic performance
