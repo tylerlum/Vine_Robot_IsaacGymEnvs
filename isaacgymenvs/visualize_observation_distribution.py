@@ -19,13 +19,18 @@ import pandas as pd
 import math
 import numpy as np
 import matplotlib.pyplot as plt
-filename = '/home/tylerlum/Downloads/wandb_export_2022-12-10T19_11_04.755-08_00.csv'
+csv_filename = '/home/tylerlum/Downloads/wandb_export_2022-12-10T19_11_04.755-08_00.csv'
+mat_filename = 'TODO'
 
 # %%
-df = pd.read_csv(filename)
-
-# %%
+df = pd.read_csv(csv_filename)
 df.head()
+
+# %%
+mat = scipy.io.loadmat(mat_filename)
+print(mat.keys())
+mat_observation_data = mat['observation']  # (num_data, obs_size)
+mat_df = pd.DataFrame(mat_observation_data, columns=list(df.columns))
 
 # %%
 num_data_columns = len(df.keys())
