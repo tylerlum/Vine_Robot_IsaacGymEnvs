@@ -56,40 +56,18 @@ DOF_MODE = gymapi.DOF_MODE_EFFORT
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = True
 
-# Want max accel of 2m/s^2, if max v_error = 2m/s, then F = m*a = k*v_error, so k = m*a/v_error = 0.52 * 2 / 2 = 0.52
-# But that doesn't account for the vine robot swinging, so make it bigger
-
-# Observations
-
-
 class ObservationType(Enum):
-    POS_ONLY = 0
-    POS_AND_VEL = 1
-    POS_AND_FD_VEL = 2
-    POS_AND_PREV_POS = 3
+    POS_ONLY = "POS_ONLY"
+    POS_AND_VEL = "POS_AND_VEL"
+    POS_AND_FD_VEL = "POS_AND_FD_VEL"
+    POS_AND_PREV_POS = "POS_AND_PREV_POS"
 
-
-OBSERVATION_TYPE = ObservationType.POS_AND_FD_VEL
 
 # Rewards
 # Brittle: Ensure reward order matches
 REWARD_NAMES = ["Position", "Const Negative", "Position Success",
                 "Velocity Success", "Velocity", "Rail Velocity Control",
                 "FPAM Control", "Rail Velocity Change", "FPAM Change", "Rail Limit", "Cart Y"]
-POSITION_REWARD_WEIGHT = 0.0
-CONST_NEGATIVE_REWARD_WEIGHT = 0.0
-POSITION_SUCCESS_REWARD_WEIGHT = 0.0
-VELOCITY_SUCCESS_REWARD_WEIGHT = 0.0
-VELOCITY_REWARD_WEIGHT = 1.0
-U_RAIL_VELOCITY_CONTROL_REWARD_WEIGHT = 0.1
-U_FPAM_CONTROL_REWARD_WEIGHT = 0.1
-RAIL_VELOCITY_CHANGE_REWARD_WEIGHT = 0.1
-U_FPAM_CHANGE_REWARD_WEIGHT = 0.1
-RAIL_LIMIT_REWARD_WEIGHT = 0.1
-CART_Y_REWARD_WEIGHT = 3.0
-REWARD_WEIGHTS = [POSITION_REWARD_WEIGHT, CONST_NEGATIVE_REWARD_WEIGHT, POSITION_SUCCESS_REWARD_WEIGHT,
-                  VELOCITY_SUCCESS_REWARD_WEIGHT, VELOCITY_REWARD_WEIGHT, U_RAIL_VELOCITY_CONTROL_REWARD_WEIGHT,
-                  U_FPAM_CONTROL_REWARD_WEIGHT, RAIL_VELOCITY_CHANGE_REWARD_WEIGHT, U_FPAM_CHANGE_REWARD_WEIGHT, RAIL_LIMIT_REWARD_WEIGHT, CART_Y_REWARD_WEIGHT]
 
 N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
@@ -107,8 +85,6 @@ else:
                                           math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
 TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
 
-RANDOMIZE_DOF_INIT = True
-RANDOMIZE_TARGETS = True
 
 # GLOBALS
 USE_WANDB = True
@@ -178,7 +154,8 @@ class Vine5LinkMovingBase(VecTask):
         self.randomization_params = self.cfg["task"]["randomization_params"]
 
         # Must set this before continuing
-        if OBSERVATION_TYPE == ObservationType.POS_ONLY:
+        observation_type = ObservationType[self.cfg["task"]["OBSERVATION_TYPE"]]
+        if observation_type == ObservationType.POS_ONLY:
             self.cfg["env"]["numObservations"] = (
                 N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ + N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
             )
@@ -198,8 +175,28 @@ class Vine5LinkMovingBase(VecTask):
         self.target_positions = self.sample_target_positions(self.num_envs)
         self.target_velocities = self.sample_target_velocities(self.num_envs)
         self.A = None  # Cache this matrix
-        self.reward_weights = torch.tensor([REWARD_WEIGHTS], device=self.device)
+
+        # Rewards
         self.aggregated_rew_buf = torch.zeros_like(self.rew_buf, device=self.device, dtype=self.rew_buf.dtype)
+
+        # Set up reward weights that match REWARD_NAMES
+
+        reward_name_to_weight_dict = {
+            "Position": self.cfg['env']['POSITION_REWARD_WEIGHT'],
+            "Const Negative": self.cfg['env']['CONST_NEGATIVE_REWARD_WEIGHT'],
+            "Position Success": self.cfg['env']['POSITION_SUCCESS_REWARD_WEIGHT'],
+            "Velocity Success": self.cfg['env']['VELOCITY_SUCCESS_REWARD_WEIGHT'],
+            "Velocity": self.cfg['env']['VELOCITY_REWARD_WEIGHT'],
+            "Rail Velocity Control": self.cfg['env']['U_RAIL_VELOCITY_CONTROL_REWARD_WEIGHT'],
+            "FPAM Control": self.cfg['env']['U_FPAM_CONTROL_REWARD_WEIGHT'],
+            "Rail Velocity Change": self.cfg['env']['RAIL_VELOCITY_CHANGE_REWARD_WEIGHT'],
+            "FPAM Change": self.cfg['env']['U_FPAM_CHANGE_REWARD_WEIGHT'],
+            "Rail Limit": self.cfg['env']['RAIL_LIMIT_REWARD_WEIGHT'],
+            "Cart Y": self.cfg['env']['CART_Y_REWARD_WEIGHT'],
+        }
+        assert(set(REWARD_NAMES) == set(reward_name_to_weight_dict.keys()))
+        reward_weights = [reward_name_to_weight_dict[name] for name in REWARD_NAMES]
+        self.reward_weights = torch.tensor([reward_weights], device=self.device)
 
         # Setup viewer camera
         self.index_to_view = int(0.1 * self.num_envs)
@@ -732,18 +729,20 @@ class Vine5LinkMovingBase(VecTask):
 
         # Populate obs_buf
         # tensors_to_add elements must all be (num_envs, X)
-        if OBSERVATION_TYPE == ObservationType.POS_ONLY:
+        observation_type = ObservationType[self.cfg["task"]["OBSERVATION_TYPE"]]
+
+        if observation_type == ObservationType.POS_ONLY:
             tensors_to_concat = [self.dof_pos, self.tip_positions, self.target_positions,
                                  self.smoothed_u_fpam, self.prev_u_rail_velocity]
-        elif OBSERVATION_TYPE == ObservationType.POS_AND_VEL:
+        elif observation_type == ObservationType.POS_AND_VEL:
             tensors_to_concat = [self.dof_pos, self.dof_vel, self.tip_positions, self.tip_velocities,
                                  self.target_positions, self.target_velocities,
                                  self.smoothed_u_fpam, self.prev_u_rail_velocity]
-        elif OBSERVATION_TYPE == ObservationType.POS_AND_FD_VEL:
+        elif observation_type == ObservationType.POS_AND_FD_VEL:
             tensors_to_concat = [self.dof_pos, self.finite_difference_dof_vel, self.tip_positions, self.finite_difference_tip_velocities,
                                  self.target_positions, self.target_velocities,
                                  self.smoothed_u_fpam, self.prev_u_rail_velocity]
-        elif OBSERVATION_TYPE == ObservationType.POS_AND_PREV_POS:
+        elif observation_type == ObservationType.POS_AND_PREV_POS:
             tensors_to_concat = [self.dof_pos, self.prev_dof_pos, self.tip_positions, self.prev_tip_positions,
                                  self.target_positions, self.target_velocities,
                                  self.smoothed_u_fpam, self.prev_u_rail_velocity]
@@ -786,7 +785,7 @@ class Vine5LinkMovingBase(VecTask):
         if self.randomize:
             self.apply_randomizations(self.randomization_params)
 
-        if RANDOMIZE_DOF_INIT:
+        if self.cfg['env']['RANDOMIZE_DOF_INIT']:
             num_revolute_joints = len(self.revolute_dof_lowers)
             for i in range(num_revolute_joints):
                 min_angle = max(self.revolute_dof_lowers[i], -math.radians(10))
@@ -843,7 +842,7 @@ class Vine5LinkMovingBase(VecTask):
 
     def sample_target_positions(self, num_envs):
         target_positions = torch.zeros(num_envs, NUM_XYZ, device=self.device)
-        if RANDOMIZE_TARGETS:
+        if self.cfg['env']['RANDOMIZE_TARGETS']:
             # TODO Find the best way to set targets
             # angles = torch.FloatTensor(num_envs).uniform_(MIN_EFFECTIVE_ANGLE, MAX_EFFECTIVE_ANGLE).to(self.device)
             # target_positions[:, 1] = torch.sin(angles) * VINE_LENGTH
