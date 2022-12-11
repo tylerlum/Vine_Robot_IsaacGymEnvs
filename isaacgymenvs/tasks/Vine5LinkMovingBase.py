@@ -150,7 +150,7 @@ class Vine5LinkMovingBase(VecTask):
         self.randomization_params = self.cfg["task"]["randomization_params"]
 
         # Must set this before continuing
-        observation_type = ObservationType[self.cfg["task"]["OBSERVATION_TYPE"]]
+        observation_type = ObservationType[self.cfg["env"]["OBSERVATION_TYPE"]]
         if observation_type == ObservationType.POS_ONLY:
             self.cfg["env"]["numObservations"] = (
                 N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ + N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
@@ -735,7 +735,7 @@ class Vine5LinkMovingBase(VecTask):
 
         # Populate obs_buf
         # tensors_to_add elements must all be (num_envs, X)
-        observation_type = ObservationType[self.cfg["task"]["OBSERVATION_TYPE"]]
+        observation_type = ObservationType[self.cfg["env"]["OBSERVATION_TYPE"]]
 
         if observation_type == ObservationType.POS_ONLY:
             tensors_to_concat = [self.dof_pos, self.tip_positions, self.target_positions,
