@@ -51,18 +51,18 @@
     </link>
 
     <!-- CART -->
-    <!-- dimensions = 7cm x 10cm x 2cm (length parallel to rail is 10cm) -->
+    <!-- dimensions = 7cm x 10cm x 12cm (length parallel to rail is 10cm) -->
     <!-- mass ~= 0.4kg -->
     <link name="cart">
         <visual>
             <geometry>
-                <box size="0.07 0.1 0.02" />
+                <box size="0.07 0.1 0.12" />
             </geometry>
             <material name="black" />
         </visual>
         <collision>
             <geometry>
-                <box size="0.07 0.1 0.02" />
+                <box size="0.07 0.1 0.12" />
             </geometry>
         </collision>
         <inertia>
@@ -207,7 +207,7 @@
         <axis xyz="0.0 1.0 0.0" />
 
         <!-- Change z to set relative position of cart wrt slider (half rail and half cart height) -->
-        <origin xyz="0.0 0.0 -0.025" rpy="0.0 0.0 0.0" />
+        <origin xyz="0.0 0.0 -0.075" rpy="0.0 0.0 0.0" />
 
         <parent link="slider" />
         <child link="cart" />
@@ -220,7 +220,7 @@
         <axis xyz="1.0 0.0 0.0" />
 
         <!-- Change z to set relative position of link wrt cart (half cart height) -->
-        <origin xyz="0.0 0.0 -0.01" rpy="3.1415 0.0 0.0" />
+        <origin xyz="0.0 0.0 -0.06" rpy="3.1415 0.0 0.0" />
 
         <parent link="cart" />
         <child link="link_0" />
