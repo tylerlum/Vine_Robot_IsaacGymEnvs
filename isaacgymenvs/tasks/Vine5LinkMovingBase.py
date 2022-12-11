@@ -51,63 +51,23 @@ START_POS_IDX, END_POS_IDX = 0, 3
 START_QUAT_IDX, END_QUAT_IDX = 3, 7
 START_LIN_VEL_IDX, END_LIN_VEL_IDX = 7, 10
 START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
+DOF_MODE = gymapi.DOF_MODE_EFFORT
 
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = True
-USE_SMOOTHED_FPAM = True
-FORCE_U = False
-SMOOTHING_ALPHA_INFLATE = 0.81
-SMOOTHING_ALPHA_DEFLATE = 0.86
-DOMAIN_RANDOMIZATION_SCALING_MIN, DOMAIN_RANDOMIZATION_SCALING_MAX = 0.7, 1.3
-
-CAPTURE_VIDEO = False
-CREATE_SHELF = False
-MAT_FILE = ""
-
-FPAM_MIN, FPAM_MAX = -0.1, 3.0
-RAIL_VELOCITY_SCALE = 0.8
-DAMPING = 1e-2
-STIFFNESS = 1e-1
-DOF_MODE = gymapi.DOF_MODE_EFFORT
-
-RAIL_SOFT_LIMIT = 0.15
-# Want max accel of 2m/s^2, if max v_error = 2m/s, then F = m*a = k*v_error, so k = m*a/v_error = 0.52 * 2 / 2 = 0.52
-# But that doesn't account for the vine robot swinging, so make it bigger
-RAIL_P_GAIN = 5.0
-RAIL_D_GAIN = 0.0
-
-
-# Observations
-
 
 class ObservationType(Enum):
-    POS_ONLY = 0
-    POS_AND_VEL = 1
-    POS_AND_FD_VEL = 2
-    POS_AND_PREV_POS = 3
+    POS_ONLY = "POS_ONLY"
+    POS_AND_VEL = "POS_AND_VEL"
+    POS_AND_FD_VEL = "POS_AND_FD_VEL"
+    POS_AND_PREV_POS = "POS_AND_PREV_POS"
 
-
-OBSERVATION_TYPE = ObservationType.POS_AND_FD_VEL
 
 # Rewards
 # Brittle: Ensure reward order matches
 REWARD_NAMES = ["Position", "Const Negative", "Position Success",
                 "Velocity Success", "Velocity", "Rail Velocity Control",
                 "FPAM Control", "Rail Velocity Change", "FPAM Change", "Rail Limit", "Cart Y"]
-POSITION_REWARD_WEIGHT = 0.0
-CONST_NEGATIVE_REWARD_WEIGHT = 0.0
-POSITION_SUCCESS_REWARD_WEIGHT = 0.0
-VELOCITY_SUCCESS_REWARD_WEIGHT = 0.0
-VELOCITY_REWARD_WEIGHT = 1.0
-U_RAIL_VELOCITY_CONTROL_REWARD_WEIGHT = 0.1
-U_FPAM_CONTROL_REWARD_WEIGHT = 0.1
-RAIL_VELOCITY_CHANGE_REWARD_WEIGHT = 0.1
-U_FPAM_CHANGE_REWARD_WEIGHT = 0.1
-RAIL_LIMIT_REWARD_WEIGHT = 0.1
-CART_Y_REWARD_WEIGHT = 3.0
-REWARD_WEIGHTS = [POSITION_REWARD_WEIGHT, CONST_NEGATIVE_REWARD_WEIGHT, POSITION_SUCCESS_REWARD_WEIGHT,
-                  VELOCITY_SUCCESS_REWARD_WEIGHT, VELOCITY_REWARD_WEIGHT, U_RAIL_VELOCITY_CONTROL_REWARD_WEIGHT,
-                  U_FPAM_CONTROL_REWARD_WEIGHT, RAIL_VELOCITY_CHANGE_REWARD_WEIGHT, U_FPAM_CHANGE_REWARD_WEIGHT, RAIL_LIMIT_REWARD_WEIGHT, CART_Y_REWARD_WEIGHT]
 
 N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
@@ -125,12 +85,6 @@ else:
                                           math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
 TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
 
-RANDOMIZE_DOF_INIT = True
-RANDOMIZE_TARGETS = True
-
-# GLOBALS
-USE_WANDB = True
-
 
 def print_if(text="", should_print=False):
     if should_print:
@@ -140,13 +94,13 @@ def print_if(text="", should_print=False):
 class Vine5LinkMovingBase(VecTask):
     """
     Observation:
-      POS_ONLY = 0
+      POS_ONLY
         * Joint positions
         * Tip position
         * Target position
         * current p_fpam
         * current rail velocity
-      POS_AND_VEL = 1
+      POS_AND_VEL
         * Joint positions
         * Joint velocities
         * Tip position
@@ -155,7 +109,7 @@ class Vine5LinkMovingBase(VecTask):
         * Target velocity
         * current p_fpam
         * current rail velocity
-      POS_AND_FD_VEL = 2
+      POS_AND_FD_VEL
         * Joint positions
         * Joint velocities (finite difference)
         * Tip position
@@ -164,7 +118,7 @@ class Vine5LinkMovingBase(VecTask):
         * Target velocity (finite difference)
         * current p_fpam
         * current rail velocity
-      POS_AND_PREV_POS = 3
+      POS_AND_PREV_POS
         * Joint positions
         * Prev joint positions
         * Tip position
@@ -196,7 +150,8 @@ class Vine5LinkMovingBase(VecTask):
         self.randomization_params = self.cfg["task"]["randomization_params"]
 
         # Must set this before continuing
-        if OBSERVATION_TYPE == ObservationType.POS_ONLY:
+        observation_type = ObservationType[self.cfg["task"]["OBSERVATION_TYPE"]]
+        if observation_type == ObservationType.POS_ONLY:
             self.cfg["env"]["numObservations"] = (
                 N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ + N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
             )
@@ -216,8 +171,27 @@ class Vine5LinkMovingBase(VecTask):
         self.target_positions = self.sample_target_positions(self.num_envs)
         self.target_velocities = self.sample_target_velocities(self.num_envs)
         self.A = None  # Cache this matrix
-        self.reward_weights = torch.tensor([REWARD_WEIGHTS], device=self.device)
+
+        # Rewards
         self.aggregated_rew_buf = torch.zeros_like(self.rew_buf, device=self.device, dtype=self.rew_buf.dtype)
+
+        # Set up reward weights that match REWARD_NAMES
+        reward_name_to_weight_dict = {
+            "Position": self.cfg['env']['POSITION_REWARD_WEIGHT'],
+            "Const Negative": self.cfg['env']['CONST_NEGATIVE_REWARD_WEIGHT'],
+            "Position Success": self.cfg['env']['POSITION_SUCCESS_REWARD_WEIGHT'],
+            "Velocity Success": self.cfg['env']['VELOCITY_SUCCESS_REWARD_WEIGHT'],
+            "Velocity": self.cfg['env']['VELOCITY_REWARD_WEIGHT'],
+            "Rail Velocity Control": self.cfg['env']['U_RAIL_VELOCITY_CONTROL_REWARD_WEIGHT'],
+            "FPAM Control": self.cfg['env']['U_FPAM_CONTROL_REWARD_WEIGHT'],
+            "Rail Velocity Change": self.cfg['env']['RAIL_VELOCITY_CHANGE_REWARD_WEIGHT'],
+            "FPAM Change": self.cfg['env']['U_FPAM_CHANGE_REWARD_WEIGHT'],
+            "Rail Limit": self.cfg['env']['RAIL_LIMIT_REWARD_WEIGHT'],
+            "Cart Y": self.cfg['env']['CART_Y_REWARD_WEIGHT'],
+        }
+        assert(set(REWARD_NAMES) == set(reward_name_to_weight_dict.keys()))
+        reward_weights = [reward_name_to_weight_dict[name] for name in REWARD_NAMES]
+        self.reward_weights = torch.tensor([reward_weights], device=self.device)
 
         # Setup viewer camera
         self.index_to_view = int(0.1 * self.num_envs)
@@ -246,10 +220,12 @@ class Vine5LinkMovingBase(VecTask):
         self.prev_u_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device)
         self.prev_cart_vel_error = torch.zeros(self.num_envs, 1, device=self.device)
 
+        self.use_wandb = True
         self.wandb_dict = {}
+        self.histogram_observation_data_list = []
 
-        if len(MAT_FILE) > 0:
-            self.mat = self.read_mat_file(MAT_FILE)
+        if len(self.cfg['env']['MAT_FILE']) > 0:
+            self.mat = self.read_mat_file(self.cfg['env']['MAT_FILE'])
 
     def read_mat_file(self, filename):
         import scipy.io
@@ -296,14 +272,52 @@ class Vine5LinkMovingBase(VecTask):
 
     def log_wandb_dict(self):
         # Only wandb log if working
-        global USE_WANDB
-        if USE_WANDB:
+        if not self.use_wandb:
+            return
+        try:
+            wandb.log(self.wandb_dict)
+        except wandb.errors.Error:
+            print("Wandb not initialized, no longer trying to log")
+            self.use_wandb = False
+        self.wandb_dict = {}
+
+    def save_cfg_file_to_wandb(self):
+        if not self.use_wandb:
+            return
+
+        # BRITTLE: Depends on filename structure
+        import re
+        all_logdir_files = os.listdir(self.log_dir)
+        pattern = re.compile("[a-zA-Z0-9_-]+_rlg_config_dict.pkl")
+        cfg_file = sorted([f for f in all_logdir_files if pattern.match(f)])[-1]
+
+        # Sanity check: Check that datetimes are close
+        try:
+            datetime1_split = re.split('-|_', cfg_file)[:6]
+            datetime2_split = re.split('-|_', self.time_str)[:6]
+            datetime1 = datetime.datetime(*[int(x) for x in datetime1_split])
+            datetime2 = datetime.datetime(*[int(x) for x in datetime2_split])
+            time_diff = (datetime2 - datetime1).total_seconds()
+            if abs(time_diff) > 10:
+                raise ValueError()
+            cfg_file_path = os.path.join(self.log_dir, cfg_file)
+            print(f"Saving cfg file to wandb: {cfg_file_path}")
+            wandb.save(cfg_file_path)
+        except:
+            print("WARNING: Could not save cfg file to wandb")
+
+    def save_model_to_wandb(self):
+        if not self.use_wandb:
+            return
+
+        assumed_model_file = os.path.join(self.log_dir, "nn", f"{self.cfg['name']}.pth")
+        if self.num_steps % 100 == 99 and os.path.exists(assumed_model_file):
+            print(f"Saving model to wandb: {assumed_model_file}")
             try:
-                wandb.log(self.wandb_dict)
+                wandb.save(assumed_model_file)
             except wandb.errors.Error:
                 print("Wandb not initialized, no longer trying to log")
-                USE_WANDB = False
-            self.wandb_dict = {}
+                self.use_wandb = False
 
     ##### KEYBOARD EVENT SUBSCRIPTIONS START #####
     def subscribe_to_keyboard_events(self):
@@ -494,8 +508,8 @@ class Vine5LinkMovingBase(VecTask):
             shelf_init_pose.p.y = 0.2
             shelf_init_pose.p.z = 0.0
             shelf_handle = self.gym.create_actor(env_ptr, self.shelf_asset, shelf_init_pose, "shelf",
-                                                 group=collision_group, filter=collision_filter + 1, segmentationId=segmentation_id + 1) if CREATE_SHELF else None
-            if CREATE_SHELF:
+                                                 group=collision_group, filter=collision_filter + 1, segmentationId=segmentation_id + 1) if self.cfg['env']['CREATE_SHELF'] else None
+            if self.cfg['env']['CREATE_SHELF']:
                 new_scale = 0.1
                 self.gym.set_actor_scale(env_ptr, shelf_handle, new_scale)
 
@@ -508,14 +522,14 @@ class Vine5LinkMovingBase(VecTask):
 
             # Set stiffness and damping
             dof_props['driveMode'].fill(DOF_MODE)
-            dof_props['damping'].fill(DAMPING)
+            dof_props['damping'].fill(self.cfg['env']['DAMPING'])
             for j in range(self.gym.get_asset_dof_count(self.vine_asset)):
                 dof_type = self.gym.get_asset_dof_type(self.vine_asset, j)
                 if dof_type not in [gymapi.DofType.DOF_ROTATION, gymapi.DofType.DOF_TRANSLATION]:
                     raise ValueError(f"Invalid dof_type = {dof_type}")
 
                 # Prismatic joint should have no stiffness
-                dof_props['stiffness'][j] = STIFFNESS if dof_type == gymapi.DofType.DOF_ROTATION else 0.0
+                dof_props['stiffness'][j] = self.cfg['env']['STIFFNESS'] if dof_type == gymapi.DofType.DOF_ROTATION else 0.0
 
             self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
 
@@ -525,10 +539,10 @@ class Vine5LinkMovingBase(VecTask):
             self.vine_handles.append(vine_handle)
 
             self.shelf_indices.append(self.gym.get_actor_index(
-                env_ptr, shelf_handle, gymapi.DOMAIN_SIM) if CREATE_SHELF else None)
+                env_ptr, shelf_handle, gymapi.DOMAIN_SIM) if self.cfg['env']['CREATE_SHELF'] else None)
             self.vine_indices.append(self.gym.get_actor_index(env_ptr, vine_handle, gymapi.DOMAIN_SIM))
 
-        if CREATE_SHELF:
+        if self.cfg['env']['CREATE_SHELF']:
             self.shelf_indices = to_torch(self.shelf_indices, dtype=torch.long, device=self.device)
         self.vine_indices = to_torch(self.vine_indices, dtype=torch.long, device=self.device)
 
@@ -632,7 +646,7 @@ class Vine5LinkMovingBase(VecTask):
 
         # Limit hit
         cart_y = self.cart_positions[:, 1]
-        limit_hit = torch.logical_or(cart_y > RAIL_SOFT_LIMIT, cart_y < -RAIL_SOFT_LIMIT)
+        limit_hit = torch.logical_or(cart_y > self.cfg['env']['RAIL_SOFT_LIMIT'], cart_y < -self.cfg['env']['RAIL_SOFT_LIMIT'])
 
         self.wandb_dict.update({
             "dist_tip_to_target": dist_tip_to_target.mean().item(),
@@ -721,47 +735,54 @@ class Vine5LinkMovingBase(VecTask):
 
         # Populate obs_buf
         # tensors_to_add elements must all be (num_envs, X)
-        if OBSERVATION_TYPE == ObservationType.POS_ONLY:
+        observation_type = ObservationType[self.cfg["task"]["OBSERVATION_TYPE"]]
+
+        if observation_type == ObservationType.POS_ONLY:
             tensors_to_concat = [self.dof_pos, self.tip_positions, self.target_positions,
                                  self.smoothed_u_fpam, self.prev_u_rail_velocity]
-        elif OBSERVATION_TYPE == ObservationType.POS_AND_VEL:
+        elif observation_type == ObservationType.POS_AND_VEL:
             tensors_to_concat = [self.dof_pos, self.dof_vel, self.tip_positions, self.tip_velocities,
                                  self.target_positions, self.target_velocities,
                                  self.smoothed_u_fpam, self.prev_u_rail_velocity]
-        elif OBSERVATION_TYPE == ObservationType.POS_AND_FD_VEL:
+        elif observation_type == ObservationType.POS_AND_FD_VEL:
             tensors_to_concat = [self.dof_pos, self.finite_difference_dof_vel, self.tip_positions, self.finite_difference_tip_velocities,
                                  self.target_positions, self.target_velocities,
                                  self.smoothed_u_fpam, self.prev_u_rail_velocity]
-        elif OBSERVATION_TYPE == ObservationType.POS_AND_PREV_POS:
+        elif observation_type == ObservationType.POS_AND_PREV_POS:
             tensors_to_concat = [self.dof_pos, self.prev_dof_pos, self.tip_positions, self.prev_tip_positions,
                                  self.target_positions, self.target_velocities,
                                  self.smoothed_u_fpam, self.prev_u_rail_velocity]
         self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
 
-        if self.num_steps % 100 == 99:
-            print(f"Creating histogram at self.num_steps {self.num_steps}")
+        if self.cfg['env']['CREATE_HISTOGRAMS']:
+            # Store observations
+            new_data = [self.obs_buf[i, :].cpu().numpy().tolist() for i in range(self.obs_buf.shape[0])
+                        ]  # list of lists (inner list has length num_obs)
+            # self.histogram_observation_data_list is a list of lists (outer list has length num_rows)
+            self.histogram_observation_data_list += new_data
 
-            # BRITTLE: Depends on observations above
-            observation_names = [*[f"joint_pos_{i}" for i in range(self.num_dof)],
-                                 *[f"joint_vel_{i}" for i in range(self.num_dof)],
-                                 *[f"tip_pos_{i}" for i in XYZ_LIST],
-                                 *[f"tip_vel_{i}" for i in XYZ_LIST],
-                                 *[f"target_pos_{i}" for i in XYZ_LIST],
-                                 *[f"target_vel_{i}" for i in XYZ_LIST],
-                                 "smoothed_u_fpam", "prev_u_rail_vel"]
-            # Each entry is a row in the table
-            # TODO: Maybe store lots of obs_bufs of one env and use that, rather than using all envs
-            # TODO: Maybe use keyboard command to create this
-            table_data = [self.obs_buf[i, :].cpu().numpy().tolist() for i in range(self.obs_buf.shape[0])]
-            table = wandb.Table(data=table_data, columns=observation_names)
-            ALL_HISTOGRAMS = True
-            names_to_plot = observation_names if ALL_HISTOGRAMS else [
-                "tip_pos_y", "tip_pos_z", "tip_vel_y", "tip_vel_z"]
-            histograms_dict = {f'{name}_histogram {self.num_steps}': wandb.plot.histogram(
-                table, name, title=f"{name} Histogram {self.num_steps}") for name in names_to_plot}
-            wandb.log(histograms_dict)
+            if self.num_steps % 100 == 99:
+                print(f"Creating histogram at self.num_steps {self.num_steps}")
 
-        self.wandb_dict["obs_buf"] = self.obs_buf[self.index_to_view]
+                # BRITTLE: Depends on observations above
+                observation_names = [*[f"joint_pos_{i}" for i in range(self.num_dof)],
+                                     *[f"joint_vel_{i}" for i in range(self.num_dof)],
+                                     *[f"tip_pos_{i}" for i in XYZ_LIST],
+                                     *[f"tip_vel_{i}" for i in XYZ_LIST],
+                                     *[f"target_pos_{i}" for i in XYZ_LIST],
+                                     *[f"target_vel_{i}" for i in XYZ_LIST],
+                                     "smoothed_u_fpam", "prev_u_rail_vel"]
+                # Each entry is a row in the table
+                table = wandb.Table(data=self.histogram_observation_data_list, columns=observation_names)
+                ALL_HISTOGRAMS = True
+                names_to_plot = observation_names if ALL_HISTOGRAMS else [
+                    "tip_pos_y", "tip_pos_z", "tip_vel_y", "tip_vel_z"]
+                histograms_dict = {f'{name}_histogram {self.num_steps}': wandb.plot.histogram(
+                    table, name, title=f"{name} Histogram {self.num_steps}") for name in names_to_plot}
+                wandb.log(histograms_dict)
+
+                # Reset
+                self.histogram_observation_data_list = []
 
         return self.obs_buf
 
@@ -770,7 +791,7 @@ class Vine5LinkMovingBase(VecTask):
         if self.randomize:
             self.apply_randomizations(self.randomization_params)
 
-        if RANDOMIZE_DOF_INIT:
+        if self.cfg['env']['RANDOMIZE_DOF_INIT']:
             num_revolute_joints = len(self.revolute_dof_lowers)
             for i in range(num_revolute_joints):
                 min_angle = max(self.revolute_dof_lowers[i], -math.radians(10))
@@ -780,8 +801,8 @@ class Vine5LinkMovingBase(VecTask):
 
             num_prismatic_joints = len(self.prismatic_dof_lowers)
             for i in range(num_prismatic_joints):
-                min_dist = max(self.prismatic_dof_lowers[i], -RAIL_SOFT_LIMIT)
-                max_dist = min(self.prismatic_dof_uppers[i], RAIL_SOFT_LIMIT)
+                min_dist = max(self.prismatic_dof_lowers[i], -self.cfg['env']['RAIL_SOFT_LIMIT'])
+                max_dist = min(self.prismatic_dof_uppers[i], self.cfg['env']['RAIL_SOFT_LIMIT'])
                 self.dof_pos[env_ids, self.prismatic_dof_indices[i]] = torch.FloatTensor(
                     len(env_ids)).uniform_(min_dist, max_dist).to(self.device)
         else:
@@ -792,7 +813,7 @@ class Vine5LinkMovingBase(VecTask):
         self.prev_dof_pos[env_ids, :] = self.dof_pos[env_ids, :].clone()
 
         # TODO: Need to reset prev_tip_positions as well? Need to do forward kinematics
-        self.prev_tip_positions[env_ids] = self.tip_positions.clone()
+        self.prev_tip_positions[env_ids] = self.tip_positions[env_ids].clone()
         self.prev_u_rail_velocity[env_ids] = torch.zeros(len(env_ids), N_PRISMATIC_DOFS, device=self.device)
         self.prev_cart_vel_error[env_ids] = torch.zeros(len(env_ids), 1, device=self.device)
 
@@ -812,7 +833,7 @@ class Vine5LinkMovingBase(VecTask):
         self.target_velocities[env_ids, :] = self.sample_target_velocities(len(env_ids))
 
         # TODO: Update obstacle positions based on targets?
-        # if CREATE_SHELF:
+        # if self.cfg['env']['CREATE_SHELF']:
         # self.root_state[self.shelf_indices[env_ids], START_POS_IDX:END_POS_IDX] = torch.stack([torch.FloatTensor(len(env_ids)).uniform_(0, 0),
         #                                                                                        torch.FloatTensor(
         #                                                                                            len(env_ids)).uniform_(-0.5, 0.5),
@@ -827,7 +848,7 @@ class Vine5LinkMovingBase(VecTask):
 
     def sample_target_positions(self, num_envs):
         target_positions = torch.zeros(num_envs, NUM_XYZ, device=self.device)
-        if RANDOMIZE_TARGETS:
+        if self.cfg['env']['RANDOMIZE_TARGETS']:
             # TODO Find the best way to set targets
             # angles = torch.FloatTensor(num_envs).uniform_(MIN_EFFECTIVE_ANGLE, MAX_EFFECTIVE_ANGLE).to(self.device)
             # target_positions[:, 1] = torch.sin(angles) * VINE_LENGTH
@@ -852,11 +873,11 @@ class Vine5LinkMovingBase(VecTask):
     def raw_actions_to_actions(self, raw_actions):
         # Break apart actions and states
         if N_PRISMATIC_DOFS == 1:
-            u_rail_velocity = rescale_to_u_rail_velocity(raw_actions[:, 0:1])  # (num_envs, 1)
-            u_fpam = rescale_to_u(raw_actions[:, 1:2])  # (num_envs, 1)
+            u_rail_velocity = rescale_to_u_rail_velocity(raw_actions[:, 0:1], self.cfg['env']['RAIL_VELOCITY_SCALE'])  # (num_envs, 1)
+            u_fpam = rescale_to_u(raw_actions[:, 1:2], self.cfg['env']['FPAM_MIN'], self.cfg['env']['FPAM_MAX'])  # (num_envs, 1)
         elif N_PRISMATIC_DOFS == 0:
             u_rail_velocity = torch.zeros_like(raw_actions[:, 0:1], device=raw_actions.device)  # (num_envs, 1)
-            u_fpam = rescale_to_u(raw_actions)  # (num_envs, 1)
+            u_fpam = rescale_to_u(raw_actions, self.cfg['env']['FPAM_MIN'])  # (num_envs, 1)
         else:
             raise ValueError(f"Can't have N_PRISMATIC_DOFS = {N_PRISMATIC_DOFS}")
 
@@ -864,11 +885,11 @@ class Vine5LinkMovingBase(VecTask):
 
     def u_fpam_to_smoothed_u_fpam(self, u_fpam, smoothed_u_fpam):
         # Compute smoothed u_fpam
-        alphas = torch.where(u_fpam > smoothed_u_fpam, SMOOTHING_ALPHA_INFLATE, SMOOTHING_ALPHA_DEFLATE)
+        alphas = torch.where(u_fpam > smoothed_u_fpam, self.cfg['env']['SMOOTHING_ALPHA_INFLATE'], self.cfg['env']['SMOOTHING_ALPHA_DEFLATE'])
 
         if self.randomize:
-            alphas *= torch.FloatTensor(*alphas.shape).uniform_(DOMAIN_RANDOMIZATION_SCALING_MIN,
-                                                                DOMAIN_RANDOMIZATION_SCALING_MAX).to(alphas.device)
+            alphas *= torch.FloatTensor(*alphas.shape).uniform_(self.cfg['env']['DOMAIN_RANDOMIZATION_SCALING_MIN'],
+                                                                self.cfg['env']['DOMAIN_RANDOMIZATION_SCALING_MAX']).to(alphas.device)
             alphas = torch.clamp(alphas, min=0.0, max=1.0)
 
         smoothed_u_fpam = alphas * smoothed_u_fpam + (1 - alphas) * u_fpam
@@ -877,22 +898,23 @@ class Vine5LinkMovingBase(VecTask):
     def manual_intervention(self):
         # Manual intervention
         if self.MOVE_LEFT_COUNTER > 0:
-            self.u_rail_velocity[:] = -RAIL_VELOCITY_SCALE
+            self.u_rail_velocity[:] = -self.cfg['env']['RAIL_VELOCITY_SCALE']
             self.MOVE_LEFT_COUNTER -= 1
         if self.MOVE_RIGHT_COUNTER > 0:
-            self.u_rail_velocity[:] = RAIL_VELOCITY_SCALE
+            self.u_rail_velocity[:] = self.cfg['env']['RAIL_VELOCITY_SCALE']
             self.MOVE_RIGHT_COUNTER -= 1
 
         if self.MAX_PRESSURE_COUNTER > 0:
-            self.u_fpam[:] = FPAM_MAX
+            self.u_fpam[:] = self.cfg['env']['FPAM_MAX']
             self.MAX_PRESSURE_COUNTER -= 1
         if self.MIN_PRESSURE_COUNTER > 0:
-            self.u_fpam[:] = FPAM_MIN
+            self.u_fpam[:] = self.cfg['env']['FPAM_MIN']
             self.MIN_PRESSURE_COUNTER -= 1
 
-        if FORCE_U:
+        if self.cfg['env']['FORCE_U_FPAM']:
             self.u_fpam[:] = 0.0
-            self.u_rail_velocity[:] = RAIL_VELOCITY_SCALE
+        if self.cfg['env']['FORCE_U_RAIL_VELOCITY']:
+            self.u_rail_velocity[:] = self.cfg['env']['RAIL_VELOCITY_SCALE']
 
     def compute_and_set_dof_actuation_force_tensor(self):
         dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
@@ -924,12 +946,12 @@ class Vine5LinkMovingBase(VecTask):
             self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
 
         if self.randomize:
-            A = self.A * torch.FloatTensor(*self.A.shape).uniform_(DOMAIN_RANDOMIZATION_SCALING_MIN,
-                                                                   DOMAIN_RANDOMIZATION_SCALING_MAX).to(self.A.device)
+            A = self.A * torch.FloatTensor(*self.A.shape).uniform_(self.cfg['env']['DOMAIN_RANDOMIZATION_SCALING_MIN'],
+                                                                   self.cfg['env']['DOMAIN_RANDOMIZATION_SCALING_MAX']).to(self.A.device)
         else:
             A = self.A
 
-        u_fpam_to_use = self.smoothed_u_fpam if USE_SMOOTHED_FPAM else self.u_fpam
+        u_fpam_to_use = self.smoothed_u_fpam if self.cfg['env']['USE_SMOOTHED_FPAM'] else self.u_fpam
         x = torch.cat([q, qd, torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device), u_fpam_to_use *
                        torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
         torques = -torch.matmul(A, x).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
@@ -937,8 +959,8 @@ class Vine5LinkMovingBase(VecTask):
         # Compute rail force
         cart_vel_y = self.cart_velocities[:, 1:2]  # (num_envs, 1)
         cart_vel_error = self.u_rail_velocity - cart_vel_y
-        RAIL_FORCE_MAX = RAIL_P_GAIN * RAIL_VELOCITY_SCALE
-        rail_force_pid = RAIL_P_GAIN * cart_vel_error + RAIL_D_GAIN * (cart_vel_error - self.prev_cart_vel_error)
+        RAIL_FORCE_MAX = self.cfg['env']['RAIL_P_GAIN'] * self.cfg['env']['RAIL_VELOCITY_SCALE']
+        rail_force_pid = self.cfg['env']['RAIL_P_GAIN'] * cart_vel_error + self.cfg['env']['RAIL_D_GAIN'] * (cart_vel_error - self.prev_cart_vel_error)
         rail_force_minmax = torch.where(cart_vel_error > 0, torch.tensor(
             RAIL_FORCE_MAX, device=self.device), torch.tensor(-RAIL_FORCE_MAX, device=self.device))
         self.rail_force = torch.where(torch.abs(cart_vel_error) > 0.1, rail_force_minmax, rail_force_pid)
@@ -947,7 +969,7 @@ class Vine5LinkMovingBase(VecTask):
         if self.randomize:
             # TODO: Maybe remove because handled by action noise?
             self.rail_force *= torch.FloatTensor(*self.rail_force.shape).uniform_(
-                DOMAIN_RANDOMIZATION_SCALING_MIN, DOMAIN_RANDOMIZATION_SCALING_MAX).to(self.rail_force.device)
+                self.cfg['env']['DOMAIN_RANDOMIZATION_SCALING_MIN'], self.cfg['env']['DOMAIN_RANDOMIZATION_SCALING_MAX']).to(self.rail_force.device)
 
         # Set efforts
         if N_PRISMATIC_DOFS == 1:
@@ -1002,7 +1024,7 @@ class Vine5LinkMovingBase(VecTask):
         # Create video
         should_start_video_capture = self.num_steps % self.capture_video_every == 0
         video_capture_in_progress = len(self.video_frames) > 0
-        if CAPTURE_VIDEO and (should_start_video_capture or video_capture_in_progress):
+        if self.cfg['env']['CAPTURE_VIDEO'] and (should_start_video_capture or video_capture_in_progress):
             if not video_capture_in_progress:
                 print("-" * 100)
                 print("Starting to capture video frames...")
@@ -1039,13 +1061,18 @@ class Vine5LinkMovingBase(VecTask):
         # Log info
         self.log_wandb_dict()
 
+        # Save model
+        self.save_model_to_wandb()
+        if self.num_steps == 1:
+            self.save_cfg_file_to_wandb()
 
-def rescale_to_u(u_fpam):
-    return (u_fpam + 1.0) / 2.0 * (FPAM_MAX-FPAM_MIN) + FPAM_MIN
+
+def rescale_to_u(u_fpam, min, max):
+    return (u_fpam + 1.0) / 2.0 * (max - min) + min
 
 
-def rescale_to_u_rail_velocity(u_rail_velocity):
-    return u_rail_velocity * RAIL_VELOCITY_SCALE
+def rescale_to_u_rail_velocity(u_rail_velocity, scale):
+    return u_rail_velocity * scale
 
 #####################################################################
 ### =========================jit functions=========================###

@@ -56,14 +56,14 @@ params:
     kl_threshold: 0.008
     score_to_win: 20000
     max_epochs: ${resolve_default:500,${....max_iterations}}
-    save_best_after: 10
-    save_frequency: 5
+    save_best_after: 20
+    save_frequency: 10
     grad_norm: 1.0
     entropy_coef: 0.0
     truncate_grads: False
     e_clip: 0.2
-    horizon_length: 16
-    minibatch_size: 32768
+    horizon_length: ${resolve_default:16,${....horizon_length}}
+    minibatch_size: ${resolve_default:32768,${....minibatch_size}}
     mini_epochs: 4
     critic_coef: 2
     clip_value: True
