@@ -86,10 +86,6 @@ else:
 TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
 
 
-# GLOBALS
-USE_WANDB = True
-
-
 def print_if(text="", should_print=False):
     if should_print:
         print(text)
@@ -98,13 +94,13 @@ def print_if(text="", should_print=False):
 class Vine5LinkMovingBase(VecTask):
     """
     Observation:
-      POS_ONLY = 0
+      POS_ONLY
         * Joint positions
         * Tip position
         * Target position
         * current p_fpam
         * current rail velocity
-      POS_AND_VEL = 1
+      POS_AND_VEL
         * Joint positions
         * Joint velocities
         * Tip position
@@ -113,7 +109,7 @@ class Vine5LinkMovingBase(VecTask):
         * Target velocity
         * current p_fpam
         * current rail velocity
-      POS_AND_FD_VEL = 2
+      POS_AND_FD_VEL
         * Joint positions
         * Joint velocities (finite difference)
         * Tip position
@@ -122,7 +118,7 @@ class Vine5LinkMovingBase(VecTask):
         * Target velocity (finite difference)
         * current p_fpam
         * current rail velocity
-      POS_AND_PREV_POS = 3
+      POS_AND_PREV_POS
         * Joint positions
         * Prev joint positions
         * Tip position
@@ -180,7 +176,6 @@ class Vine5LinkMovingBase(VecTask):
         self.aggregated_rew_buf = torch.zeros_like(self.rew_buf, device=self.device, dtype=self.rew_buf.dtype)
 
         # Set up reward weights that match REWARD_NAMES
-
         reward_name_to_weight_dict = {
             "Position": self.cfg['env']['POSITION_REWARD_WEIGHT'],
             "Const Negative": self.cfg['env']['CONST_NEGATIVE_REWARD_WEIGHT'],
@@ -225,6 +220,7 @@ class Vine5LinkMovingBase(VecTask):
         self.prev_u_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device)
         self.prev_cart_vel_error = torch.zeros(self.num_envs, 1, device=self.device)
 
+        self.use_wandb = True
         self.wandb_dict = {}
         self.histogram_observation_data_list = []
 
@@ -276,16 +272,19 @@ class Vine5LinkMovingBase(VecTask):
 
     def log_wandb_dict(self):
         # Only wandb log if working
-        global USE_WANDB
-        if USE_WANDB:
-            try:
-                wandb.log(self.wandb_dict)
-            except wandb.errors.Error:
-                print("Wandb not initialized, no longer trying to log")
-                USE_WANDB = False
-            self.wandb_dict = {}
+        if not self.use_wandb:
+            return
+        try:
+            wandb.log(self.wandb_dict)
+        except wandb.errors.Error:
+            print("Wandb not initialized, no longer trying to log")
+            self.use_wandb = False
+        self.wandb_dict = {}
 
     def save_cfg_file_to_wandb(self):
+        if not self.use_wandb:
+            return
+
         # BRITTLE: Depends on filename structure
         import re
         all_logdir_files = os.listdir(self.log_dir)
@@ -308,10 +307,17 @@ class Vine5LinkMovingBase(VecTask):
             print("WARNING: Could not save cfg file to wandb")
 
     def save_model_to_wandb(self):
+        if not self.use_wandb:
+            return
+
         assumed_model_file = os.path.join(self.log_dir, "nn", f"{self.cfg['name']}.pth")
         if self.num_steps % 100 == 99 and os.path.exists(assumed_model_file):
             print(f"Saving model to wandb: {assumed_model_file}")
-            wandb.save(assumed_model_file)
+            try:
+                wandb.save(assumed_model_file)
+            except wandb.errors.Error:
+                print("Wandb not initialized, no longer trying to log")
+                self.use_wandb = False
 
     ##### KEYBOARD EVENT SUBSCRIPTIONS START #####
     def subscribe_to_keyboard_events(self):
