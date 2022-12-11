@@ -144,6 +144,7 @@ class Vine5LinkMovingBase(VecTask):
         self.time_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self.max_episode_length = self.cfg["env"]["maxEpisodeLength"]
         self.dt = self.cfg["sim"]["dt"]
+        self.control_dt = self.dt * self.control_freq_inv
 
         # Randomization
         self.randomize = self.cfg["task"]["randomize"]
@@ -207,7 +208,7 @@ class Vine5LinkMovingBase(VecTask):
         self.camera_handle = self.gym.create_camera_sensor(self.envs[self.index_to_view], self.camera_properties)
         self.video_frames = []
         self.num_video_frames = 100
-        self.capture_video_every = 1_500
+        self.capture_video_every = 1_000
         self.num_steps = 0
         self.gym.set_camera_location(self.camera_handle, self.envs[self.index_to_view], cam_pos, cam_target)
 
@@ -737,9 +738,8 @@ class Vine5LinkMovingBase(VecTask):
         self.refresh_state_tensors()
 
         # Finite difference to get velocities
-        control_dt = self.dt * self.control_freq_inv
-        self.finite_difference_dof_vel = (self.dof_pos - self.prev_dof_pos) / control_dt
-        self.finite_difference_tip_velocities = (self.tip_positions - self.prev_tip_positions) / control_dt
+        self.finite_difference_dof_vel = (self.dof_pos - self.prev_dof_pos) / self.control_dt
+        self.finite_difference_tip_velocities = (self.tip_positions - self.prev_tip_positions) / self.control_dt
 
         # Populate obs_buf
         # tensors_to_add elements must all be (num_envs, X)
@@ -1060,7 +1060,7 @@ class Vine5LinkMovingBase(VecTask):
 
                 import imageio
                 imageio.mimsave(video_path, self.video_frames)
-                self.wandb_dict["video"] = wandb.Video(video_path)
+                self.wandb_dict["video"] = wandb.Video(video_path, fps=1./self.control_dt)
                 print("DONE")
 
                 # Reset variables
