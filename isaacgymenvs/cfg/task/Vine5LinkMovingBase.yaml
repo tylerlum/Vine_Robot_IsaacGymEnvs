@@ -32,7 +32,7 @@ env:
 
   CAPTURE_VIDEO: False
   CREATE_SHELF: False
-  CREATE_HISTOGRAMS: False
+  CREATE_HISTOGRAMS_PERIODICALLY: False
   MAT_FILE: ""
 
   # Action space
