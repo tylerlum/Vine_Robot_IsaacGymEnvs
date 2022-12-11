@@ -150,7 +150,7 @@ class Vine5LinkMovingBase(VecTask):
         self.randomization_params = self.cfg["task"]["randomization_params"]
 
         # Must set this before continuing
-        observation_type = ObservationType[self.cfg["task"]["OBSERVATION_TYPE"]]
+        observation_type = ObservationType[self.cfg["env"]["OBSERVATION_TYPE"]]
         if observation_type == ObservationType.POS_ONLY:
             self.cfg["env"]["numObservations"] = (
                 N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ + N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
@@ -333,6 +333,7 @@ class Vine5LinkMovingBase(VecTask):
             "MOVE_RIGHT": gymapi.KEY_RIGHT,
             "MAX_PRESSURE": gymapi.KEY_UP,
             "MIN_PRESSURE": gymapi.KEY_DOWN,
+            "HISTOGRAM": gymapi.KEY_H,
         }
         self.event_action_to_function = {
             "RESET": self._reset_callback,
@@ -344,6 +345,7 @@ class Vine5LinkMovingBase(VecTask):
             "MOVE_RIGHT": self._move_right_callback,
             "MAX_PRESSURE": self._max_pressure_callback,
             "MIN_PRESSURE": self._min_pressure_callback,
+            "HISTOGRAM": self._histogram_callback,
         }
         # Create state variables
         self.PRINT_DEBUG = False
@@ -352,6 +354,7 @@ class Vine5LinkMovingBase(VecTask):
         self.MOVE_RIGHT_COUNTER = 0
         self.MAX_PRESSURE_COUNTER = 0
         self.MIN_PRESSURE_COUNTER = 0
+        self.create_histogram = False
 
         assert (sorted(list(self.event_action_to_key.keys())) == sorted(list(self.event_action_to_function.keys())))
 
@@ -400,6 +403,11 @@ class Vine5LinkMovingBase(VecTask):
         self.MIN_PRESSURE_COUNTER = 100
         self.MAX_PRESSURE_COUNTER = 0
         print(f"self.MIN_PRESSURE_COUNTER = {self.MIN_PRESSURE_COUNTER}")
+
+    def _histogram_callback(self):
+        self.create_histogram = True
+        self.histogram_observation_data_list = []
+        print(f"self.create_histogram = {self.create_histogram}")
 
     ##### KEYBOARD EVENT SUBSCRIPTIONS END #####
 
@@ -735,7 +743,7 @@ class Vine5LinkMovingBase(VecTask):
 
         # Populate obs_buf
         # tensors_to_add elements must all be (num_envs, X)
-        observation_type = ObservationType[self.cfg["task"]["OBSERVATION_TYPE"]]
+        observation_type = ObservationType[self.cfg["env"]["OBSERVATION_TYPE"]]
 
         if observation_type == ObservationType.POS_ONLY:
             tensors_to_concat = [self.dof_pos, self.tip_positions, self.target_positions,
@@ -754,14 +762,16 @@ class Vine5LinkMovingBase(VecTask):
                                  self.smoothed_u_fpam, self.prev_u_rail_velocity]
         self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
 
-        if self.cfg['env']['CREATE_HISTOGRAMS']:
-            # Store observations
-            new_data = [self.obs_buf[i, :].cpu().numpy().tolist() for i in range(self.obs_buf.shape[0])
-                        ]  # list of lists (inner list has length num_obs)
+
+        if self.cfg['env']['CREATE_HISTOGRAMS_PERIODICALLY'] or self.create_histogram:
+            # Store observations (from all envs or just one)
+            # new_data = [self.obs_buf[i, :].cpu().numpy().tolist() for i in range(self.obs_buf.shape[0])
+            #             ]  # list of lists (inner list has length num_obs)
+            new_data = [self.obs_buf[self.index_to_view, :].cpu().numpy().tolist()]
             # self.histogram_observation_data_list is a list of lists (outer list has length num_rows)
             self.histogram_observation_data_list += new_data
 
-            if self.num_steps % 100 == 99:
+            if len(self.histogram_observation_data_list) == 100 * len(new_data):
                 print(f"Creating histogram at self.num_steps {self.num_steps}")
 
                 # BRITTLE: Depends on observations above
@@ -783,6 +793,7 @@ class Vine5LinkMovingBase(VecTask):
 
                 # Reset
                 self.histogram_observation_data_list = []
+                self.create_histogram = False
 
         return self.obs_buf
 

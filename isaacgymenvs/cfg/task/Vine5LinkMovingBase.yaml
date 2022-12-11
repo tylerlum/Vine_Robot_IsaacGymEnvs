@@ -23,7 +23,7 @@ env:
   USE_SMOOTHED_FPAM: True
 
   # Forcing
-  FORCE_U_FPAM: True
+  FORCE_U_FPAM: False
   FORCE_U_RAIL_VELOCITY: False
 
   # Smoothing
@@ -32,7 +32,7 @@ env:
 
   CAPTURE_VIDEO: False
   CREATE_SHELF: False
-  CREATE_HISTOGRAMS: False
+  CREATE_HISTOGRAMS_PERIODICALLY: False
   MAT_FILE: ""
 
   # Action space
@@ -47,7 +47,7 @@ env:
   RAIL_SOFT_LIMIT: 0.15
   # Want max accel of 2m/s^2, if max v_error = 2m/s, then F = m*a = k*v_error, so k = m*a/v_error = 0.52 * 2 / 2 = 0.52
   # But that doesn't account for the vine robot swinging, so make it bigger
-  RAIL_P_GAIN: 1.0
+  RAIL_P_GAIN: 3.0
   RAIL_D_GAIN: 0.0
 
   OBSERVATION_TYPE: "POS_AND_FD_VEL"
