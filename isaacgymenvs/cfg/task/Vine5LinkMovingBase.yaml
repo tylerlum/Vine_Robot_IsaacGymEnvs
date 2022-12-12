@@ -33,6 +33,10 @@ env:
   CAPTURE_VIDEO: ${resolve_default:True,${...CAPTURE_VIDEO}}
   CREATE_SHELF: False
   CREATE_HISTOGRAMS_PERIODICALLY: False
+
+  # Visualize mat file
+  # MAT_FILE: "/home/tylerlum/Downloads/2022-12-11_17-34-05_1sx04cnm_Vine5LinkMovingBase_smoothanglevel.mat"
+  # MAT_FILE: "/home/tylerlum/Downloads/2022-12-11_17-24-00_1sx04cnm_Vine5LinkMovingBase.mat"
   MAT_FILE: ""
 
   # Action space

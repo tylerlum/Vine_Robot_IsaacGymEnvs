@@ -732,6 +732,9 @@ class Vine5LinkMovingBase(VecTask):
 
     ##### PRE PHYSICS STEP START #####
     def pre_physics_step(self, actions):
+        if self.mat is not None:
+            self.overwrite_with_mat()
+
         # Compute high level actions
         self.raw_actions = actions.clone().to(self.device)
         self.u_rail_velocity, self.u_fpam = self.raw_actions_to_actions(self.raw_actions)
@@ -745,6 +748,43 @@ class Vine5LinkMovingBase(VecTask):
 
         # Compute and set joint actutation
         self.compute_and_set_dof_actuation_force_tensor()
+
+    def overwrite_with_mat(self):
+        # Get dof positions from mat file
+        all_cart_pos = self.mat['cart_pos']  # (1, num_steps)
+        all_Q = self.mat['Q']  # (5, num_steps)
+        _, total_num_timesteps = all_cart_pos.shape
+        assert (all_cart_pos.shape == (1, total_num_timesteps))
+        assert (all_Q.shape == (5, total_num_timesteps))
+
+        index = self.num_steps % total_num_timesteps
+        self.logger.info(f"Currently at {index} / {total_num_timesteps}")
+        cart_pos = self.mat['cart_pos'][:, index]  # (1,)
+        Q = self.mat['Q'][:, index]  # (5,)
+
+        # Set dof_pos and dof_vel
+        self.dof_pos[:, :1] = to_torch(cart_pos, device=self.device)[
+            None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 1)
+        self.dof_pos[:, 1:] = to_torch(Q, device=self.device)[None, ...].repeat_interleave(
+            self.num_envs, dim=0)  # (num_envs, 5)
+        self.dof_vel[:, :] = 0.0
+
+        vine_indices = self.vine_indices.to(dtype=torch.int32)
+        self.gym.set_dof_state_tensor_indexed(self.sim,
+                                              gymtorch.unwrap_tensor(self.dof_state),
+                                              gymtorch.unwrap_tensor(vine_indices), len(vine_indices))
+
+        # Get target
+        self.target_positions[:] = to_torch(self.mat['moving_target_pos'][:, index], device=self.device)[
+            None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 3)
+        self.target_velocities[:] = to_torch(self.mat['target_vel'].squeeze(), device=self.device)[
+            None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 3)
+        self.tip_positions = to_torch(self.mat['tip_pos'][:, index], device=self.device)[
+            None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 3)
+        self.tip_velocities = to_torch(self.mat['tip_vel'][:, index], device=self.device)[
+            None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 3)
+
+        return
 
     def raw_actions_to_actions(self, raw_actions):
         # Break apart actions and states
