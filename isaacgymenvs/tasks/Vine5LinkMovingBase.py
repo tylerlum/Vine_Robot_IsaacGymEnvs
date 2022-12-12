@@ -56,6 +56,7 @@ DOF_MODE = gymapi.DOF_MODE_EFFORT
 # PARAMETERS (OFTEN CHANGE)
 USE_MOVING_BASE = True
 
+
 class ObservationType(Enum):
     POS_ONLY = "POS_ONLY"
     POS_AND_VEL = "POS_AND_VEL"
@@ -67,7 +68,7 @@ class ObservationType(Enum):
 # Brittle: Ensure reward order matches
 REWARD_NAMES = ["Position", "Const Negative", "Position Success",
                 "Velocity Success", "Velocity", "Rail Velocity Control",
-                "FPAM Control", "Rail Velocity Change", "FPAM Change", "Rail Limit", "Cart Y"]
+                "FPAM Control", "Rail Velocity Change", "FPAM Change", "Rail Limit", "Cart Y", "Tip Y"]
 
 N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
@@ -79,7 +80,7 @@ VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 
 TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
 if USE_MOVING_BASE:
-    TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, LENGTH_RAIL/2  # Set to length of rail
+    TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, 0  # Set to length of rail
 else:
     TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MIN_EFFECTIVE_ANGLE)*VINE_LENGTH,
                                           math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
@@ -87,6 +88,12 @@ TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MIN
 
 
 def print_if(text="", should_print=False):
+    """Prints text if should_print is True
+
+    Args:
+        text (str, optional): Text to print. Defaults to "".
+        should_print (bool, optional): Decides if should actually print. Defaults to False.
+    """
     if should_print:
         print(text)
 
@@ -99,7 +106,7 @@ class Vine5LinkMovingBase(VecTask):
         * Tip position
         * Target position
         * current p_fpam
-        * current rail velocity
+        * previous rail velocity command
       POS_AND_VEL
         * Joint positions
         * Joint velocities
@@ -108,7 +115,7 @@ class Vine5LinkMovingBase(VecTask):
         * Target position
         * Target velocity
         * current p_fpam
-        * current rail velocity
+        * previous rail velocity command
       POS_AND_FD_VEL
         * Joint positions
         * Joint velocities (finite difference)
@@ -117,7 +124,7 @@ class Vine5LinkMovingBase(VecTask):
         * Target position
         * Target velocity (finite difference)
         * current p_fpam
-        * current rail velocity
+        * previous rail velocity command
       POS_AND_PREV_POS
         * Joint positions
         * Prev joint positions
@@ -126,17 +133,18 @@ class Vine5LinkMovingBase(VecTask):
         * Target position
         * Prev target position
         * current p_fpam
-        * current rail velocity
+        * previous rail velocity command
     Action:
       * 1 for u_rail_velocity prismatic joint
       * 1 for u_fpam pressure
     Reward:
-      * -Dist to target
+      * Weighted sum of many rewards
     Environment:
       * Random target position
       * Random start position
     """
 
+    ##### INITIALIZATION START #####
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         # Store cfg file and read in parameters
         self.cfg = cfg
@@ -169,7 +177,6 @@ class Vine5LinkMovingBase(VecTask):
         self.initialize_state_tensors()
         self.target_positions = self.sample_target_positions(self.num_envs)
         self.target_velocities = self.sample_target_velocities(self.num_envs)
-        self.A = None  # Cache this matrix
 
         # Rewards
         self.aggregated_rew_buf = torch.zeros_like(self.rew_buf, device=self.device, dtype=self.rew_buf.dtype)
@@ -187,8 +194,9 @@ class Vine5LinkMovingBase(VecTask):
             "FPAM Change": self.cfg['env']['U_FPAM_CHANGE_REWARD_WEIGHT'],
             "Rail Limit": self.cfg['env']['RAIL_LIMIT_REWARD_WEIGHT'],
             "Cart Y": self.cfg['env']['CART_Y_REWARD_WEIGHT'],
+            "Tip Y": self.cfg['env']['TIP_Y_REWARD_WEIGHT'],
         }
-        assert(set(REWARD_NAMES) == set(reward_name_to_weight_dict.keys()))
+        assert (set(REWARD_NAMES) == set(reward_name_to_weight_dict.keys()))
         reward_weights = [reward_name_to_weight_dict[name] for name in REWARD_NAMES]
         self.reward_weights = torch.tensor([reward_weights], device=self.device)
 
@@ -223,14 +231,17 @@ class Vine5LinkMovingBase(VecTask):
         self.prev_u_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device)
         self.prev_cart_vel_error = torch.zeros(self.num_envs, 1, device=self.device)
 
+        # Log and cache
         self.use_wandb = True
         self.wandb_dict = {}
         self.histogram_observation_data_list = []
+        self.A = None  # Cache this matrix
 
         if len(self.cfg['env']['MAT_FILE']) > 0:
             self.mat = self.read_mat_file(self.cfg['env']['MAT_FILE'])
 
     def read_mat_file(self, filename):
+        # TODO: Unused right now
         import scipy.io
         mat = scipy.io.loadmat(filename)
         return mat
@@ -251,6 +262,7 @@ class Vine5LinkMovingBase(VecTask):
         rigid_body_state_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
         self.rigid_body_state = gymtorch.wrap_tensor(rigid_body_state_tensor)
 
+        # Get tip and cart information
         arbitrary_idx = 0
         tip_idx = self.gym.find_actor_rigid_body_index(
             self.envs[arbitrary_idx], self.vine_handles[arbitrary_idx], "tip", gymapi.DOMAIN_ENV)
@@ -267,152 +279,6 @@ class Vine5LinkMovingBase(VecTask):
         self.link_velocities = rigid_body_state_by_env[:, :, START_LIN_VEL_IDX:END_LIN_VEL_IDX]
         self.tip_velocities = self.link_velocities[:, tip_idx]
         self.cart_velocities = self.link_velocities[:, cart_idx]
-
-    def refresh_state_tensors(self):
-        self.gym.refresh_dof_state_tensor(self.sim)
-        self.gym.refresh_rigid_body_state_tensor(self.sim)
-        self.gym.refresh_actor_root_state_tensor(self.sim)
-
-    def log_wandb_dict(self):
-        # Only wandb log if working
-        if not self.use_wandb:
-            return
-        try:
-            wandb.log(self.wandb_dict)
-        except wandb.errors.Error:
-            print("Wandb not initialized, no longer trying to log")
-            self.use_wandb = False
-        self.wandb_dict = {}
-
-    def save_cfg_file_to_wandb(self):
-        if not self.use_wandb:
-            return
-
-        # BRITTLE: Depends on filename structure
-        import re
-        all_logdir_files = os.listdir(self.log_dir)
-        pattern = re.compile("[a-zA-Z0-9_-]+_rlg_config_dict.pkl")
-        cfg_file = sorted([f for f in all_logdir_files if pattern.match(f)])[-1]
-
-        # Sanity check: Check that datetimes are close
-        try:
-            datetime1_split = re.split('-|_', cfg_file)[:6]
-            datetime2_split = re.split('-|_', self.time_str)[:6]
-            datetime1 = datetime.datetime(*[int(x) for x in datetime1_split])
-            datetime2 = datetime.datetime(*[int(x) for x in datetime2_split])
-            time_diff = (datetime2 - datetime1).total_seconds()
-            if abs(time_diff) > 10:
-                raise ValueError()
-            cfg_file_path = os.path.join(self.log_dir, cfg_file)
-            print(f"Saving cfg file to wandb: {cfg_file_path}")
-            wandb.save(cfg_file_path)
-        except:
-            print("WARNING: Could not save cfg file to wandb")
-
-    def save_model_to_wandb(self):
-        if not self.use_wandb:
-            return
-
-        assumed_model_file = os.path.join(self.log_dir, "nn", f"{self.cfg['name']}.pth")
-        if self.num_steps % 100 == 99 and os.path.exists(assumed_model_file):
-            print(f"Saving model to wandb: {assumed_model_file}")
-            try:
-                wandb.save(assumed_model_file)
-            except wandb.errors.Error:
-                print("Wandb not initialized, no longer trying to log")
-                self.use_wandb = False
-
-    ##### KEYBOARD EVENT SUBSCRIPTIONS START #####
-    def subscribe_to_keyboard_events(self):
-        # Need to populate self.event_action_to_key and self.event_action_to_function
-
-        self.event_action_to_key = {
-            "RESET": gymapi.KEY_R,
-            "PAUSE": gymapi.KEY_P,
-            "PRINT_DEBUG": gymapi.KEY_D,
-            "PRINT_DEBUG_IDX_UP": gymapi.KEY_K,
-            "PRINT_DEBUG_IDX_DOWN": gymapi.KEY_J,
-            "MOVE_LEFT": gymapi.KEY_LEFT,
-            "MOVE_RIGHT": gymapi.KEY_RIGHT,
-            "MAX_PRESSURE": gymapi.KEY_UP,
-            "MIN_PRESSURE": gymapi.KEY_DOWN,
-            "HISTOGRAM": gymapi.KEY_H,
-        }
-        self.event_action_to_function = {
-            "RESET": self._reset_callback,
-            "PAUSE": self._pause_callback,
-            "PRINT_DEBUG": self._print_debug_callback,
-            "PRINT_DEBUG_IDX_UP": self._print_debug_idx_up_callback,
-            "PRINT_DEBUG_IDX_DOWN": self._print_debug_idx_down_callback,
-            "MOVE_LEFT": self._move_left_callback,
-            "MOVE_RIGHT": self._move_right_callback,
-            "MAX_PRESSURE": self._max_pressure_callback,
-            "MIN_PRESSURE": self._min_pressure_callback,
-            "HISTOGRAM": self._histogram_callback,
-        }
-        # Create state variables
-        self.PRINT_DEBUG = False
-        self.PRINT_DEBUG_IDX = 0
-        self.MOVE_LEFT_COUNTER = 0
-        self.MOVE_RIGHT_COUNTER = 0
-        self.MAX_PRESSURE_COUNTER = 0
-        self.MIN_PRESSURE_COUNTER = 0
-        self.create_histogram = False
-
-        assert (sorted(list(self.event_action_to_key.keys())) == sorted(list(self.event_action_to_function.keys())))
-
-    def _reset_callback(self):
-        print("RESETTING")
-        all_env_ids = torch.ones_like(self.reset_buf).nonzero(as_tuple=False).squeeze(-1)
-        self.reset_idx(all_env_ids)
-
-    def _pause_callback(self):
-        print("PAUSING")
-        import time
-        time.sleep(1)
-
-    def _print_debug_callback(self):
-        self.PRINT_DEBUG = not self.PRINT_DEBUG
-        print(f"self.PRINT_DEBUG = {self.PRINT_DEBUG}")
-
-    def _print_debug_idx_up_callback(self):
-        self.PRINT_DEBUG_IDX += 1
-        if self.PRINT_DEBUG_IDX >= self.num_envs:
-            self.PRINT_DEBUG_IDX = self.num_envs - 1
-        print(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
-
-    def _print_debug_idx_down_callback(self):
-        self.PRINT_DEBUG_IDX -= 1
-        if self.PRINT_DEBUG_IDX < 0:
-            self.PRINT_DEBUG_IDX = 0
-        print(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
-
-    def _move_left_callback(self):
-        self.MOVE_LEFT_COUNTER = 100
-        self.MOVE_RIGHT_COUNTER = 0
-        print(f"self.MOVE_LEFT_COUNTER = {self.MOVE_LEFT_COUNTER}")
-
-    def _move_right_callback(self):
-        self.MOVE_RIGHT_COUNTER = 100
-        self.MOVE_LEFT_COUNTER = 0
-        print(f"self.MOVE_RIGHT_COUNTER = {self.MOVE_RIGHT_COUNTER}")
-
-    def _max_pressure_callback(self):
-        self.MAX_PRESSURE_COUNTER = 100
-        self.MIN_PRESSURE_COUNTER = 0
-        print(f"self.MAX_PRESSURE_COUNTER = {self.MAX_PRESSURE_COUNTER}")
-
-    def _min_pressure_callback(self):
-        self.MIN_PRESSURE_COUNTER = 100
-        self.MAX_PRESSURE_COUNTER = 0
-        print(f"self.MIN_PRESSURE_COUNTER = {self.MIN_PRESSURE_COUNTER}")
-
-    def _histogram_callback(self):
-        self.create_histogram = True
-        self.histogram_observation_data_list = []
-        print(f"self.create_histogram = {self.create_histogram}")
-
-    ##### KEYBOARD EVENT SUBSCRIPTIONS END #####
 
     def create_sim(self):
         # set the up axis to be z-up given that assets are y-up by default
@@ -641,165 +507,151 @@ class Vine5LinkMovingBase(VecTask):
         print(f"joint_dict = {joint_dict}")
         print(f"dof_dict = {dof_dict}")
         print()
+    ##### INITIALIZATION END #####
 
-    def compute_reward(self):
-        dist_tip_to_target = torch.linalg.norm(self.tip_positions - self.target_positions, dim=-1)
+    ##### WANDB LOGGING START #####
+    def log_wandb_dict(self):
+        # Only wandb log if working
+        if not self.use_wandb:
+            return
+        try:
+            wandb.log(self.wandb_dict)
+        except wandb.errors.Error:
+            print("Wandb not initialized, no longer trying to log")
+            self.use_wandb = False
+        self.wandb_dict = {}
 
-        # Target reached
-        ONLY_CARE_ABOUT_Y_TARGET = False
-        if ONLY_CARE_ABOUT_Y_TARGET:
-            tip_y = self.tip_positions[:, 1]
-            target_y = self.target_positions[:, 1]
-            target_reached = tip_y < target_y  # More negative in y dir BRITTLE
-        else:
-            SUCCESS_DIST = 0.05
-            target_reached = dist_tip_to_target < SUCCESS_DIST
+    def save_cfg_file_to_wandb(self):
+        if not self.use_wandb:
+            return
 
-        # Limit hit
-        cart_y = self.cart_positions[:, 1]
-        limit_hit = torch.logical_or(cart_y > self.cfg['env']['RAIL_SOFT_LIMIT'], cart_y < -self.cfg['env']['RAIL_SOFT_LIMIT'])
+        # BRITTLE: Depends on filename structure
+        import re
+        all_logdir_files = os.listdir(self.log_dir)
+        pattern = re.compile("[a-zA-Z0-9_-]+_rlg_config_dict.pkl")
+        cfg_file = sorted([f for f in all_logdir_files if pattern.match(f)])[-1]
 
-        self.wandb_dict.update({
-            "dist_tip_to_target": dist_tip_to_target.mean().item(),
-            "target_reached": target_reached.float().mean().item(),
-            "limit_hit": limit_hit.float().mean().item(),
-            "abs_tip_y": self.tip_positions[:, 1].abs().mean().item(),
-            "tip_z": self.tip_positions[:, 2].mean().item(),
-            "max_abs_tip_y": self.tip_positions[:, 1].abs().max().item(),
-            "max_tip_z": self.tip_positions[:, 2].max().item(),
-            "tip_velocities": torch.norm(self.tip_velocities, dim=-1).mean().item(),
-            "tip_velocities_max": torch.norm(self.tip_velocities, dim=-1).max().item(),
-            "u_rail_velocity": torch.norm(self.u_rail_velocity, dim=-1).mean().item(),
-            "prev_u_rail_velocity": torch.norm(self.prev_u_rail_velocity, dim=-1).mean().item(),
-            "rail_force": torch.norm(self.rail_force, dim=-1).mean().item(),
-            "u_fpam": torch.norm(self.u_fpam, dim=-1).mean().item(),
-            "smoothed_u_fpam": torch.norm(self.smoothed_u_fpam, dim=-1).mean().item(),
-            "tip_target_velocity_difference": torch.norm(self.tip_velocities - self.target_velocities, dim=-1).mean().item(),
-            "progress_buf": self.progress_buf.float().mean().item(),
-        })
+        # Sanity check: Check that datetimes are close
+        try:
+            datetime1_split = re.split('-|_', cfg_file)[:6]
+            datetime2_split = re.split('-|_', self.time_str)[:6]
+            datetime1 = datetime.datetime(*[int(x) for x in datetime1_split])
+            datetime2 = datetime.datetime(*[int(x) for x in datetime2_split])
+            time_diff = (datetime2 - datetime1).total_seconds()
+            if abs(time_diff) > 10:
+                raise ValueError()
+            cfg_file_path = os.path.join(self.log_dir, cfg_file)
+            print(f"Saving cfg file to wandb: {cfg_file_path}")
+            wandb.save(cfg_file_path)
+        except:
+            print("WARNING: Could not save cfg file to wandb")
 
-        self.rew_buf[:], reward_matrix, weighted_reward_matrix = compute_reward_jit(
-            dist_to_target=dist_tip_to_target, target_reached=target_reached, tip_velocities=self.tip_velocities,
-            target_velocities=self.target_velocities, u_rail_velocity=self.u_rail_velocity, u_fpam=self.u_fpam, prev_u_rail_velocity=self.prev_u_rail_velocity,
-            smoothed_u_fpam=self.smoothed_u_fpam, limit_hit=limit_hit, cart_y=cart_y, reward_weights=self.reward_weights, reward_names=REWARD_NAMES
-        )
-        self.aggregated_rew_buf += self.rew_buf
+    def save_model_to_wandb(self):
+        if not self.use_wandb:
+            return
 
-        self.wandb_dict.update({
-            "Aggregated Reward": self.aggregated_rew_buf.mean().item(),
-            "Aggregated Reward 1 Std Up": self.aggregated_rew_buf.mean().item() + self.aggregated_rew_buf.std().item(),
-            "Aggregated Reward 1 Std Down": self.aggregated_rew_buf.mean().item() - self.aggregated_rew_buf.std().item(),
-        })
+        assumed_model_file = os.path.join(self.log_dir, "nn", f"{self.cfg['name']}.pth")
+        if self.num_steps % 100 == 99 and os.path.exists(assumed_model_file):
+            print(f"Saving model to wandb: {assumed_model_file}")
+            try:
+                wandb.save(assumed_model_file)
+            except wandb.errors.Error:
+                print("Wandb not initialized, no longer trying to log")
+                self.use_wandb = False
+    ##### WANDB LOGGING END #####
 
-        # Log input and output
-        for i, idx in enumerate(self.prismatic_dof_indices):
-            self.wandb_dict[f"prismatic_q{i} at self.index_to_view"] = self.dof_pos[self.index_to_view, idx]
-            self.wandb_dict[f"prismatic_qd{i} at self.index_to_view"] = self.dof_vel[self.index_to_view, idx]
-            self.wandb_dict[f"prismatic_finite_diff_qd{i} at self.index_to_view"] = self.finite_difference_dof_vel[self.index_to_view, idx]
+    ##### KEYBOARD EVENT SUBSCRIPTIONS START #####
+    def subscribe_to_keyboard_events(self):
+        # Need to populate self.event_action_to_key and self.event_action_to_function
 
-        for i, idx in enumerate(self.revolute_dof_indices):
-            self.wandb_dict[f"q{i} at self.index_to_view"] = self.dof_pos[self.index_to_view, idx]
-            self.wandb_dict[f"qd{i} at self.index_to_view"] = self.dof_vel[self.index_to_view, idx]
-            self.wandb_dict[f"finite_diff_qd{i} at self.index_to_view"] = self.finite_difference_dof_vel[self.index_to_view, idx]
+        self.event_action_to_key = {
+            "RESET": gymapi.KEY_R,
+            "PAUSE": gymapi.KEY_P,
+            "PRINT_DEBUG": gymapi.KEY_D,
+            "PRINT_DEBUG_IDX_UP": gymapi.KEY_K,
+            "PRINT_DEBUG_IDX_DOWN": gymapi.KEY_J,
+            "MOVE_LEFT": gymapi.KEY_LEFT,
+            "MOVE_RIGHT": gymapi.KEY_RIGHT,
+            "MAX_PRESSURE": gymapi.KEY_UP,
+            "MIN_PRESSURE": gymapi.KEY_DOWN,
+            "HISTOGRAM": gymapi.KEY_H,
+        }
+        self.event_action_to_function = {
+            "RESET": self._reset_callback,
+            "PAUSE": self._pause_callback,
+            "PRINT_DEBUG": self._print_debug_callback,
+            "PRINT_DEBUG_IDX_UP": self._print_debug_idx_up_callback,
+            "PRINT_DEBUG_IDX_DOWN": self._print_debug_idx_down_callback,
+            "MOVE_LEFT": self._move_left_callback,
+            "MOVE_RIGHT": self._move_right_callback,
+            "MAX_PRESSURE": self._max_pressure_callback,
+            "MIN_PRESSURE": self._min_pressure_callback,
+            "HISTOGRAM": self._histogram_callback,
+        }
+        # Create state variables
+        self.PRINT_DEBUG = False
+        self.PRINT_DEBUG_IDX = 0
+        self.MOVE_LEFT_COUNTER = 0
+        self.MOVE_RIGHT_COUNTER = 0
+        self.MAX_PRESSURE_COUNTER = 0
+        self.MIN_PRESSURE_COUNTER = 0
+        self.create_histogram = False
 
-        for i, dir in enumerate(XYZ_LIST):
-            self.wandb_dict[f"tip_vel_{dir} at self.index_to_view"] = self.tip_velocities[self.index_to_view, i]
-            self.wandb_dict[f"cart_vel_{dir} at self.index_to_view"] = self.cart_velocities[self.index_to_view, i]
-            self.wandb_dict[f"target_vel_{dir} at self.index_to_view"] = self.target_velocities[self.index_to_view, i]
-            self.wandb_dict[f"finite_diff_tip_vel_{dir} at self.index_to_view"] = self.finite_difference_tip_velocities[self.index_to_view, i]
+        assert (sorted(list(self.event_action_to_key.keys())) == sorted(list(self.event_action_to_function.keys())))
 
-            self.wandb_dict[f"tip_pos_{dir} at self.index_to_view"] = self.tip_positions[self.index_to_view, i]
-            self.wandb_dict[f"cart_pos_{dir} at self.index_to_view"] = self.cart_positions[self.index_to_view, i]
-            self.wandb_dict[f"target_pos_{dir} at self.index_to_view"] = self.target_positions[self.index_to_view, i]
+    def _reset_callback(self):
+        print("RESETTING")
+        all_env_ids = torch.ones_like(self.reset_buf).nonzero(as_tuple=False).squeeze(-1)
+        self.reset_idx(all_env_ids)
 
-        self.wandb_dict["u_fpam at self.index_to_view"] = self.u_fpam[self.index_to_view]
-        self.wandb_dict["smoothed u_fpam at self.index_to_view"] = self.smoothed_u_fpam[self.index_to_view]
-        self.wandb_dict["u_rail_velocity at self.index_to_view"] = self.u_rail_velocity[self.index_to_view]
-        self.wandb_dict["rail_force at self.index_to_view"] = self.rail_force[self.index_to_view]
+    def _pause_callback(self):
+        print("PAUSING")
+        import time
+        time.sleep(1)
 
-        for i, reward_name in enumerate(REWARD_NAMES):
-            self.wandb_dict.update({
-                f"Mean {reward_name} Reward": reward_matrix[:, i].mean().item(),
-                f"Max {reward_name} Reward": reward_matrix[:, i].max().item(),
-                f"Weighted Mean {reward_name} Reward": weighted_reward_matrix[:, i].mean().item(),
-                f"Weighted Max {reward_name} Reward": weighted_reward_matrix[:, i].max().item(),
-                f"Mean Total Reward": self.rew_buf.mean().item(),
-                f"Max Total Reward": self.rew_buf.max().item(),
-            })
+    def _print_debug_callback(self):
+        self.PRINT_DEBUG = not self.PRINT_DEBUG
+        print(f"self.PRINT_DEBUG = {self.PRINT_DEBUG}")
 
-        self.reset_buf[:] = compute_reset_jit(
-            reset_buf=self.reset_buf, progress_buf=self.progress_buf,
-            max_episode_length=self.max_episode_length, target_reached=target_reached, limit_hit=limit_hit,
-            use_target_reached_reset=self.cfg['env']['USE_TARGET_REACHED_RESET'],
-        )
+    def _print_debug_idx_up_callback(self):
+        self.PRINT_DEBUG_IDX += 1
+        if self.PRINT_DEBUG_IDX >= self.num_envs:
+            self.PRINT_DEBUG_IDX = self.num_envs - 1
+        print(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
 
-    def compute_observations(self, env_ids=None):
-        if env_ids is None:
-            env_ids = np.arange(self.num_envs)
+    def _print_debug_idx_down_callback(self):
+        self.PRINT_DEBUG_IDX -= 1
+        if self.PRINT_DEBUG_IDX < 0:
+            self.PRINT_DEBUG_IDX = 0
+        print(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
 
-        # Refresh tensors
-        self.refresh_state_tensors()
+    def _move_left_callback(self):
+        self.MOVE_LEFT_COUNTER = 100
+        self.MOVE_RIGHT_COUNTER = 0
+        print(f"self.MOVE_LEFT_COUNTER = {self.MOVE_LEFT_COUNTER}")
 
-        # Finite difference to get velocities
-        self.finite_difference_dof_vel = (self.dof_pos - self.prev_dof_pos) / self.control_dt
-        self.finite_difference_tip_velocities = (self.tip_positions - self.prev_tip_positions) / self.control_dt
+    def _move_right_callback(self):
+        self.MOVE_RIGHT_COUNTER = 100
+        self.MOVE_LEFT_COUNTER = 0
+        print(f"self.MOVE_RIGHT_COUNTER = {self.MOVE_RIGHT_COUNTER}")
 
-        # Populate obs_buf
-        # tensors_to_add elements must all be (num_envs, X)
-        observation_type = ObservationType[self.cfg["env"]["OBSERVATION_TYPE"]]
+    def _max_pressure_callback(self):
+        self.MAX_PRESSURE_COUNTER = 100
+        self.MIN_PRESSURE_COUNTER = 0
+        print(f"self.MAX_PRESSURE_COUNTER = {self.MAX_PRESSURE_COUNTER}")
 
-        if observation_type == ObservationType.POS_ONLY:
-            tensors_to_concat = [self.dof_pos, self.tip_positions, self.target_positions,
-                                 self.smoothed_u_fpam, self.prev_u_rail_velocity]
-        elif observation_type == ObservationType.POS_AND_VEL:
-            tensors_to_concat = [self.dof_pos, self.dof_vel, self.tip_positions, self.tip_velocities,
-                                 self.target_positions, self.target_velocities,
-                                 self.smoothed_u_fpam, self.prev_u_rail_velocity]
-        elif observation_type == ObservationType.POS_AND_FD_VEL:
-            tensors_to_concat = [self.dof_pos, self.finite_difference_dof_vel, self.tip_positions, self.finite_difference_tip_velocities,
-                                 self.target_positions, self.target_velocities,
-                                 self.smoothed_u_fpam, self.prev_u_rail_velocity]
-        elif observation_type == ObservationType.POS_AND_PREV_POS:
-            tensors_to_concat = [self.dof_pos, self.prev_dof_pos, self.tip_positions, self.prev_tip_positions,
-                                 self.target_positions, self.target_velocities,
-                                 self.smoothed_u_fpam, self.prev_u_rail_velocity]
-        self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
+    def _min_pressure_callback(self):
+        self.MIN_PRESSURE_COUNTER = 100
+        self.MAX_PRESSURE_COUNTER = 0
+        print(f"self.MIN_PRESSURE_COUNTER = {self.MIN_PRESSURE_COUNTER}")
 
+    def _histogram_callback(self):
+        self.create_histogram = True
+        self.histogram_observation_data_list = []
+        print(f"self.create_histogram = {self.create_histogram}")
+    ##### KEYBOARD EVENT SUBSCRIPTIONS END #####
 
-        if self.cfg['env']['CREATE_HISTOGRAMS_PERIODICALLY'] or self.create_histogram:
-            # Store observations (from all envs or just one)
-            # new_data = [self.obs_buf[i, :].cpu().numpy().tolist() for i in range(self.obs_buf.shape[0])
-            #             ]  # list of lists (inner list has length num_obs)
-            new_data = [self.obs_buf[self.index_to_view, :].cpu().numpy().tolist()]
-            # self.histogram_observation_data_list is a list of lists (outer list has length num_rows)
-            self.histogram_observation_data_list += new_data
-
-            if len(self.histogram_observation_data_list) == 100 * len(new_data):
-                print(f"Creating histogram at self.num_steps {self.num_steps}")
-
-                # BRITTLE: Depends on observations above
-                observation_names = [*[f"joint_pos_{i}" for i in range(self.num_dof)],
-                                     *[f"joint_vel_{i}" for i in range(self.num_dof)],
-                                     *[f"tip_pos_{i}" for i in XYZ_LIST],
-                                     *[f"tip_vel_{i}" for i in XYZ_LIST],
-                                     *[f"target_pos_{i}" for i in XYZ_LIST],
-                                     *[f"target_vel_{i}" for i in XYZ_LIST],
-                                     "smoothed_u_fpam", "prev_u_rail_vel"]
-                # Each entry is a row in the table
-                table = wandb.Table(data=self.histogram_observation_data_list, columns=observation_names)
-                ALL_HISTOGRAMS = True
-                names_to_plot = observation_names if ALL_HISTOGRAMS else [
-                    "tip_pos_y", "tip_pos_z", "tip_vel_y", "tip_vel_z"]
-                histograms_dict = {f'{name}_histogram {self.num_steps}': wandb.plot.histogram(
-                    table, name, title=f"{name} Histogram {self.num_steps}") for name in names_to_plot}
-                wandb.log(histograms_dict)
-
-                # Reset
-                self.histogram_observation_data_list = []
-                self.create_histogram = False
-
-        return self.obs_buf
-
+    ##### RESET START #####
     def reset_idx(self, env_ids):
         # randomization can happen only at reset time, since it can reset actor positions on GPU
         if self.randomize:
@@ -883,12 +735,31 @@ class Vine5LinkMovingBase(VecTask):
     def sample_target_velocities(self, num_envs):
         # TODO
         return torch.zeros(num_envs, NUM_XYZ, device=self.device)
+    ##### RESET END #####
+
+    ##### PRE PHYSICS STEP START #####
+    def pre_physics_step(self, actions):
+        # Compute high level actions
+        self.raw_actions = actions.clone().to(self.device)
+        self.u_rail_velocity, self.u_fpam = self.raw_actions_to_actions(self.raw_actions)
+        self.manual_intervention()
+        self.smoothed_u_fpam = self.u_fpam_to_smoothed_u_fpam(self.u_fpam, self.smoothed_u_fpam)
+
+        # Store prevs
+        self.prev_dof_pos = self.dof_pos.clone()
+        self.prev_tip_positions = self.tip_positions.clone()
+        self.prev_u_rail_velocity = self.u_rail_velocity.clone()
+
+        # Compute and set joint actutation
+        self.compute_and_set_dof_actuation_force_tensor()
 
     def raw_actions_to_actions(self, raw_actions):
         # Break apart actions and states
         if N_PRISMATIC_DOFS == 1:
-            u_rail_velocity = rescale_to_u_rail_velocity(raw_actions[:, 0:1], self.cfg['env']['RAIL_VELOCITY_SCALE'])  # (num_envs, 1)
-            u_fpam = rescale_to_u(raw_actions[:, 1:2], self.cfg['env']['FPAM_MIN'], self.cfg['env']['FPAM_MAX'])  # (num_envs, 1)
+            u_rail_velocity = rescale_to_u_rail_velocity(
+                raw_actions[:, 0:1], self.cfg['env']['RAIL_VELOCITY_SCALE'])  # (num_envs, 1)
+            u_fpam = rescale_to_u(raw_actions[:, 1:2], self.cfg['env']['FPAM_MIN'],
+                                  self.cfg['env']['FPAM_MAX'])  # (num_envs, 1)
         elif N_PRISMATIC_DOFS == 0:
             u_rail_velocity = torch.zeros_like(raw_actions[:, 0:1], device=raw_actions.device)  # (num_envs, 1)
             u_fpam = rescale_to_u(raw_actions, self.cfg['env']['FPAM_MIN'])  # (num_envs, 1)
@@ -899,7 +770,8 @@ class Vine5LinkMovingBase(VecTask):
 
     def u_fpam_to_smoothed_u_fpam(self, u_fpam, smoothed_u_fpam):
         # Compute smoothed u_fpam
-        alphas = torch.where(u_fpam > smoothed_u_fpam, self.cfg['env']['SMOOTHING_ALPHA_INFLATE'], self.cfg['env']['SMOOTHING_ALPHA_DEFLATE'])
+        alphas = torch.where(u_fpam > smoothed_u_fpam,
+                             self.cfg['env']['SMOOTHING_ALPHA_INFLATE'], self.cfg['env']['SMOOTHING_ALPHA_DEFLATE'])
 
         if self.randomize:
             alphas *= torch.FloatTensor(*alphas.shape).uniform_(self.cfg['env']['DOMAIN_RANDOMIZATION_SCALING_MIN'],
@@ -974,7 +846,8 @@ class Vine5LinkMovingBase(VecTask):
         cart_vel_y = self.cart_velocities[:, 1:2]  # (num_envs, 1)
         cart_vel_error = self.u_rail_velocity - cart_vel_y
         RAIL_FORCE_MAX = self.cfg['env']['RAIL_P_GAIN'] * self.cfg['env']['RAIL_VELOCITY_SCALE']
-        rail_force_pid = self.cfg['env']['RAIL_P_GAIN'] * cart_vel_error + self.cfg['env']['RAIL_D_GAIN'] * (cart_vel_error - self.prev_cart_vel_error)
+        rail_force_pid = self.cfg['env']['RAIL_P_GAIN'] * cart_vel_error + \
+            self.cfg['env']['RAIL_D_GAIN'] * (cart_vel_error - self.prev_cart_vel_error)
         rail_force_minmax = torch.where(cart_vel_error > 0, torch.tensor(
             RAIL_FORCE_MAX, device=self.device), torch.tensor(-RAIL_FORCE_MAX, device=self.device))
         self.rail_force = torch.where(torch.abs(cart_vel_error) > 0.1, rail_force_minmax, rail_force_pid)
@@ -992,22 +865,9 @@ class Vine5LinkMovingBase(VecTask):
         elif N_PRISMATIC_DOFS == 0:
             dof_efforts[:, :] = torques
         self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
+    ##### PRE PHYSICS STEP END #####
 
-    def pre_physics_step(self, actions):
-        # Compute high level actions
-        self.raw_actions = actions.clone().to(self.device)
-        self.u_rail_velocity, self.u_fpam = self.raw_actions_to_actions(self.raw_actions)
-        self.manual_intervention()
-        self.smoothed_u_fpam = self.u_fpam_to_smoothed_u_fpam(self.u_fpam, self.smoothed_u_fpam)
-
-        # Store prevs
-        self.prev_dof_pos = self.dof_pos.clone()
-        self.prev_tip_positions = self.tip_positions.clone()
-        self.prev_u_rail_velocity = self.u_rail_velocity.clone()
-
-        # Compute and set joint actutation
-        self.compute_and_set_dof_actuation_force_tensor()
-
+    ##### POST PHYSICS STEP START #####
     def post_physics_step(self):
         self.progress_buf += 1
 
@@ -1080,6 +940,179 @@ class Vine5LinkMovingBase(VecTask):
         if self.num_steps == 1:
             self.save_cfg_file_to_wandb()
 
+    def compute_reward(self):
+        dist_tip_to_target = torch.linalg.norm(self.tip_positions - self.target_positions, dim=-1)
+
+        # Target reached
+        ONLY_CARE_ABOUT_Y_TARGET = False
+        if ONLY_CARE_ABOUT_Y_TARGET:
+            tip_y = self.tip_positions[:, 1]
+            target_y = self.target_positions[:, 1]
+            target_reached = tip_y < target_y  # More negative in y dir BRITTLE
+        else:
+            SUCCESS_DIST = 0.05
+            target_reached = dist_tip_to_target < SUCCESS_DIST
+
+        # Limit hit
+        cart_y = self.cart_positions[:, 1]
+        limit_hit = torch.logical_or(cart_y > self.cfg['env']['RAIL_SOFT_LIMIT'],
+                                     cart_y < -self.cfg['env']['RAIL_SOFT_LIMIT'])
+
+        # Tip y exceeds target y
+        tip_y = self.tip_positions[:, 1]
+        tip_limit_hit = tip_y < self.target_positions[:, 1]
+
+        self.wandb_dict.update({
+            "dist_tip_to_target": dist_tip_to_target.mean().item(),
+            "target_reached": target_reached.float().mean().item(),
+            "limit_hit": limit_hit.float().mean().item(),
+            "tip_limit_hit": tip_limit_hit.float().mean().item(),
+            "abs_tip_y": self.tip_positions[:, 1].abs().mean().item(),
+            "tip_z": self.tip_positions[:, 2].mean().item(),
+            "max_abs_tip_y": self.tip_positions[:, 1].abs().max().item(),
+            "max_tip_z": self.tip_positions[:, 2].max().item(),
+            "tip_velocities": torch.norm(self.tip_velocities, dim=-1).mean().item(),
+            "tip_velocities_max": torch.norm(self.tip_velocities, dim=-1).max().item(),
+            "u_rail_velocity": torch.norm(self.u_rail_velocity, dim=-1).mean().item(),
+            "prev_u_rail_velocity": torch.norm(self.prev_u_rail_velocity, dim=-1).mean().item(),
+            "rail_force": torch.norm(self.rail_force, dim=-1).mean().item(),
+            "u_fpam": torch.norm(self.u_fpam, dim=-1).mean().item(),
+            "smoothed_u_fpam": torch.norm(self.smoothed_u_fpam, dim=-1).mean().item(),
+            "tip_target_velocity_difference": torch.norm(self.tip_velocities - self.target_velocities, dim=-1).mean().item(),
+            "progress_buf": self.progress_buf.float().mean().item(),
+        })
+
+        self.rew_buf[:], reward_matrix, weighted_reward_matrix = compute_reward_jit(
+            dist_to_target=dist_tip_to_target, target_reached=target_reached, tip_velocities=self.tip_velocities,
+            target_velocities=self.target_velocities, u_rail_velocity=self.u_rail_velocity, u_fpam=self.u_fpam, prev_u_rail_velocity=self.prev_u_rail_velocity,
+            smoothed_u_fpam=self.smoothed_u_fpam, limit_hit=limit_hit, tip_limit_hit=tip_limit_hit, cart_y=cart_y, reward_weights=self.reward_weights, reward_names=REWARD_NAMES
+        )
+        self.aggregated_rew_buf += self.rew_buf
+
+        self.wandb_dict.update({
+            "Aggregated Reward": self.aggregated_rew_buf.mean().item(),
+            "Aggregated Reward 1 Std Up": self.aggregated_rew_buf.mean().item() + self.aggregated_rew_buf.std().item(),
+            "Aggregated Reward 1 Std Down": self.aggregated_rew_buf.mean().item() - self.aggregated_rew_buf.std().item(),
+        })
+
+        # Log input and output
+        for i, idx in enumerate(self.prismatic_dof_indices):
+            self.wandb_dict[f"prismatic_q{i} at self.index_to_view"] = self.dof_pos[self.index_to_view, idx]
+            self.wandb_dict[f"prismatic_qd{i} at self.index_to_view"] = self.dof_vel[self.index_to_view, idx]
+            self.wandb_dict[f"prismatic_finite_diff_qd{i} at self.index_to_view"] = self.finite_difference_dof_vel[self.index_to_view, idx]
+
+        for i, idx in enumerate(self.revolute_dof_indices):
+            self.wandb_dict[f"q{i} at self.index_to_view"] = self.dof_pos[self.index_to_view, idx]
+            self.wandb_dict[f"qd{i} at self.index_to_view"] = self.dof_vel[self.index_to_view, idx]
+            self.wandb_dict[f"finite_diff_qd{i} at self.index_to_view"] = self.finite_difference_dof_vel[self.index_to_view, idx]
+
+        for i, dir in enumerate(XYZ_LIST):
+            self.wandb_dict[f"tip_vel_{dir} at self.index_to_view"] = self.tip_velocities[self.index_to_view, i]
+            self.wandb_dict[f"cart_vel_{dir} at self.index_to_view"] = self.cart_velocities[self.index_to_view, i]
+            self.wandb_dict[f"target_vel_{dir} at self.index_to_view"] = self.target_velocities[self.index_to_view, i]
+            self.wandb_dict[f"finite_diff_tip_vel_{dir} at self.index_to_view"] = self.finite_difference_tip_velocities[self.index_to_view, i]
+
+            self.wandb_dict[f"tip_pos_{dir} at self.index_to_view"] = self.tip_positions[self.index_to_view, i]
+            self.wandb_dict[f"cart_pos_{dir} at self.index_to_view"] = self.cart_positions[self.index_to_view, i]
+            self.wandb_dict[f"target_pos_{dir} at self.index_to_view"] = self.target_positions[self.index_to_view, i]
+
+        self.wandb_dict["u_fpam at self.index_to_view"] = self.u_fpam[self.index_to_view]
+        self.wandb_dict["smoothed u_fpam at self.index_to_view"] = self.smoothed_u_fpam[self.index_to_view]
+        self.wandb_dict["u_rail_velocity at self.index_to_view"] = self.u_rail_velocity[self.index_to_view]
+        self.wandb_dict["rail_force at self.index_to_view"] = self.rail_force[self.index_to_view]
+
+        for i, reward_name in enumerate(REWARD_NAMES):
+            self.wandb_dict.update({
+                f"Mean {reward_name} Reward": reward_matrix[:, i].mean().item(),
+                f"Max {reward_name} Reward": reward_matrix[:, i].max().item(),
+                f"Weighted Mean {reward_name} Reward": weighted_reward_matrix[:, i].mean().item(),
+                f"Weighted Max {reward_name} Reward": weighted_reward_matrix[:, i].max().item(),
+                f"Mean Total Reward": self.rew_buf.mean().item(),
+                f"Max Total Reward": self.rew_buf.max().item(),
+            })
+
+        self.reset_buf[:] = compute_reset_jit(
+            reset_buf=self.reset_buf, progress_buf=self.progress_buf,
+            max_episode_length=self.max_episode_length, target_reached=target_reached, limit_hit=limit_hit, tip_limit_hit=tip_limit_hit,
+            use_target_reached_reset=self.cfg['env']['USE_TARGET_REACHED_RESET'],
+        )
+
+    def refresh_state_tensors(self):
+        self.gym.refresh_dof_state_tensor(self.sim)
+        self.gym.refresh_rigid_body_state_tensor(self.sim)
+        self.gym.refresh_actor_root_state_tensor(self.sim)
+
+    def compute_observations(self, env_ids=None):
+        if env_ids is None:
+            env_ids = np.arange(self.num_envs)
+
+        # Refresh tensors
+        self.refresh_state_tensors()
+
+        # Finite difference to get velocities
+        self.finite_difference_dof_vel = (self.dof_pos - self.prev_dof_pos) / self.control_dt
+        self.finite_difference_tip_velocities = (self.tip_positions - self.prev_tip_positions) / self.control_dt
+
+        # Populate obs_buf
+        # tensors_to_add elements must all be (num_envs, X)
+        observation_type = ObservationType[self.cfg["env"]["OBSERVATION_TYPE"]]
+
+        if observation_type == ObservationType.POS_ONLY:
+            tensors_to_concat = [self.dof_pos, self.tip_positions, self.target_positions,
+                                 self.smoothed_u_fpam, self.prev_u_rail_velocity]
+        elif observation_type == ObservationType.POS_AND_VEL:
+            tensors_to_concat = [self.dof_pos, self.dof_vel, self.tip_positions, self.tip_velocities,
+                                 self.target_positions, self.target_velocities,
+                                 self.smoothed_u_fpam, self.prev_u_rail_velocity]
+        elif observation_type == ObservationType.POS_AND_FD_VEL:
+            tensors_to_concat = [self.dof_pos, self.finite_difference_dof_vel, self.tip_positions, self.finite_difference_tip_velocities,
+                                 self.target_positions, self.target_velocities,
+                                 self.smoothed_u_fpam, self.prev_u_rail_velocity]
+        elif observation_type == ObservationType.POS_AND_PREV_POS:
+            tensors_to_concat = [self.dof_pos, self.prev_dof_pos, self.tip_positions, self.prev_tip_positions,
+                                 self.target_positions, self.target_velocities,
+                                 self.smoothed_u_fpam, self.prev_u_rail_velocity]
+        self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
+
+        if self.cfg['env']['CREATE_HISTOGRAMS_PERIODICALLY'] or self.create_histogram:
+            # Store observations (from all envs or just one)
+            HISTOGRAM_USING_ALL_ENVS = False
+            if HISTOGRAM_USING_ALL_ENVS:
+                new_data = [self.obs_buf[i, :].cpu().numpy().tolist() for i in range(self.obs_buf.shape[0])
+                            ]  # list of lists (inner list has length num_obs)
+            else:
+                new_data = [self.obs_buf[self.index_to_view, :].cpu().numpy().tolist()]
+
+            # self.histogram_observation_data_list is a list of lists (outer list has length num_rows)
+            self.histogram_observation_data_list += new_data
+
+            if len(self.histogram_observation_data_list) == 100 * len(new_data):
+                print(f"Creating histogram at self.num_steps {self.num_steps}")
+
+                # BRITTLE: Depends on observations above
+                observation_names = [*[f"joint_pos_{i}" for i in range(self.num_dof)],
+                                     *[f"joint_vel_{i}" for i in range(self.num_dof)],
+                                     *[f"tip_pos_{i}" for i in XYZ_LIST],
+                                     *[f"tip_vel_{i}" for i in XYZ_LIST],
+                                     *[f"target_pos_{i}" for i in XYZ_LIST],
+                                     *[f"target_vel_{i}" for i in XYZ_LIST],
+                                     "smoothed_u_fpam", "prev_u_rail_vel"]
+                # Each entry is a row in the table
+                table = wandb.Table(data=self.histogram_observation_data_list, columns=observation_names)
+                ALL_HISTOGRAMS = True
+                names_to_plot = observation_names if ALL_HISTOGRAMS else [
+                    "tip_pos_y", "tip_pos_z", "tip_vel_y", "tip_vel_z"]
+                histograms_dict = {f'{name}_histogram {self.num_steps}': wandb.plot.histogram(
+                    table, name, title=f"{name} Histogram {self.num_steps}") for name in names_to_plot}
+                wandb.log(histograms_dict)
+
+                # Reset
+                self.histogram_observation_data_list = []
+                self.create_histogram = False
+
+        return self.obs_buf
+    ##### POST PHYSICS STEP END #####
+
 
 def rescale_to_u(u_fpam, min, max):
     return (u_fpam + 1.0) / 2.0 * (max - min) + min
@@ -1088,14 +1121,14 @@ def rescale_to_u(u_fpam, min, max):
 def rescale_to_u_rail_velocity(u_rail_velocity, scale):
     return u_rail_velocity * scale
 
-#####################################################################
-### =========================jit functions=========================###
-#####################################################################
+#######################################################################
+### =========================jit functions========================= ###
+#######################################################################
 
 
 @torch.jit.script
-def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_velocities, u_rail_velocity, u_fpam, prev_u_rail_velocity, smoothed_u_fpam, limit_hit, cart_y, reward_weights, reward_names):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, List[str]) -> Tuple[Tensor, Tensor, Tensor]
+def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_velocities, u_rail_velocity, u_fpam, prev_u_rail_velocity, smoothed_u_fpam, limit_hit, tip_limit_hit, cart_y, reward_weights, reward_names):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, List[str]) -> Tuple[Tensor, Tensor, Tensor]
     # reward = sum(w_i * r_i) with various reward function r_i and weights w_i
 
     # position_reward = -dist_to_target [Try to reach target]
@@ -1107,12 +1140,15 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
     # u_control_reward = -norm(u_fpam) [Punish for using too much actuation]
     # u_rail_velocity_change_reward = -norm(u_rail_velocity - prev_u_rail_velocity) [Punish for changing u_rail_velocity]
     # u_change_reward = -norm(u_fpam - smoothed_u_fpam) [Punish for changing u_fpam]
-    # rail_limit_reward = RAIL_LIMIT_PUNISHMENT if limit_hit else 0 [Punish for getting near rail limits]
+    # rail_limit_reward = RAIL_LIMIT_PUNISHMENT if limit_hit else 0 [Punish for hitting rail limits]
+    # cart_y_reward = -abs(cart_y) [Punish for getting near rail limits]
+    # tip_y_reward = TIP_LIMIT_PUNISHMENT if tip_limit_hit else 0 [Punish for exceeding target]
     N_REWARDS = torch.numel(reward_weights)
     N_ENVS = dist_to_target.shape[0]
 
     REWARD_BONUS = 1000.0
     RAIL_LIMIT_PUNISHMENT = -100.0
+    TIP_LIMIT_PUNISHMENT = -100.0
 
     # Brittle: Ensure reward order matches
     reward_matrix = torch.zeros(N_ENVS, N_REWARDS, device=dist_to_target.device)
@@ -1141,6 +1177,8 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
             reward_matrix[:, i] += torch.where(limit_hit, RAIL_LIMIT_PUNISHMENT, 0.0)
         elif reward_name == "Cart Y":
             reward_matrix[:, i] -= torch.abs(cart_y)
+        elif reward_name == "Tip Y":
+            reward_matrix[:, i] += torch.where(tip_limit_hit, TIP_LIMIT_PUNISHMENT, 0.0)
         else:
             raise ValueError(f"Invalid reward name: {reward_name}")
 
@@ -1150,12 +1188,13 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
     return total_reward, reward_matrix, weighted_reward_matrix
 
 
-def compute_reset_jit(reset_buf, progress_buf, max_episode_length, target_reached, limit_hit, use_target_reached_reset):
-    # type: (Tensor, Tensor, float, Tensor, Tensor, bool) -> Tensor
+def compute_reset_jit(reset_buf, progress_buf, max_episode_length, target_reached, limit_hit, tip_limit_hit, use_target_reached_reset):
+    # type: (Tensor, Tensor, float, Tensor, Tensor, Tensor, bool) -> Tensor
     reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset_buf)
 
     reset_for_target_reached = torch.logical_and(target_reached, torch.tensor(
         [use_target_reached_reset], device=target_reached.device))
     reset = torch.where(reset_for_target_reached, torch.ones_like(reset), reset)
+    reset = torch.where(tip_limit_hit, torch.ones_like(reset), reset)
     reset = torch.where(limit_hit, torch.ones_like(reset), reset)
     return reset
