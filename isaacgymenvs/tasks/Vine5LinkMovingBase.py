@@ -32,6 +32,7 @@ import torch
 import math
 import datetime
 from enum import Enum
+import logging
 
 from isaacgym import gymutil, gymtorch, gymapi
 from isaacgym.torch_utils import to_torch
@@ -87,17 +88,6 @@ else:
 TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
 
 
-def print_if(text="", should_print=False):
-    """Prints text if should_print is True
-
-    Args:
-        text (str, optional): Text to print. Defaults to "".
-        should_print (bool, optional): Decides if should actually print. Defaults to False.
-    """
-    if should_print:
-        print(text)
-
-
 class Vine5LinkMovingBase(VecTask):
     """
     Observation:
@@ -149,6 +139,10 @@ class Vine5LinkMovingBase(VecTask):
         # Store cfg file and read in parameters
         self.cfg = cfg
         self.log_dir = os.path.join('runs', cfg["name"])
+        logging.basicConfig(format='%(asctime)s,%(msecs)03d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
+                            datefmt='%Y-%m-%d:%H:%M:%S',
+                            level=logging.DEBUG)
+        self.logger = logging.getLogger(__name__)
         self.time_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self.max_episode_length = self.cfg["env"]["maxEpisodeLength"]
 
@@ -423,9 +417,7 @@ class Vine5LinkMovingBase(VecTask):
             self.shelf_indices = to_torch(self.shelf_indices, dtype=torch.long, device=self.device)
         self.vine_indices = to_torch(self.vine_indices, dtype=torch.long, device=self.device)
 
-        PRINT_ASSET_INFO = False
-        if PRINT_ASSET_INFO:
-            self._print_asset_info(self.vine_asset)
+        self._print_asset_info(self.vine_asset)
 
     def get_obstacle_asset(self, asset_file):
         asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
@@ -495,18 +487,18 @@ class Vine5LinkMovingBase(VecTask):
         joint_dict = self.gym.get_asset_joint_dict(asset)
         dof_dict = self.gym.get_asset_dof_dict(asset)
 
-        print(f"self.num_dof = {self.num_dof}")
+        self.logger.debug(f"self.num_dof = {self.num_dof}")
         for i, (dof_name, dof_prop, dof_type_string) in enumerate(zip(dof_names, dof_props, dof_type_strings)):
-            print("DOF %d" % i)
-            print("  Name:     '%s'" % dof_name)
-            print("  Type:     %s" % dof_type_string)
-            print("  Properties:  %r" % dof_prop)
-        print()
-        print(f"self.num_rigid_bodies = {self.num_rigid_bodies}")
-        print(f"rigid_body_dict = {rigid_body_dict}")
-        print(f"joint_dict = {joint_dict}")
-        print(f"dof_dict = {dof_dict}")
-        print()
+            self.logger.debug("DOF %d" % i)
+            self.logger.debug("  Name:     '%s'" % dof_name)
+            self.logger.debug("  Type:     %s" % dof_type_string)
+            self.logger.debug("  Properties:  %r" % dof_prop)
+        self.logger.debug("")
+        self.logger.debug(f"self.num_rigid_bodies = {self.num_rigid_bodies}")
+        self.logger.debug(f"rigid_body_dict = {rigid_body_dict}")
+        self.logger.debug(f"joint_dict = {joint_dict}")
+        self.logger.debug(f"dof_dict = {dof_dict}")
+        self.logger.debug("")
     ##### INITIALIZATION END #####
 
     ##### WANDB LOGGING START #####
@@ -517,7 +509,7 @@ class Vine5LinkMovingBase(VecTask):
         try:
             wandb.log(self.wandb_dict)
         except wandb.errors.Error:
-            print("Wandb not initialized, no longer trying to log")
+            self.logger.warning("Wandb not initialized, no longer trying to log")
             self.use_wandb = False
         self.wandb_dict = {}
 
@@ -541,10 +533,10 @@ class Vine5LinkMovingBase(VecTask):
             if abs(time_diff) > 10:
                 raise ValueError()
             cfg_file_path = os.path.join(self.log_dir, cfg_file)
-            print(f"Saving cfg file to wandb: {cfg_file_path}")
+            self.logger.info(f"Saving cfg file to wandb: {cfg_file_path}")
             wandb.save(cfg_file_path)
         except:
-            print("WARNING: Could not save cfg file to wandb")
+            self.logger.warning("WARNING: Could not save cfg file to wandb")
 
     def save_model_to_wandb(self):
         if not self.use_wandb:
@@ -552,11 +544,11 @@ class Vine5LinkMovingBase(VecTask):
 
         assumed_model_file = os.path.join(self.log_dir, "nn", f"{self.cfg['name']}.pth")
         if self.num_steps % 100 == 99 and os.path.exists(assumed_model_file):
-            print(f"Saving model to wandb: {assumed_model_file}")
+            self.logger.info(f"Saving model to wandb: {assumed_model_file}")
             try:
                 wandb.save(assumed_model_file)
             except wandb.errors.Error:
-                print("Wandb not initialized, no longer trying to log")
+                self.logger.warning("Wandb not initialized, no longer trying to log")
                 self.use_wandb = False
     ##### WANDB LOGGING END #####
 
@@ -600,55 +592,55 @@ class Vine5LinkMovingBase(VecTask):
         assert (sorted(list(self.event_action_to_key.keys())) == sorted(list(self.event_action_to_function.keys())))
 
     def _reset_callback(self):
-        print("RESETTING")
+        self.logger.info("RESETTING")
         all_env_ids = torch.ones_like(self.reset_buf).nonzero(as_tuple=False).squeeze(-1)
         self.reset_idx(all_env_ids)
 
     def _pause_callback(self):
-        print("PAUSING")
+        self.logger.info("PAUSING")
         import time
         time.sleep(1)
 
     def _print_debug_callback(self):
         self.PRINT_DEBUG = not self.PRINT_DEBUG
-        print(f"self.PRINT_DEBUG = {self.PRINT_DEBUG}")
+        self.logger.info(f"self.PRINT_DEBUG = {self.PRINT_DEBUG}")
 
     def _print_debug_idx_up_callback(self):
         self.PRINT_DEBUG_IDX += 1
         if self.PRINT_DEBUG_IDX >= self.num_envs:
             self.PRINT_DEBUG_IDX = self.num_envs - 1
-        print(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
+        self.logger.info(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
 
     def _print_debug_idx_down_callback(self):
         self.PRINT_DEBUG_IDX -= 1
         if self.PRINT_DEBUG_IDX < 0:
             self.PRINT_DEBUG_IDX = 0
-        print(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
+        self.logger.info(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
 
     def _move_left_callback(self):
         self.MOVE_LEFT_COUNTER = 100
         self.MOVE_RIGHT_COUNTER = 0
-        print(f"self.MOVE_LEFT_COUNTER = {self.MOVE_LEFT_COUNTER}")
+        self.logger.info(f"self.MOVE_LEFT_COUNTER = {self.MOVE_LEFT_COUNTER}")
 
     def _move_right_callback(self):
         self.MOVE_RIGHT_COUNTER = 100
         self.MOVE_LEFT_COUNTER = 0
-        print(f"self.MOVE_RIGHT_COUNTER = {self.MOVE_RIGHT_COUNTER}")
+        self.logger.info(f"self.MOVE_RIGHT_COUNTER = {self.MOVE_RIGHT_COUNTER}")
 
     def _max_pressure_callback(self):
         self.MAX_PRESSURE_COUNTER = 100
         self.MIN_PRESSURE_COUNTER = 0
-        print(f"self.MAX_PRESSURE_COUNTER = {self.MAX_PRESSURE_COUNTER}")
+        self.logger.info(f"self.MAX_PRESSURE_COUNTER = {self.MAX_PRESSURE_COUNTER}")
 
     def _min_pressure_callback(self):
         self.MIN_PRESSURE_COUNTER = 100
         self.MAX_PRESSURE_COUNTER = 0
-        print(f"self.MIN_PRESSURE_COUNTER = {self.MIN_PRESSURE_COUNTER}")
+        self.logger.info(f"self.MIN_PRESSURE_COUNTER = {self.MIN_PRESSURE_COUNTER}")
 
     def _histogram_callback(self):
         self.create_histogram = True
         self.histogram_observation_data_list = []
-        print(f"self.create_histogram = {self.create_histogram}")
+        self.logger.info(f"self.create_histogram = {self.create_histogram}")
     ##### KEYBOARD EVENT SUBSCRIPTIONS END #####
 
     ##### RESET START #####
@@ -900,9 +892,9 @@ class Vine5LinkMovingBase(VecTask):
         video_capture_in_progress = len(self.video_frames) > 0
         if self.cfg['env']['CAPTURE_VIDEO'] and (should_start_video_capture or video_capture_in_progress):
             if not video_capture_in_progress:
-                print("-" * 100)
-                print("Starting to capture video frames...")
-                print("-" * 100)
+                self.logger.info("-" * 100)
+                self.logger.info("Starting to capture video frames...")
+                self.logger.info("-" * 100)
                 self.enable_viewer_sync_before = self.enable_viewer_sync
 
             # Store image
@@ -916,7 +908,7 @@ class Vine5LinkMovingBase(VecTask):
                 # Save to file and wandb
                 video_filename = f"{self.time_str}_video_{self.num_steps}.gif"
                 video_path = os.path.join(self.log_dir, video_filename)
-                print(f"Saving to {video_path}...")
+                self.logger.info(f"Saving to {video_path}...")
 
                 if not self.enable_viewer_sync_before:
                     self.video_frames.pop(0)  # Remove first frame because it was not synced
@@ -924,7 +916,7 @@ class Vine5LinkMovingBase(VecTask):
                 import imageio
                 imageio.mimsave(video_path, self.video_frames)
                 self.wandb_dict["video"] = wandb.Video(video_path, fps=1./self.control_dt)
-                print("DONE")
+                self.logger.info("DONE")
 
                 # Reset variables
                 self.video_frames = []
@@ -1087,7 +1079,7 @@ class Vine5LinkMovingBase(VecTask):
             self.histogram_observation_data_list += new_data
 
             if len(self.histogram_observation_data_list) == 100 * len(new_data):
-                print(f"Creating histogram at self.num_steps {self.num_steps}")
+                self.logger.info(f"Creating histogram at self.num_steps {self.num_steps}")
 
                 # BRITTLE: Depends on observations above
                 observation_names = [*[f"joint_pos_{i}" for i in range(self.num_dof)],
