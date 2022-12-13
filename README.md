@@ -1,6 +1,6 @@
 # Vine Robot Isaac Gym Environment
 
-The purpose of this repository is to model and simulate a [Vine robot](https://www.vinerobots.org/) and train a reinforcement learning policy to control the robot.
+The purpose of this repository is to model and simulate a [Vine robot](https://www.vinerobots.org/) and train a reinforcement learning policy to control the robot. Below are gifs of the Vine robot in action (in sim and real).
 
 <p align="center">
   <img height="450" src="https://user-images.githubusercontent.com/26510814/207246825-f6f0171d-590a-4718-a47c-a5433cc202cd.gif">
@@ -9,6 +9,8 @@ The purpose of this repository is to model and simulate a [Vine robot](https://w
   <img height="450" src="https://user-images.githubusercontent.com/26510814/207247188-8141f588-34b0-4c2e-b5ea-e8eb85a63343.gif">
   <img height="450" src="https://user-images.githubusercontent.com/26510814/207247433-c1f89c79-8d02-4d5f-9be2-a9df2afef041.gif">
 </p>
+
+Below is a high-level diagram of the reinforcement learning system used to train the control policy. 
 
 ```mermaid
 classDiagram
@@ -44,6 +46,12 @@ classDiagram
       + Isaac Gym
       + N-Link Pendulum Model
     }
+```
+
+You can run the training with:
+
+```
+python train.py task=Vine5LinkMovingBase wandb_activate=True wandb_entity=tylerlum wandb_project=vine_robot_v3 wandb_name=new_train_0 max_iterations=1000 enable_viewer_sync_at_start=False OBSERVATION_TYPE=POS_AND_FD_VEL RAIL_P_GAIN=3.0 RAIL_SOFT_LIMIT=0.2 RAIL_VELOCITY_SCALE=0.8 CAPTURE_VIDEO=True
 ```
 
 Below is the original README contents from the general Isaac Gym Environments repository.
