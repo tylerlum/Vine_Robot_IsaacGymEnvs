@@ -54,6 +54,13 @@ You can run the training with:
 python train.py task=Vine5LinkMovingBase wandb_activate=True wandb_entity=tylerlum wandb_project=vine_robot_v3 wandb_name=new_train_0 max_iterations=1000 enable_viewer_sync_at_start=False OBSERVATION_TYPE=POS_AND_FD_VEL RAIL_P_GAIN=3.0 RAIL_SOFT_LIMIT=0.2 RAIL_VELOCITY_SCALE=0.8 CAPTURE_VIDEO=True
 ```
 
+<br>
+<br>
+<br>
+<br>
+
+______________________________________________________________________
+
 Below is the original README contents from the general Isaac Gym Environments repository.
 
 # Isaac Gym Benchmark Environments
