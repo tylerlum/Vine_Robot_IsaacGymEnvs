@@ -234,6 +234,8 @@ class Vine5LinkMovingBase(VecTask):
 
         if len(self.cfg['env']['MAT_FILE']) > 0:
             self.mat = self.read_mat_file(self.cfg['env']['MAT_FILE'])
+        else:
+            self.mat = None
 
     def read_mat_file(self, filename):
         # TODO: Unused right now
