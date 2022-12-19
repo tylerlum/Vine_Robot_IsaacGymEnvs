@@ -65,9 +65,9 @@
                 <box size="0.07 0.1 0.02" />
             </geometry>
         </collision>
-        <inertia>
+        <inertial>
             <mass value="0.4" />
-        </inertia>
+        </inertial>
     </link>
 
     <!-- CYLINDERS -->
