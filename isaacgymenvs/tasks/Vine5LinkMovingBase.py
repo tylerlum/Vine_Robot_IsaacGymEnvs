@@ -35,7 +35,7 @@ from enum import Enum
 import logging
 
 from isaacgym import gymutil, gymtorch, gymapi
-from isaacgym.torch_utils import to_torch
+from isaacgym.torch_utils import to_torch, quat_from_angle_axis
 from .base.vec_task import VecTask
 import wandb
 
@@ -52,6 +52,7 @@ START_POS_IDX, END_POS_IDX = 0, 3
 START_QUAT_IDX, END_QUAT_IDX = 3, 7
 START_LIN_VEL_IDX, END_LIN_VEL_IDX = 7, 10
 START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
+
 DOF_MODE = gymapi.DOF_MODE_EFFORT
 
 # PARAMETERS (OFTEN CHANGE)
@@ -78,11 +79,13 @@ INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.0
 MIN_EFFECTIVE_ANGLE = math.radians(-30)
 MAX_EFFECTIVE_ANGLE = math.radians(-10)
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
+PIPE_RADIUS = 0.065
 
 TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
 if USE_MOVING_BASE:
     # TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, LENGTH_RAIL/2  # Set to length of rail
-    TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, 0  # Left side of rail
+    # TODO: Tune the Y limits of target position depending on task and pipe dims/orientation
+    TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -0.5*LENGTH_RAIL, -0.4*LENGTH_RAIL  # Left side of rail
 else:
     TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MIN_EFFECTIVE_ANGLE)*VINE_LENGTH,
                                           math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
@@ -392,8 +395,8 @@ class Vine5LinkMovingBase(VecTask):
 
             # Create other obstacles
             pipe_init_pose = gymapi.Transform()
-            pipe_init_pose.p.y = -0.2
-            pipe_init_pose.p.z = 0.0
+            pipe_init_pose.p.y = -0.4
+            pipe_init_pose.p.z = 0.50
             pipe_handle = self.gym.create_actor(env_ptr, self.pipe_asset, pipe_init_pose, "pipe",
                                                 group=collision_group, filter=collision_filter + 1, segmentationId=segmentation_id + 1) if self.cfg['env']['CREATE_PIPE'] else None
             if self.cfg['env']['CREATE_PIPE']:
@@ -680,8 +683,8 @@ class Vine5LinkMovingBase(VecTask):
 
             num_prismatic_joints = len(self.prismatic_dof_lowers)
             for i in range(num_prismatic_joints):
-                min_dist = max(self.prismatic_dof_lowers[i], -self.cfg['env']['RAIL_SOFT_LIMIT'])
-                max_dist = min(self.prismatic_dof_uppers[i], self.cfg['env']['RAIL_SOFT_LIMIT'])
+                min_dist = max(self.prismatic_dof_lowers[i], self.cfg['env']['RANDOM_INIT_CART_MIN_Y'])
+                max_dist = min(self.prismatic_dof_uppers[i], self.cfg['env']['RANDOM_INIT_CART_MAX_Y'])
                 self.dof_pos[env_ids, self.prismatic_dof_indices[i]] = torch.FloatTensor(
                     len(env_ids)).uniform_(min_dist, max_dist).to(self.device)
         else:
@@ -713,17 +716,49 @@ class Vine5LinkMovingBase(VecTask):
 
         # TODO: Update obstacle positions based on targets?
         # if self.cfg['env']['CREATE_SHELF']:
-        # self.root_state[self.shelf_indices[env_ids], START_POS_IDX:END_POS_IDX] = torch.stack([torch.FloatTensor(len(env_ids)).uniform_(0, 0),
+        #     self.root_state[self.shelf_indices[env_ids], START_POS_IDX:END_POS_IDX] = torch.stack([torch.FloatTensor(len(env_ids)).uniform_(0, 0),
         #                                                                                        torch.FloatTensor(
         #                                                                                            len(env_ids)).uniform_(-0.5, 0.5),
         #                                                                                        torch.FloatTensor(len(env_ids)).uniform_(0, 0)], dim=-1).to(self.device)
-        # # self.root_state[self.shelf_indices[env_ids], START_QUAT_IDX:END_QUAT_IDX] = self.goal_states[env_ids, 3:7]
-        # self.root_state[self.shelf_indices[env_ids], START_LIN_VEL_IDX:END_LIN_VEL_IDX] = 0
-        # self.root_state[self.shelf_indices[env_ids], START_ANG_VEL_IDX:END_ANG_VEL_IDX] = 0
+        #     # self.root_state[self.shelf_indices[env_ids], START_QUAT_IDX:END_QUAT_IDX] = self.goal_states[env_ids, 3:7]
+        #     self.root_state[self.shelf_indices[env_ids], START_LIN_VEL_IDX:END_LIN_VEL_IDX] = 0
+        #     self.root_state[self.shelf_indices[env_ids], START_ANG_VEL_IDX:END_ANG_VEL_IDX] = 0
 
-        # shelf_indices = self.shelf_indices[env_ids].to(dtype=torch.int32)
-        # self.gym.set_actor_root_state_tensor_indexed(self.sim, gymtorch.unwrap_tensor(
-        #     self.root_state), gymtorch.unwrap_tensor(shelf_indices), len(shelf_indices))
+        #     shelf_indices = self.shelf_indices[env_ids].to(dtype=torch.int32)
+        #     self.gym.set_actor_root_state_tensor_indexed(self.sim, gymtorch.unwrap_tensor(
+        #         self.root_state), gymtorch.unwrap_tensor(shelf_indices), len(shelf_indices))
+
+        # TODO: Update obstacle positions based on targets?
+        if self.cfg['env']["CREATE_PIPE"]:
+            HACKY_TUNE_THETA_PRIME_REASONABLE = 0.5
+            effective_z = INIT_Z - self.target_positions[env_ids, 2]
+            theta_prime = HACKY_TUNE_THETA_PRIME_REASONABLE * torch.asin(effective_z / VINE_LENGTH)
+            theta = theta_prime + torch.deg2rad(torch.tensor(90.0, device=self.device))
+
+            # orientation = gymapi.Quat.from_axis_angle(gymapi.Vec3(1, 0, 0), math.radians(90))
+            # orientation_torch = torch.tensor([orientation.x, orientation.y, orientation.z, orientation.w], device=self.device)
+            x_unit_tensor = to_torch([1, 0, 0], dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
+            orientation = quat_from_angle_axis(theta, x_unit_tensor)
+
+            PIPE_TARGET_ENTRANCE_DEPTH = 0.05
+            pipe_pos_offset_x = to_torch([-PIPE_RADIUS], dtype=torch.float,
+                                         device=self.device).repeat((len(env_ids), 1))
+            pipe_pos_offset_y = PIPE_TARGET_ENTRANCE_DEPTH * torch.cos(theta_prime)
+            pipe_pos_offset_z = PIPE_TARGET_ENTRANCE_DEPTH * torch.sin(theta_prime)
+            pipe_pos_offset_y -= -PIPE_RADIUS * torch.sin(theta_prime)
+            pipe_pos_offset_z -= PIPE_RADIUS * torch.cos(theta_prime)
+            pipe_pos_offset = torch.cat([pipe_pos_offset_x, pipe_pos_offset_y.unsqueeze(-1),
+                                        pipe_pos_offset_z.unsqueeze(-1)], dim=-1)
+            pipe_pos = self.target_positions[env_ids, :] + pipe_pos_offset
+            self.root_state[self.pipe_indices[env_ids], START_POS_IDX:END_POS_IDX] = pipe_pos
+
+            self.root_state[self.pipe_indices[env_ids], START_QUAT_IDX:END_QUAT_IDX] = orientation
+            self.root_state[self.pipe_indices[env_ids], START_LIN_VEL_IDX:END_LIN_VEL_IDX] = 0
+            self.root_state[self.pipe_indices[env_ids], START_ANG_VEL_IDX:END_ANG_VEL_IDX] = 0
+
+            pipe_indices = self.pipe_indices[env_ids].to(dtype=torch.int32)
+            self.gym.set_actor_root_state_tensor_indexed(self.sim, gymtorch.unwrap_tensor(
+                self.root_state), gymtorch.unwrap_tensor(pipe_indices), len(pipe_indices))
 
     def sample_target_positions(self, num_envs):
         target_positions = torch.zeros(num_envs, NUM_XYZ, device=self.device)
