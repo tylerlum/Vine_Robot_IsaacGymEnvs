@@ -730,8 +730,9 @@ class Vine5LinkMovingBase(VecTask):
 
         # TODO: Update obstacle positions based on targets?
         if self.cfg['env']["CREATE_PIPE"]:
+            HACKY_TUNE_THETA_PRIME_REASONABLE = 0.5
             effective_z = INIT_Z - self.target_positions[env_ids, 2]
-            theta_prime = 0.5 * torch.asin(effective_z / VINE_LENGTH)
+            theta_prime = HACKY_TUNE_THETA_PRIME_REASONABLE * torch.asin(effective_z / VINE_LENGTH)
             theta = theta_prime + torch.deg2rad(torch.tensor(90.0, device=self.device))
 
             # orientation = gymapi.Quat.from_axis_angle(gymapi.Vec3(1, 0, 0), math.radians(90))
@@ -740,15 +741,16 @@ class Vine5LinkMovingBase(VecTask):
             orientation = quat_from_angle_axis(theta, x_unit_tensor)
 
             PIPE_TARGET_ENTRANCE_DEPTH = 0.05
-            pipe_pos_offset_x = to_torch([-PIPE_RADIUS], dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
+            pipe_pos_offset_x = to_torch([-PIPE_RADIUS], dtype=torch.float,
+                                         device=self.device).repeat((len(env_ids), 1))
             pipe_pos_offset_y = PIPE_TARGET_ENTRANCE_DEPTH * torch.cos(theta_prime)
             pipe_pos_offset_z = PIPE_TARGET_ENTRANCE_DEPTH * torch.sin(theta_prime)
             pipe_pos_offset_y -= -PIPE_RADIUS * torch.sin(theta_prime)
             pipe_pos_offset_z -= PIPE_RADIUS * torch.cos(theta_prime)
-            pipe_pos_offset = torch.cat([pipe_pos_offset_x, pipe_pos_offset_y.unsqueeze(-1), pipe_pos_offset_z.unsqueeze(-1)], dim=-1)
+            pipe_pos_offset = torch.cat([pipe_pos_offset_x, pipe_pos_offset_y.unsqueeze(-1),
+                                        pipe_pos_offset_z.unsqueeze(-1)], dim=-1)
             pipe_pos = self.target_positions[env_ids, :] + pipe_pos_offset
             self.root_state[self.pipe_indices[env_ids], START_POS_IDX:END_POS_IDX] = pipe_pos
-
 
             self.root_state[self.pipe_indices[env_ids], START_QUAT_IDX:END_QUAT_IDX] = orientation
             self.root_state[self.pipe_indices[env_ids], START_LIN_VEL_IDX:END_LIN_VEL_IDX] = 0
