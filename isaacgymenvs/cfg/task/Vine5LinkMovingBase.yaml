@@ -31,7 +31,8 @@ env:
   SMOOTHING_ALPHA_DEFLATE: 0.86
 
   CAPTURE_VIDEO: ${resolve_default:True,${...CAPTURE_VIDEO}}
-  CREATE_SHELF: False
+  CREATE_SHELF: True
+  CREATE_PIPE: True
   CREATE_HISTOGRAMS_PERIODICALLY: False
 
   # Visualize mat file

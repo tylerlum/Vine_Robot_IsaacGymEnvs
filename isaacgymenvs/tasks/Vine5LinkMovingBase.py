@@ -302,6 +302,7 @@ class Vine5LinkMovingBase(VecTask):
         upper = gymapi.Vec3(0.5 * spacing, spacing, spacing)
 
         # Create objects
+        self.pipe_asset = self.get_obstacle_asset("urdf/pipe/urdf/pipe.urdf")
         self.shelf_asset = self.get_obstacle_asset("urdf/shelf/urdf/shelf.urdf")
         self.sushi_shelf_asset = self.get_obstacle_asset("urdf/sushi_shelf/urdf/sushi_shelf.urdf")
         self.shelf_super_market1_asset = self.get_obstacle_asset(
@@ -364,9 +365,11 @@ class Vine5LinkMovingBase(VecTask):
         self.envs = []
         self.vine_handles = []
         self.shelf_handles = []
+        self.pipe_handles = []
 
         self.vine_indices = []
         self.shelf_indices = []
+        self.pipe_indices = []
         for i in range(num_envs):
             # create env instance
             env_ptr = self.gym.create_env(
@@ -386,6 +389,16 @@ class Vine5LinkMovingBase(VecTask):
             if self.cfg['env']['CREATE_SHELF']:
                 new_scale = 0.1
                 self.gym.set_actor_scale(env_ptr, shelf_handle, new_scale)
+
+            # Create other obstacles
+            pipe_init_pose = gymapi.Transform()
+            pipe_init_pose.p.y = -0.2
+            pipe_init_pose.p.z = 0.0
+            pipe_handle = self.gym.create_actor(env_ptr, self.pipe_asset, pipe_init_pose, "pipe",
+                                                group=collision_group, filter=collision_filter + 1, segmentationId=segmentation_id + 1) if self.cfg['env']['CREATE_PIPE'] else None
+            if self.cfg['env']['CREATE_PIPE']:
+                new_scale = 0.001
+                self.gym.set_actor_scale(env_ptr, pipe_handle, new_scale)
 
             # Create vine robots
             vine_handle = self.gym.create_actor(
@@ -410,14 +423,19 @@ class Vine5LinkMovingBase(VecTask):
             # Store handles and indices
             self.envs.append(env_ptr)
             self.shelf_handles.append(shelf_handle)
+            self.pipe_handles.append(pipe_handle)
             self.vine_handles.append(vine_handle)
 
             self.shelf_indices.append(self.gym.get_actor_index(
                 env_ptr, shelf_handle, gymapi.DOMAIN_SIM) if self.cfg['env']['CREATE_SHELF'] else None)
+            self.pipe_indices.append(self.gym.get_actor_index(
+                env_ptr, pipe_handle, gymapi.DOMAIN_SIM) if self.cfg['env']['CREATE_PIPE'] else None)
             self.vine_indices.append(self.gym.get_actor_index(env_ptr, vine_handle, gymapi.DOMAIN_SIM))
 
         if self.cfg['env']['CREATE_SHELF']:
             self.shelf_indices = to_torch(self.shelf_indices, dtype=torch.long, device=self.device)
+        if self.cfg['env']['CREATE_PIPE']:
+            self.pipe_indices = to_torch(self.pipe_indices, dtype=torch.long, device=self.device)
         self.vine_indices = to_torch(self.vine_indices, dtype=torch.long, device=self.device)
 
         self._print_asset_info(self.vine_asset)
