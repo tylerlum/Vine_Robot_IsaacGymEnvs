@@ -35,7 +35,7 @@ from enum import Enum
 import logging
 
 from isaacgym import gymutil, gymtorch, gymapi
-from isaacgym.torch_utils import to_torch
+from isaacgym.torch_utils import to_torch, quat_from_angle_axis
 from .base.vec_task import VecTask
 import wandb
 
@@ -52,6 +52,7 @@ START_POS_IDX, END_POS_IDX = 0, 3
 START_QUAT_IDX, END_QUAT_IDX = 3, 7
 START_LIN_VEL_IDX, END_LIN_VEL_IDX = 7, 10
 START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
+
 DOF_MODE = gymapi.DOF_MODE_EFFORT
 
 # PARAMETERS (OFTEN CHANGE)
@@ -727,11 +728,25 @@ class Vine5LinkMovingBase(VecTask):
 
         # TODO: Update obstacle positions based on targets?
         if self.cfg['env']["CREATE_PIPE"]:
-            pipe_pos = self.target_positions[env_ids, :] + torch.tensor([-0.065, 0.1, -0.065], device=self.device)
+            effective_z = INIT_Z - self.target_positions[env_ids, 2]
+            theta_prime = 0.5 * torch.asin(effective_z / VINE_LENGTH)
+            theta = theta_prime + torch.deg2rad(torch.tensor(90.0, device=self.device))
+
+            # orientation = gymapi.Quat.from_axis_angle(gymapi.Vec3(1, 0, 0), math.radians(90))
+            # orientation_torch = torch.tensor([orientation.x, orientation.y, orientation.z, orientation.w], device=self.device)
+            x_unit_tensor = to_torch([1, 0, 0], dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
+            orientation = quat_from_angle_axis(theta, x_unit_tensor)
+            pipe_pos_offset_x = to_torch([-0.065], dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
+            pipe_pos_offset_y = 0.1 * torch.cos(theta_prime)
+            pipe_pos_offset_z = 0.1 * torch.sin(theta_prime)
+            pipe_pos_offset_y -= -0.065 * torch.sin(theta_prime)
+            pipe_pos_offset_z -= 0.065 * torch.cos(theta_prime)
+            pipe_pos_offset = torch.cat([pipe_pos_offset_x, pipe_pos_offset_y.unsqueeze(-1), pipe_pos_offset_z.unsqueeze(-1)], dim=-1)
+            pipe_pos = self.target_positions[env_ids, :] + pipe_pos_offset
             self.root_state[self.pipe_indices[env_ids], START_POS_IDX:END_POS_IDX] = pipe_pos
-            orientation = gymapi.Quat.from_axis_angle(gymapi.Vec3(1, 0, 0), math.radians(90))
-            orientation_torch = torch.tensor([orientation.x, orientation.y, orientation.z, orientation.w], device=self.device)
-            self.root_state[self.pipe_indices[env_ids], START_QUAT_IDX:END_QUAT_IDX] = orientation_torch
+
+
+            self.root_state[self.pipe_indices[env_ids], START_QUAT_IDX:END_QUAT_IDX] = orientation
             self.root_state[self.pipe_indices[env_ids], START_LIN_VEL_IDX:END_LIN_VEL_IDX] = 0
             self.root_state[self.pipe_indices[env_ids], START_ANG_VEL_IDX:END_ANG_VEL_IDX] = 0
 
