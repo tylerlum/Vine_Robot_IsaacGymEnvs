@@ -308,7 +308,7 @@ class Vine5LinkMovingBase(VecTask):
         upper = gymapi.Vec3(0.5 * spacing, spacing, spacing)
 
         # Create objects
-        self.pipe_asset = self.get_obstacle_asset("urdf/pipe/urdf/pipe.urdf")
+        self.pipe_asset = self.get_obstacle_asset("urdf/pipe/urdf/pipe.urdf", vhacd_enabled=True)  # Mesh needs convex decomposition
         self.shelf_asset = self.get_obstacle_asset("urdf/shelf/urdf/shelf.urdf")
         self.sushi_shelf_asset = self.get_obstacle_asset("urdf/sushi_shelf/urdf/sushi_shelf.urdf")
         self.shelf_super_market1_asset = self.get_obstacle_asset(
@@ -446,11 +446,12 @@ class Vine5LinkMovingBase(VecTask):
 
         self._print_asset_info(self.vine_asset)
 
-    def get_obstacle_asset(self, asset_file):
+    def get_obstacle_asset(self, asset_file, fix_base_link=True, vhacd_enabled=False):
         asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
 
         obstacle_asset_options = gymapi.AssetOptions()
-        obstacle_asset_options.fix_base_link = True  # Fixed base for obstacles
+        obstacle_asset_options.fix_base_link = fix_base_link  # Fixed base for obstacles
+        obstacle_asset_options.vhacd_enabled = vhacd_enabled  # Convex decomposition for meshes
         obstacle_asset = self.gym.load_asset(self.sim, asset_root, asset_file, obstacle_asset_options)
         return obstacle_asset
 
