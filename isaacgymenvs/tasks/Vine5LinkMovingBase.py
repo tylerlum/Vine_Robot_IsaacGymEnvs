@@ -39,6 +39,8 @@ from isaacgym.torch_utils import to_torch, quat_from_angle_axis
 from .base.vec_task import VecTask
 import wandb
 
+
+# Increase pipe size to make the problem easier
 PIPE_ADDITIONAL_SCALING = 1.4
 
 
@@ -458,6 +460,7 @@ class Vine5LinkMovingBase(VecTask):
         obstacle_asset_options.fix_base_link = fix_base_link  # Fixed base for obstacles
         obstacle_asset_options.vhacd_enabled = vhacd_enabled  # Convex decomposition for meshes
         if vhacd_enabled:
+            # Numbers copied from isaacgym docs
             obstacle_asset_options.vhacd_params.resolution = 300000
             obstacle_asset_options.vhacd_params.max_convex_hulls = 16
             obstacle_asset_options.vhacd_params.max_num_vertices_per_ch = 64
