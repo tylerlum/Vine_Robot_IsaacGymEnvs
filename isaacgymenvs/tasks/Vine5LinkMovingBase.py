@@ -1123,6 +1123,7 @@ class Vine5LinkMovingBase(VecTask):
             reset_buf=self.reset_buf, progress_buf=self.progress_buf,
             max_episode_length=self.max_episode_length, target_reached=target_reached, limit_hit=limit_hit, tip_limit_hit=tip_limit_hit,
             use_target_reached_reset=self.cfg['env']['USE_TARGET_REACHED_RESET'],
+            use_tip_limit_hit_reset=self.cfg['env']['USE_TIP_LIMIT_HIT_RESET'],
         )
 
     def refresh_state_tensors(self):
@@ -1276,13 +1277,16 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
     return total_reward, reward_matrix, weighted_reward_matrix
 
 
-def compute_reset_jit(reset_buf, progress_buf, max_episode_length, target_reached, limit_hit, tip_limit_hit, use_target_reached_reset):
-    # type: (Tensor, Tensor, float, Tensor, Tensor, Tensor, bool) -> Tensor
+def compute_reset_jit(reset_buf, progress_buf, max_episode_length, target_reached, limit_hit, tip_limit_hit, use_target_reached_reset, use_tip_limit_hit_reset):
+    # type: (Tensor, Tensor, float, Tensor, Tensor, Tensor, bool, bool) -> Tensor
     reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset_buf)
 
     reset_for_target_reached = torch.logical_and(target_reached, torch.tensor(
         [use_target_reached_reset], device=target_reached.device))
     reset = torch.where(reset_for_target_reached, torch.ones_like(reset), reset)
-    reset = torch.where(tip_limit_hit, torch.ones_like(reset), reset)
+
+    reset_for_tip_limit_hit = torch.logical_and(tip_limit_hit, torch.tensor(
+        [use_tip_limit_hit_reset], device=tip_limit_hit.device))
+    reset = torch.where(reset_for_tip_limit_hit, torch.ones_like(reset), reset)
     reset = torch.where(limit_hit, torch.ones_like(reset), reset)
     return reset
