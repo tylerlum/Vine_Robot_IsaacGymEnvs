@@ -60,7 +60,7 @@ env:
 
   # Randomization
   RANDOMIZE_DOF_INIT: True
-  RANDOM_INIT_CART_MIN_Y: -0.02  # Set to avoid initial collision, but still want to be -ve so includes 0 in range
+  RANDOM_INIT_CART_MIN_Y: ${eval:'-0.1 * ${.RAIL_SOFT_LIMIT}'}  # Set to avoid initial collision, but still want to be -ve so includes 0 in range
   RANDOM_INIT_CART_MAX_Y: ${.RAIL_SOFT_LIMIT}
   RANDOMIZE_TARGETS: True
   DOMAIN_RANDOMIZATION_SCALING_MIN: 0.5
