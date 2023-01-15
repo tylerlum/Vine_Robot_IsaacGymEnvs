@@ -39,7 +39,7 @@ from isaacgym.torch_utils import to_torch, quat_from_angle_axis
 from .base.vec_task import VecTask
 import wandb
 
-PIPE_ADDITIONAL_SCALING = 1.7
+PIPE_ADDITIONAL_SCALING = 1.4
 
 
 # CONSTANTS (RARELY CHANGE)
@@ -312,7 +312,8 @@ class Vine5LinkMovingBase(VecTask):
         upper = gymapi.Vec3(0.5 * spacing, spacing, spacing)
 
         # Create objects
-        self.pipe_asset = self.get_obstacle_asset("urdf/pipe/urdf/pipe.urdf", vhacd_enabled=True)  # Mesh needs convex decomposition
+        self.pipe_asset = self.get_obstacle_asset(
+            "urdf/pipe/urdf/pipe.urdf", vhacd_enabled=True)  # Mesh needs convex decomposition
         self.shelf_asset = self.get_obstacle_asset("urdf/shelf/urdf/shelf.urdf")
         self.sushi_shelf_asset = self.get_obstacle_asset("urdf/sushi_shelf/urdf/sushi_shelf.urdf")
         self.shelf_super_market1_asset = self.get_obstacle_asset(
