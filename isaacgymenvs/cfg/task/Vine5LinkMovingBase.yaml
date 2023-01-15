@@ -50,7 +50,7 @@ env:
   STIFFNESS: 1e-1
 
   # Rail
-  RAIL_SOFT_LIMIT: ${resolve_default:0.2,${...RAIL_SOFT_LIMIT}}
+  RAIL_SOFT_LIMIT: ${resolve_default:0.3,${...RAIL_SOFT_LIMIT}}
   # Want max accel of 2m/s^2, if max v_error = 2m/s, then F = m*a = k*v_error, so k = m*a/v_error = 0.52 * 2 / 2 = 0.52
   # But that doesn't account for the vine robot swinging, so make it bigger
   RAIL_P_GAIN: ${resolve_default:10.0,${...RAIL_P_GAIN}}
@@ -66,7 +66,7 @@ env:
   DOMAIN_RANDOMIZATION_SCALING_MIN: 0.5
   DOMAIN_RANDOMIZATION_SCALING_MAX: 1.5
 
-  SUCCESS_DIST: 0.02
+  SUCCESS_DIST: 0.06
 
   # Rewards
   POSITION_REWARD_WEIGHT: 1.0
@@ -83,7 +83,7 @@ env:
   TIP_Y_REWARD_WEIGHT: 0.0
 
   # Reset
-  USE_TARGET_REACHED_RESET: False
+  USE_TARGET_REACHED_RESET: True
   USE_TIP_LIMIT_HIT_RESET: False
 
 sim:

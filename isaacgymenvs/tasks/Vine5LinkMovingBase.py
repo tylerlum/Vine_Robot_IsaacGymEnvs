@@ -39,7 +39,7 @@ from isaacgym.torch_utils import to_torch, quat_from_angle_axis
 from .base.vec_task import VecTask
 import wandb
 
-PIPE_ADDITIONAL_SCALING = 1.5
+PIPE_ADDITIONAL_SCALING = 2.0
 
 
 # CONSTANTS (RARELY CHANGE)
@@ -79,7 +79,7 @@ N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.0
 
-MIN_EFFECTIVE_ANGLE = math.radians(-30)
+MIN_EFFECTIVE_ANGLE = math.radians(-45)
 MAX_EFFECTIVE_ANGLE = math.radians(-10)
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 PIPE_RADIUS = 0.065 * PIPE_ADDITIONAL_SCALING
@@ -88,7 +88,7 @@ TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
 if USE_MOVING_BASE:
     # TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, LENGTH_RAIL/2  # Set to length of rail
     # TODO: Tune the Y limits of target position depending on task and pipe dims/orientation
-    TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -0.5*LENGTH_RAIL, -0.4*LENGTH_RAIL  # Left side of rail
+    TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -0.6*LENGTH_RAIL, -0.5*LENGTH_RAIL  # Left side of rail
 else:
     TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MIN_EFFECTIVE_ANGLE)*VINE_LENGTH,
                                           math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
@@ -264,6 +264,10 @@ class Vine5LinkMovingBase(VecTask):
         # rigid_body_names = self.gym.get_asset_rigid_body_dict(self.vine_asset)
         rigid_body_state_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
         self.rigid_body_state = gymtorch.wrap_tensor(rigid_body_state_tensor)
+
+        # Store contact force tensor
+        contact_force_tensor = self.gym.acquire_net_contact_force_tensor(self.sim)
+        self.contact_force = gymtorch.wrap_tensor(contact_force_tensor)
 
         # Get tip and cart information
         arbitrary_idx = 0
@@ -452,6 +456,10 @@ class Vine5LinkMovingBase(VecTask):
         obstacle_asset_options = gymapi.AssetOptions()
         obstacle_asset_options.fix_base_link = fix_base_link  # Fixed base for obstacles
         obstacle_asset_options.vhacd_enabled = vhacd_enabled  # Convex decomposition for meshes
+        if vhacd_enabled:
+            obstacle_asset_options.vhacd_params.resolution = 300000
+            obstacle_asset_options.vhacd_params.max_convex_hulls = 16
+            obstacle_asset_options.vhacd_params.max_num_vertices_per_ch = 64
         obstacle_asset = self.gym.load_asset(self.sim, asset_root, asset_file, obstacle_asset_options)
         return obstacle_asset
 
@@ -744,8 +752,8 @@ class Vine5LinkMovingBase(VecTask):
             x_unit_tensor = to_torch([1, 0, 0], dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
             orientation = quat_from_angle_axis(theta, x_unit_tensor)
 
-            min_depth = -0.05
-            max_depth = 0.05
+            min_depth = 0.1
+            max_depth = 0.2
             pipe_target_entrance_depth = torch.FloatTensor(len(env_ids)).uniform_(min_depth, max_depth).to(self.device)
             pipe_pos_offset_x = to_torch([-PIPE_RADIUS], dtype=torch.float,
                                          device=self.device).repeat((len(env_ids), 1))
@@ -977,7 +985,7 @@ class Vine5LinkMovingBase(VecTask):
         # Draw debug info
         if self.viewer and self.enable_viewer_sync:
             # Create spheres
-            visualization_sphere_radius = 0.05
+            visualization_sphere_radius = self.cfg['env']['SUCCESS_DIST']
             visualization_sphere_green = gymutil.WireframeSphereGeometry(
                 visualization_sphere_radius, 3, 3, color=(0, 1, 0))
 
@@ -988,6 +996,22 @@ class Vine5LinkMovingBase(VecTask):
                 sphere_pose = gymapi.Transform(gymapi.Vec3(
                     target_position[0], target_position[1], target_position[2]), r=None)
                 gymutil.draw_lines(visualization_sphere_green, self.gym, self.viewer, self.envs[i], sphere_pose)
+
+            # Draw collisions (not working)
+            # for i in range(self.num_envs):
+            #     self.gym.draw_env_rigid_contacts(self.viewer, self.envs[i], gymapi.Vec3(1.0, 1.0, 1.0), 50, True)
+
+            # Draw episode progress
+            for i in range(self.num_envs):
+                left_most_pos = gymapi.Vec3(0, -LENGTH_RAIL/2, INIT_Z + 0.2)
+                right_most_pos = gymapi.Vec3(0, LENGTH_RAIL/2, INIT_Z + 0.2)
+                fraction_complete = self.progress_buf[i] / self.max_episode_length
+
+                pos1_vec3 = left_most_pos
+                pos2_vec3 = left_most_pos + gymapi.Vec3(0, fraction_complete * (right_most_pos.y - left_most_pos.y), 0)
+                red_color = gymapi.Vec3(1, 0, 0)
+                gymutil.draw_line(pos1_vec3, pos2_vec3, red_color, self.gym, self.viewer, self.envs[i])
+
 
         # Create video
         should_start_video_capture = self.num_steps % self.capture_video_every == 0
@@ -1135,6 +1159,7 @@ class Vine5LinkMovingBase(VecTask):
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
+        self.gym.refresh_net_contact_force_tensor(self.sim)
 
     def compute_observations(self, env_ids=None):
         if env_ids is None:
