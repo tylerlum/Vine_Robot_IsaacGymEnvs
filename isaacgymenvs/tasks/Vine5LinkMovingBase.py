@@ -81,7 +81,7 @@ N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.0
 
-MIN_EFFECTIVE_ANGLE = math.radians(-45)
+MIN_EFFECTIVE_ANGLE = math.radians(-60)
 MAX_EFFECTIVE_ANGLE = math.radians(-10)
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 PIPE_RADIUS = 0.065 * PIPE_ADDITIONAL_SCALING
@@ -744,15 +744,24 @@ class Vine5LinkMovingBase(VecTask):
         #     self.gym.set_actor_root_state_tensor_indexed(self.sim, gymtorch.unwrap_tensor(
         #         self.root_state), gymtorch.unwrap_tensor(shelf_indices), len(shelf_indices))
 
-        # TODO: Update obstacle positions based on targets?
         if self.cfg['env']["CREATE_PIPE"]:
-            HACKY_TUNE_THETA_PRIME_REASONABLE = 0.5
+            # Our goal is the set the pipe pose, give the target position
+            # The pipe orientation, theta, should vary based on the target z
+            #
+            # When theta = 0, the pipe is vertical, with opening facing down
+            # When theta = 90, the pipe is horizontal, with opening facing right
+            # When theta = 180, the pipe is vertical, with opening facing up
+            # effective_z is the distance from the vine base to the target
+            # When effective_z is large, it is close to the ground, so theta should be close to 180
+            # When effective_z is small, it is far from the ground, so theta should be close to 90
+            #
+            # We fit a polynomial function to data, theta_prime = f(effective_z)
+            # Where f is a cubic that outputs in degrees
             effective_z = INIT_Z - self.target_positions[env_ids, 2]
-            theta_prime = HACKY_TUNE_THETA_PRIME_REASONABLE * torch.asin(effective_z / VINE_LENGTH)
+            polynomial_coefficients = 1.0e+04 * np.array([1.3199, -1.2276, 0.4045, -0.0447])
+            theta_prime = torch.deg2rad(to_torch(np.polyval(p=polynomial_coefficients, x=effective_z.cpu()), device=self.device))
             theta = theta_prime + torch.deg2rad(torch.tensor(90.0, device=self.device))
 
-            # orientation = gymapi.Quat.from_axis_angle(gymapi.Vec3(1, 0, 0), math.radians(90))
-            # orientation_torch = torch.tensor([orientation.x, orientation.y, orientation.z, orientation.w], device=self.device)
             x_unit_tensor = to_torch([1, 0, 0], dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
             orientation = quat_from_angle_axis(theta, x_unit_tensor)
 
