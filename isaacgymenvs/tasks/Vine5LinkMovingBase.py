@@ -39,6 +39,9 @@ from isaacgym.torch_utils import to_torch, quat_from_angle_axis
 from .base.vec_task import VecTask
 import wandb
 
+PIPE_ADDITIONAL_SCALING = 1.5
+
+
 # CONSTANTS (RARELY CHANGE)
 NUM_STATES = 13  # xyz, quat, v_xyz, w_xyz
 XYZ_LIST = ['x', 'y', 'z']
@@ -79,7 +82,7 @@ INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.0
 MIN_EFFECTIVE_ANGLE = math.radians(-30)
 MAX_EFFECTIVE_ANGLE = math.radians(-10)
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
-PIPE_RADIUS = 0.065
+PIPE_RADIUS = 0.065 * PIPE_ADDITIONAL_SCALING
 
 TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
 if USE_MOVING_BASE:
@@ -400,7 +403,7 @@ class Vine5LinkMovingBase(VecTask):
             pipe_handle = self.gym.create_actor(env_ptr, self.pipe_asset, pipe_init_pose, "pipe",
                                                 group=collision_group, filter=collision_filter + 1, segmentationId=segmentation_id + 1) if self.cfg['env']['CREATE_PIPE'] else None
             if self.cfg['env']['CREATE_PIPE']:
-                new_scale = 0.001
+                new_scale = 0.001 * PIPE_ADDITIONAL_SCALING
                 self.gym.set_actor_scale(env_ptr, pipe_handle, new_scale)
 
             # Create vine robots
@@ -740,11 +743,13 @@ class Vine5LinkMovingBase(VecTask):
             x_unit_tensor = to_torch([1, 0, 0], dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
             orientation = quat_from_angle_axis(theta, x_unit_tensor)
 
-            PIPE_TARGET_ENTRANCE_DEPTH = 0.0
+            min_depth = -0.05
+            max_depth = 0.05
+            pipe_target_entrance_depth = torch.FloatTensor(len(env_ids)).uniform_(min_depth, max_depth).to(self.device)
             pipe_pos_offset_x = to_torch([-PIPE_RADIUS], dtype=torch.float,
                                          device=self.device).repeat((len(env_ids), 1))
-            pipe_pos_offset_y = PIPE_TARGET_ENTRANCE_DEPTH * torch.cos(theta_prime)
-            pipe_pos_offset_z = PIPE_TARGET_ENTRANCE_DEPTH * torch.sin(theta_prime)
+            pipe_pos_offset_y = pipe_target_entrance_depth * torch.cos(theta_prime)
+            pipe_pos_offset_z = pipe_target_entrance_depth * torch.sin(theta_prime)
             pipe_pos_offset_y -= -PIPE_RADIUS * torch.sin(theta_prime)
             pipe_pos_offset_z -= PIPE_RADIUS * torch.cos(theta_prime)
             pipe_pos_offset = torch.cat([pipe_pos_offset_x, pipe_pos_offset_y.unsqueeze(-1),
@@ -1038,8 +1043,7 @@ class Vine5LinkMovingBase(VecTask):
             target_y = self.target_positions[:, 1]
             target_reached = tip_y < target_y  # More negative in y dir BRITTLE
         else:
-            SUCCESS_DIST = 0.05
-            target_reached = dist_tip_to_target < SUCCESS_DIST
+            target_reached = dist_tip_to_target < self.cfg['env']['SUCCESS_DIST']
 
         # Limit hit
         cart_y = self.cart_positions[:, 1]
