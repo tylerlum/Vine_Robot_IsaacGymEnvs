@@ -384,14 +384,14 @@ class Vine5LinkMovingBase(VecTask):
 
             # Different collision_groups so that different envs don't interact
             # collision_filter = 0 for enabled self-collision, collision_filter > 0 disable self-collisions
-            collision_group, collision_filter, segmentation_id = i, 1, 0
+            collision_group, collision_filter, segmentation_id = i, 0, 0
 
             # Create other obstacles
             shelf_init_pose = gymapi.Transform()
             shelf_init_pose.p.y = 0.2
             shelf_init_pose.p.z = 0.0
             shelf_handle = self.gym.create_actor(env_ptr, self.shelf_asset, shelf_init_pose, "shelf",
-                                                 group=collision_group, filter=collision_filter + 1, segmentationId=segmentation_id + 1) if self.cfg['env']['CREATE_SHELF'] else None
+                                                 group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 1) if self.cfg['env']['CREATE_SHELF'] else None
             if self.cfg['env']['CREATE_SHELF']:
                 new_scale = 0.1
                 self.gym.set_actor_scale(env_ptr, shelf_handle, new_scale)
@@ -401,7 +401,7 @@ class Vine5LinkMovingBase(VecTask):
             pipe_init_pose.p.y = -0.4
             pipe_init_pose.p.z = 0.50
             pipe_handle = self.gym.create_actor(env_ptr, self.pipe_asset, pipe_init_pose, "pipe",
-                                                group=collision_group, filter=collision_filter + 1, segmentationId=segmentation_id + 1) if self.cfg['env']['CREATE_PIPE'] else None
+                                                group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 2) if self.cfg['env']['CREATE_PIPE'] else None
             if self.cfg['env']['CREATE_PIPE']:
                 new_scale = 0.001 * PIPE_ADDITIONAL_SCALING
                 self.gym.set_actor_scale(env_ptr, pipe_handle, new_scale)
