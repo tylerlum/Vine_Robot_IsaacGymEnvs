@@ -740,7 +740,7 @@ class Vine5LinkMovingBase(VecTask):
             x_unit_tensor = to_torch([1, 0, 0], dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
             orientation = quat_from_angle_axis(theta, x_unit_tensor)
 
-            PIPE_TARGET_ENTRANCE_DEPTH = 0.05
+            PIPE_TARGET_ENTRANCE_DEPTH = 0.0
             pipe_pos_offset_x = to_torch([-PIPE_RADIUS], dtype=torch.float,
                                          device=self.device).repeat((len(env_ids), 1))
             pipe_pos_offset_y = PIPE_TARGET_ENTRANCE_DEPTH * torch.cos(theta_prime)
