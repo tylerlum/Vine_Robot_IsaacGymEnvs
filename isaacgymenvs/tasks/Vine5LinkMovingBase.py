@@ -997,21 +997,20 @@ class Vine5LinkMovingBase(VecTask):
                     target_position[0], target_position[1], target_position[2]), r=None)
                 gymutil.draw_lines(visualization_sphere_green, self.gym, self.viewer, self.envs[i], sphere_pose)
 
-            # Draw collisions (not working)
-            # for i in range(self.num_envs):
-            #     self.gym.draw_env_rigid_contacts(self.viewer, self.envs[i], gymapi.Vec3(1.0, 1.0, 1.0), 50, True)
-
             # Draw episode progress
             for i in range(self.num_envs):
+                # For now, draw only one env to save time
+                if i != self.index_to_view:
+                    continue
+
                 left_most_pos = gymapi.Vec3(0, -LENGTH_RAIL/2, INIT_Z + 0.2)
                 right_most_pos = gymapi.Vec3(0, LENGTH_RAIL/2, INIT_Z + 0.2)
                 fraction_complete = self.progress_buf[i] / self.max_episode_length
 
                 pos1_vec3 = left_most_pos
                 pos2_vec3 = left_most_pos + gymapi.Vec3(0, fraction_complete * (right_most_pos.y - left_most_pos.y), 0)
-                red_color = gymapi.Vec3(1, 0, 0)
-                gymutil.draw_line(pos1_vec3, pos2_vec3, red_color, self.gym, self.viewer, self.envs[i])
-
+                green_color = gymapi.Vec3(0.1, 0.9, 0.1)
+                gymutil.draw_line(pos1_vec3, pos2_vec3, green_color, self.gym, self.viewer, self.envs[i])
 
         # Create video
         should_start_video_capture = self.num_steps % self.capture_video_every == 0
