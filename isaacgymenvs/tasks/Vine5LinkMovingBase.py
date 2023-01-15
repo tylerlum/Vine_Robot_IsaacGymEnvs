@@ -39,7 +39,7 @@ from isaacgym.torch_utils import to_torch, quat_from_angle_axis
 from .base.vec_task import VecTask
 import wandb
 
-PIPE_ADDITIONAL_SCALING = 2.0
+PIPE_ADDITIONAL_SCALING = 1.7
 
 
 # CONSTANTS (RARELY CHANGE)
@@ -752,8 +752,8 @@ class Vine5LinkMovingBase(VecTask):
             x_unit_tensor = to_torch([1, 0, 0], dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
             orientation = quat_from_angle_axis(theta, x_unit_tensor)
 
-            min_depth = 0.1
-            max_depth = 0.2
+            min_depth = 0.0
+            max_depth = 0.1
             pipe_target_entrance_depth = torch.FloatTensor(len(env_ids)).uniform_(min_depth, max_depth).to(self.device)
             pipe_pos_offset_x = to_torch([-PIPE_RADIUS], dtype=torch.float,
                                          device=self.device).repeat((len(env_ids), 1))
@@ -987,7 +987,7 @@ class Vine5LinkMovingBase(VecTask):
             # Create spheres
             visualization_sphere_radius = self.cfg['env']['SUCCESS_DIST']
             visualization_sphere_green = gymutil.WireframeSphereGeometry(
-                visualization_sphere_radius, 3, 3, color=(0, 1, 0))
+                radius=visualization_sphere_radius, num_lats=3, num_lons=3, color=(0, 1, 0))
 
             self.gym.clear_lines(self.viewer)
             for i in range(self.num_envs):
