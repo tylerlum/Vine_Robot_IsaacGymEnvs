@@ -32,7 +32,7 @@ env:
 
   CAPTURE_VIDEO: ${resolve_default:True,${...CAPTURE_VIDEO}}
   CREATE_SHELF: True
-  CREATE_PIPE: True
+  CREATE_PIPE: False
   CREATE_HISTOGRAMS_PERIODICALLY: False
 
   # Visualize mat file

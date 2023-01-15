@@ -397,10 +397,10 @@ class Vine5LinkMovingBase(VecTask):
             shelf_init_pose = gymapi.Transform()
             shelf_init_pose.p.y = 0.2
             shelf_init_pose.p.z = 0.0
-            shelf_handle = self.gym.create_actor(env_ptr, self.shelf_asset, shelf_init_pose, "shelf",
+            shelf_handle = self.gym.create_actor(env_ptr, self.sushi_shelf_asset, shelf_init_pose, "shelf",
                                                  group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 1) if self.cfg['env']['CREATE_SHELF'] else None
             if self.cfg['env']['CREATE_SHELF']:
-                new_scale = 0.1
+                new_scale = 0.3
                 self.gym.set_actor_scale(env_ptr, shelf_handle, new_scale)
 
             # Create other obstacles
@@ -731,18 +731,28 @@ class Vine5LinkMovingBase(VecTask):
         self.target_velocities[env_ids, :] = self.sample_target_velocities(len(env_ids))
 
         # TODO: Update obstacle positions based on targets?
-        # if self.cfg['env']['CREATE_SHELF']:
-        #     self.root_state[self.shelf_indices[env_ids], START_POS_IDX:END_POS_IDX] = torch.stack([torch.FloatTensor(len(env_ids)).uniform_(0, 0),
-        #                                                                                        torch.FloatTensor(
-        #                                                                                            len(env_ids)).uniform_(-0.5, 0.5),
-        #                                                                                        torch.FloatTensor(len(env_ids)).uniform_(0, 0)], dim=-1).to(self.device)
-        #     # self.root_state[self.shelf_indices[env_ids], START_QUAT_IDX:END_QUAT_IDX] = self.goal_states[env_ids, 3:7]
-        #     self.root_state[self.shelf_indices[env_ids], START_LIN_VEL_IDX:END_LIN_VEL_IDX] = 0
-        #     self.root_state[self.shelf_indices[env_ids], START_ANG_VEL_IDX:END_ANG_VEL_IDX] = 0
+        if self.cfg['env']['CREATE_SHELF']:
+            shelf_depth_target = 0.1
+            mid_shelf_height = 0.2
+            shelf_pos_offset = torch.zeros(len(env_ids), 3, device=self.device)
+            shelf_x_len = 0.1
+            shelf_pos_offset[:, 0] -= shelf_x_len/2
+            shelf_pos_offset[:, 1] += shelf_depth_target
+            shelf_pos_offset[:, 2] -= mid_shelf_height
+            shelf_pos = self.target_positions[env_ids, :] + shelf_pos_offset
 
-        #     shelf_indices = self.shelf_indices[env_ids].to(dtype=torch.int32)
-        #     self.gym.set_actor_root_state_tensor_indexed(self.sim, gymtorch.unwrap_tensor(
-        #         self.root_state), gymtorch.unwrap_tensor(shelf_indices), len(shelf_indices))
+            theta = to_torch(-np.pi / 2, dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
+            z_unit_tensor = to_torch([0, 0, 1], dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
+            orientation = quat_from_angle_axis(theta, z_unit_tensor)
+
+            self.root_state[self.shelf_indices[env_ids], START_POS_IDX:END_POS_IDX] = shelf_pos
+            self.root_state[self.shelf_indices[env_ids], START_QUAT_IDX:END_QUAT_IDX] = orientation
+            self.root_state[self.shelf_indices[env_ids], START_LIN_VEL_IDX:END_LIN_VEL_IDX] = 0
+            self.root_state[self.shelf_indices[env_ids], START_ANG_VEL_IDX:END_ANG_VEL_IDX] = 0
+
+            shelf_indices = self.shelf_indices[env_ids].to(dtype=torch.int32)
+            self.gym.set_actor_root_state_tensor_indexed(self.sim, gymtorch.unwrap_tensor(
+                self.root_state), gymtorch.unwrap_tensor(shelf_indices), len(shelf_indices))
 
         # TODO: Update obstacle positions based on targets?
         if self.cfg['env']["CREATE_PIPE"]:
