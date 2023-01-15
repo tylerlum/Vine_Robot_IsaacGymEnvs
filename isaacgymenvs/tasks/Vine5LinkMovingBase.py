@@ -317,7 +317,7 @@ class Vine5LinkMovingBase(VecTask):
         self.pipe_asset = self.get_obstacle_asset(
             "urdf/pipe/urdf/pipe.urdf", vhacd_enabled=True)  # Mesh needs convex decomposition
         self.shelf_asset = self.get_obstacle_asset("urdf/shelf/urdf/shelf.urdf")
-        self.sushi_shelf_asset = self.get_obstacle_asset("urdf/sushi_shelf/urdf/sushi_shelf.urdf")
+        self.sushi_shelf_asset = self.get_obstacle_asset("urdf/sushi_shelf/urdf/sushi_shelf.urdf", vhacd_enabled=True)
         self.shelf_super_market1_asset = self.get_obstacle_asset(
             "urdf/shelf_super_market1/urdf/shelf_super_market1.urdf")
         self.shelf_super_market2_asset = self.get_obstacle_asset(
@@ -462,7 +462,7 @@ class Vine5LinkMovingBase(VecTask):
         if vhacd_enabled:
             # Numbers copied from isaacgym docs
             obstacle_asset_options.vhacd_params.resolution = 300000
-            obstacle_asset_options.vhacd_params.max_convex_hulls = 16
+            obstacle_asset_options.vhacd_params.max_convex_hulls = 64
             obstacle_asset_options.vhacd_params.max_num_vertices_per_ch = 64
         obstacle_asset = self.gym.load_asset(self.sim, asset_root, asset_file, obstacle_asset_options)
         return obstacle_asset
@@ -730,18 +730,22 @@ class Vine5LinkMovingBase(VecTask):
         self.target_positions[env_ids, :] = self.sample_target_positions(len(env_ids))
         self.target_velocities[env_ids, :] = self.sample_target_velocities(len(env_ids))
 
-        # TODO: Update obstacle positions based on targets?
         if self.cfg['env']['CREATE_SHELF']:
-            shelf_depth_target = 0.1
-            mid_shelf_height = 0.2
-            shelf_pos_offset = torch.zeros(len(env_ids), 3, device=self.device)
+            # Shelf dimensions
             shelf_x_len = 0.1
+            mid_shelf_height = 0.2
+            shelf_yaw = -np.pi / 2
+
+            # How deep we want the target to be
+            shelf_depth_target = 0.1
+
+            shelf_pos_offset = torch.zeros(len(env_ids), 3, device=self.device)
             shelf_pos_offset[:, 0] -= shelf_x_len/2
             shelf_pos_offset[:, 1] += shelf_depth_target
             shelf_pos_offset[:, 2] -= mid_shelf_height
             shelf_pos = self.target_positions[env_ids, :] + shelf_pos_offset
 
-            theta = to_torch(-np.pi / 2, dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
+            theta = to_torch(shelf_yaw, dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
             z_unit_tensor = to_torch([0, 0, 1], dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
             orientation = quat_from_angle_axis(theta, z_unit_tensor)
 
