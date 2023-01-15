@@ -39,7 +39,7 @@ from isaacgym.torch_utils import to_torch, quat_from_angle_axis
 from .base.vec_task import VecTask
 import wandb
 
-PIPE_ADDITIONAL_SCALING = 1.5
+PIPE_ADDITIONAL_SCALING = 1.0
 
 
 # CONSTANTS (RARELY CHANGE)
@@ -315,6 +315,7 @@ class Vine5LinkMovingBase(VecTask):
             "urdf/shelf_super_market1/urdf/shelf_super_market1.urdf")
         self.shelf_super_market2_asset = self.get_obstacle_asset(
             "urdf/shelf_super_market2/urdf/shelf_super_market2.urdf")
+        self.obj_asset = self.get_obstacle_asset("urdf/pipe/urdf/test_obj_please_remove.urdf", fix_base_link=False)
 
         # Create vine asset and store useful variables
         self.vine_asset = self.get_vine_asset()
@@ -372,6 +373,8 @@ class Vine5LinkMovingBase(VecTask):
         self.vine_handles = []
         self.shelf_handles = []
         self.pipe_handles = []
+        self.obj_handles = []
+        self.obj_indices = []
 
         self.vine_indices = []
         self.shelf_indices = []
@@ -384,14 +387,14 @@ class Vine5LinkMovingBase(VecTask):
 
             # Different collision_groups so that different envs don't interact
             # collision_filter = 0 for enabled self-collision, collision_filter > 0 disable self-collisions
-            collision_group, collision_filter, segmentation_id = i, 1, 0
+            collision_group, collision_filter, segmentation_id = i, 0, 0
 
             # Create other obstacles
             shelf_init_pose = gymapi.Transform()
             shelf_init_pose.p.y = 0.2
             shelf_init_pose.p.z = 0.0
             shelf_handle = self.gym.create_actor(env_ptr, self.shelf_asset, shelf_init_pose, "shelf",
-                                                 group=collision_group, filter=collision_filter + 1, segmentationId=segmentation_id + 1) if self.cfg['env']['CREATE_SHELF'] else None
+                                                 group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 1) if self.cfg['env']['CREATE_SHELF'] else None
             if self.cfg['env']['CREATE_SHELF']:
                 new_scale = 0.1
                 self.gym.set_actor_scale(env_ptr, shelf_handle, new_scale)
@@ -401,10 +404,17 @@ class Vine5LinkMovingBase(VecTask):
             pipe_init_pose.p.y = -0.4
             pipe_init_pose.p.z = 0.50
             pipe_handle = self.gym.create_actor(env_ptr, self.pipe_asset, pipe_init_pose, "pipe",
-                                                group=collision_group, filter=collision_filter + 1, segmentationId=segmentation_id + 1) if self.cfg['env']['CREATE_PIPE'] else None
+                                                group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 1) if self.cfg['env']['CREATE_PIPE'] else None
             if self.cfg['env']['CREATE_PIPE']:
                 new_scale = 0.001 * PIPE_ADDITIONAL_SCALING
                 self.gym.set_actor_scale(env_ptr, pipe_handle, new_scale)
+
+            obj_init_pose = gymapi.Transform()
+            obj_init_pose.p.y = -0.9
+            obj_init_pose.p.z = 0.50
+            obj_handle = self.gym.create_actor(env_ptr, self.obj_asset, obj_init_pose, "obj",
+                                                group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 1)
+
 
             # Create vine robots
             vine_handle = self.gym.create_actor(
@@ -430,6 +440,7 @@ class Vine5LinkMovingBase(VecTask):
             self.envs.append(env_ptr)
             self.shelf_handles.append(shelf_handle)
             self.pipe_handles.append(pipe_handle)
+            self.obj_handles.append(obj_handle)
             self.vine_handles.append(vine_handle)
 
             self.shelf_indices.append(self.gym.get_actor_index(
@@ -437,20 +448,23 @@ class Vine5LinkMovingBase(VecTask):
             self.pipe_indices.append(self.gym.get_actor_index(
                 env_ptr, pipe_handle, gymapi.DOMAIN_SIM) if self.cfg['env']['CREATE_PIPE'] else None)
             self.vine_indices.append(self.gym.get_actor_index(env_ptr, vine_handle, gymapi.DOMAIN_SIM))
+            self.obj_indices.append(self.gym.get_actor_index(
+                env_ptr, obj_handle, gymapi.DOMAIN_SIM))
 
         if self.cfg['env']['CREATE_SHELF']:
             self.shelf_indices = to_torch(self.shelf_indices, dtype=torch.long, device=self.device)
         if self.cfg['env']['CREATE_PIPE']:
             self.pipe_indices = to_torch(self.pipe_indices, dtype=torch.long, device=self.device)
+        self.obj_indices = to_torch(self.obj_indices, dtype=torch.long, device=self.device)
         self.vine_indices = to_torch(self.vine_indices, dtype=torch.long, device=self.device)
 
         self._print_asset_info(self.vine_asset)
 
-    def get_obstacle_asset(self, asset_file):
+    def get_obstacle_asset(self, asset_file, fix_base_link=True):
         asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
 
         obstacle_asset_options = gymapi.AssetOptions()
-        obstacle_asset_options.fix_base_link = True  # Fixed base for obstacles
+        obstacle_asset_options.fix_base_link = fix_base_link  # Fixed base for obstacles
         obstacle_asset = self.gym.load_asset(self.sim, asset_root, asset_file, obstacle_asset_options)
         return obstacle_asset
 
@@ -755,15 +769,26 @@ class Vine5LinkMovingBase(VecTask):
             pipe_pos_offset = torch.cat([pipe_pos_offset_x, pipe_pos_offset_y.unsqueeze(-1),
                                         pipe_pos_offset_z.unsqueeze(-1)], dim=-1)
             pipe_pos = self.target_positions[env_ids, :] + pipe_pos_offset
-            self.root_state[self.pipe_indices[env_ids], START_POS_IDX:END_POS_IDX] = pipe_pos
+            # TODO HACK
+            # pipe_init_pose.p.y = -0.4
+            # pipe_init_pose.p.z = 0.50
+            pipe_pos = to_torch([0.0, -0.4, 0.5], dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
+            # self.root_state[self.pipe_indices[env_ids], START_POS_IDX:END_POS_IDX] = pipe_pos
 
-            self.root_state[self.pipe_indices[env_ids], START_QUAT_IDX:END_QUAT_IDX] = orientation
-            self.root_state[self.pipe_indices[env_ids], START_LIN_VEL_IDX:END_LIN_VEL_IDX] = 0
-            self.root_state[self.pipe_indices[env_ids], START_ANG_VEL_IDX:END_ANG_VEL_IDX] = 0
+            # TODO: Add orientation back
+            # self.root_state[self.pipe_indices[env_ids], START_QUAT_IDX:END_QUAT_IDX] = orientation
+            # self.root_state[self.pipe_indices[env_ids], START_LIN_VEL_IDX:END_LIN_VEL_IDX] = 0
+            # self.root_state[self.pipe_indices[env_ids], START_ANG_VEL_IDX:END_ANG_VEL_IDX] = 0
 
-            pipe_indices = self.pipe_indices[env_ids].to(dtype=torch.int32)
+            obj_pos = pipe_pos + to_torch([0.06, 0.06, 0.4], dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
+            self.root_state[self.obj_indices[env_ids], START_POS_IDX:END_POS_IDX] = obj_pos
+
+            # pipe_indices = self.pipe_indices[env_ids].to(dtype=torch.int32)
+            obj_indices = self.obj_indices[env_ids].to(dtype=torch.int32)
+            # self.gym.set_actor_root_state_tensor_indexed(self.sim, gymtorch.unwrap_tensor(
+            #     self.root_state), gymtorch.unwrap_tensor(pipe_indices), len(pipe_indices))
             self.gym.set_actor_root_state_tensor_indexed(self.sim, gymtorch.unwrap_tensor(
-                self.root_state), gymtorch.unwrap_tensor(pipe_indices), len(pipe_indices))
+                self.root_state), gymtorch.unwrap_tensor(obj_indices), len(obj_indices))
 
     def sample_target_positions(self, num_envs):
         target_positions = torch.zeros(num_envs, NUM_XYZ, device=self.device)
