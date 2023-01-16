@@ -46,7 +46,7 @@ env:
   FPAM_MAX: 3.0
   RAIL_VELOCITY_SCALE: ${resolve_default:1.0,${...RAIL_VELOCITY_SCALE}}
 
-  DAMPING: 1e-2
+  DAMPING: 5e-2
   STIFFNESS: 1e-1
 
   # Rail
