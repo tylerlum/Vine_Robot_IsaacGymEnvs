@@ -142,18 +142,18 @@ task:
           range: [0.9, 1.1]
           operation: "scaling"
           distribution: "uniform"
-          setup_only: True # Property will only be randomized once before simulation is started. See Domain Randomization Documentation for more info.
+          # setup_only: True # Property will only be randomized once before simulation is started. See Domain Randomization Documentation for more info.
           # schedule: "linear"  # "linear" will scale the current random sample by ``min(current num steps, schedule_steps) / schedule_steps`
           # schedule_steps: 30000
         dof_properties:
           damping:
-            range: [0.75, 1000]
+            range: [.7, 6] # Tuned so that .7 swings more than real but stable, 6 still swings but more damped than real hardware
             operation: "scaling"
             distribution: "loguniform"
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
             # schedule_steps: 30000
-          stiffness:
-            range: [0.01, 100]
+          stiffness: # unused because STIFFNESS is 0.0
+            range: [0.99999, 1.000001] 
             operation: "scaling"
             distribution: "loguniform"
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
@@ -172,10 +172,10 @@ task:
             # schedule_steps: 30000
         rigid_body_properties:
           mass:
-            range: [0.2, 5.0]
+            range: [0.5, 1.5]
             operation: "scaling"
             distribution: "uniform"
-            setup_only: True # Property will only be randomized once before simulation is started. See Domain Randomization Documentation for more info.
+            # setup_only: True # Property will only be randomized once before simulation is started. See Domain Randomization Documentation for more info.
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
             # schedule_steps: 30000
         rigid_shape_properties:
