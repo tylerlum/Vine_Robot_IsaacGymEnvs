@@ -317,6 +317,7 @@ class Vine5LinkMovingBase(VecTask):
         self.pipe_asset = self.get_obstacle_asset(
             "urdf/pipe/urdf/pipe.urdf", vhacd_enabled=True)  # Mesh needs convex decomposition
         self.shelf_asset = self.get_obstacle_asset("urdf/shelf/urdf/shelf.urdf")
+        self.custom_shelf_asset = self.get_obstacle_asset("urdf/shelf/urdf/custom_shelf.urdf")
         self.sushi_shelf_asset = self.get_obstacle_asset("urdf/sushi_shelf/urdf/sushi_shelf.urdf", vhacd_enabled=True)
         self.shelf_super_market1_asset = self.get_obstacle_asset(
             "urdf/shelf_super_market1/urdf/shelf_super_market1.urdf")
@@ -397,11 +398,11 @@ class Vine5LinkMovingBase(VecTask):
             shelf_init_pose = gymapi.Transform()
             shelf_init_pose.p.y = 0.2
             shelf_init_pose.p.z = 0.0
-            shelf_handle = self.gym.create_actor(env_ptr, self.sushi_shelf_asset, shelf_init_pose, "shelf",
+            shelf_handle = self.gym.create_actor(env_ptr, self.custom_shelf_asset, shelf_init_pose, "shelf",
                                                  group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 1) if self.cfg['env']['CREATE_SHELF'] else None
             if self.cfg['env']['CREATE_SHELF']:
-                new_scale = 0.3
-                self.gym.set_actor_scale(env_ptr, shelf_handle, new_scale)
+                shelf_scale = 1.0
+                self.gym.set_actor_scale(env_ptr, shelf_handle, shelf_scale)
 
             # Create other obstacles
             pipe_init_pose = gymapi.Transform()
@@ -410,8 +411,8 @@ class Vine5LinkMovingBase(VecTask):
             pipe_handle = self.gym.create_actor(env_ptr, self.pipe_asset, pipe_init_pose, "pipe",
                                                 group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 2) if self.cfg['env']['CREATE_PIPE'] else None
             if self.cfg['env']['CREATE_PIPE']:
-                new_scale = 0.001 * PIPE_ADDITIONAL_SCALING
-                self.gym.set_actor_scale(env_ptr, pipe_handle, new_scale)
+                pipe_scale = 0.001 * PIPE_ADDITIONAL_SCALING
+                self.gym.set_actor_scale(env_ptr, pipe_handle, pipe_scale)
 
             # Create vine robots
             vine_handle = self.gym.create_actor(
@@ -732,25 +733,19 @@ class Vine5LinkMovingBase(VecTask):
 
         if self.cfg['env']['CREATE_SHELF']:
             # Shelf dimensions
-            shelf_x_len = 0.1
-            mid_shelf_height = 0.2
-            shelf_yaw = -np.pi / 2
+            half_shelf_length_y = 0.4 / 2
+            shelf_thickness = 0.02
 
             # How deep we want the target to be
             shelf_depth_target = 0.1
 
             shelf_pos_offset = torch.zeros(len(env_ids), 3, device=self.device)
-            shelf_pos_offset[:, 0] -= shelf_x_len/2
+            shelf_pos_offset[:, 1] -= half_shelf_length_y
             shelf_pos_offset[:, 1] += shelf_depth_target
-            shelf_pos_offset[:, 2] -= mid_shelf_height
+            shelf_pos_offset[:, 2] -= shelf_thickness
             shelf_pos = self.target_positions[env_ids, :] + shelf_pos_offset
 
-            theta = to_torch(shelf_yaw, dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
-            z_unit_tensor = to_torch([0, 0, 1], dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
-            orientation = quat_from_angle_axis(theta, z_unit_tensor)
-
             self.root_state[self.shelf_indices[env_ids], START_POS_IDX:END_POS_IDX] = shelf_pos
-            self.root_state[self.shelf_indices[env_ids], START_QUAT_IDX:END_QUAT_IDX] = orientation
             self.root_state[self.shelf_indices[env_ids], START_LIN_VEL_IDX:END_LIN_VEL_IDX] = 0
             self.root_state[self.shelf_indices[env_ids], START_ANG_VEL_IDX:END_ANG_VEL_IDX] = 0
 
