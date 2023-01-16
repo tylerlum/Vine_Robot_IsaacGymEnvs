@@ -734,10 +734,12 @@ class Vine5LinkMovingBase(VecTask):
         if self.cfg['env']['CREATE_SHELF']:
             # Shelf dimensions
             half_shelf_length_y = 0.4 / 2
-            shelf_thickness = 0.02
+            shelf_thickness = 0.01
 
             # How deep we want the target to be
-            shelf_depth_target = 0.1
+            min_shelf_depth_target = 0.0
+            max_shelf_depth_target = 0.1
+            shelf_depth_target = torch.FloatTensor(len(env_ids)).uniform_(min_shelf_depth_target, max_shelf_depth_target).to(self.device)
 
             shelf_pos_offset = torch.zeros(len(env_ids), 3, device=self.device)
             shelf_pos_offset[:, 1] -= half_shelf_length_y
