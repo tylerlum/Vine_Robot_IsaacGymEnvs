@@ -82,7 +82,7 @@ INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.0
 
 MIN_EFFECTIVE_ANGLE = math.radians(-45)
-MAX_EFFECTIVE_ANGLE = math.radians(-10)
+MAX_EFFECTIVE_ANGLE = math.radians(-30)
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 PIPE_RADIUS = 0.065 * PIPE_ADDITIONAL_SCALING
 
@@ -94,7 +94,7 @@ if USE_MOVING_BASE:
 else:
     TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MIN_EFFECTIVE_ANGLE)*VINE_LENGTH,
                                           math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
-TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
+TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - math.cos(MAX_EFFECTIVE_ANGLE) * VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
 
 
 class Vine5LinkMovingBase(VecTask):
@@ -737,8 +737,8 @@ class Vine5LinkMovingBase(VecTask):
             shelf_thickness = 0.01
 
             # How deep we want the target to be
-            min_shelf_depth_target = 0.0
-            max_shelf_depth_target = 0.1
+            min_shelf_depth_target = 0.05
+            max_shelf_depth_target = 0.2
             shelf_depth_target = torch.FloatTensor(len(env_ids)).uniform_(min_shelf_depth_target, max_shelf_depth_target).to(self.device)
 
             shelf_pos_offset = torch.zeros(len(env_ids), 3, device=self.device)
@@ -1312,6 +1312,8 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
             reward_matrix[:, i] -= torch.abs(cart_y)
         elif reward_name == "Tip Y":
             reward_matrix[:, i] += torch.where(tip_limit_hit, TIP_LIMIT_PUNISHMENT, 0.0)
+        # elif reward_name == "Contact Force":
+        #     reward_matrix[:, i] += torch.norm(contact_force, dim=-1)
         else:
             raise ValueError(f"Invalid reward name: {reward_name}")
 
