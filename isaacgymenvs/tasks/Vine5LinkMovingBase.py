@@ -75,7 +75,8 @@ class ObservationType(Enum):
 # Brittle: Ensure reward order matches
 REWARD_NAMES = ["Position", "Const Negative", "Position Success",
                 "Velocity Success", "Velocity", "Rail Velocity Control",
-                "FPAM Control", "Rail Velocity Change", "FPAM Change", "Rail Limit", "Cart Y", "Tip Y"]
+                "FPAM Control", "Rail Velocity Change", "FPAM Change", "Rail Limit",
+                "Cart Y", "Tip Y", "Contact Force"]
 
 N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
@@ -94,7 +95,8 @@ if USE_MOVING_BASE:
 else:
     TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MIN_EFFECTIVE_ANGLE)*VINE_LENGTH,
                                           math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
-TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - math.cos(MAX_EFFECTIVE_ANGLE) * VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
+TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - \
+    math.cos(MAX_EFFECTIVE_ANGLE) * VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
 
 
 class Vine5LinkMovingBase(VecTask):
@@ -198,6 +200,7 @@ class Vine5LinkMovingBase(VecTask):
             "Rail Limit": self.cfg['env']['RAIL_LIMIT_REWARD_WEIGHT'],
             "Cart Y": self.cfg['env']['CART_Y_REWARD_WEIGHT'],
             "Tip Y": self.cfg['env']['TIP_Y_REWARD_WEIGHT'],
+            "Contact Force": self.cfg['env']['CONTACT_FORCE_REWARD_WEIGHT'],
         }
         assert (set(REWARD_NAMES) == set(reward_name_to_weight_dict.keys()))
         reward_weights = [reward_name_to_weight_dict[name] for name in REWARD_NAMES]
@@ -269,7 +272,15 @@ class Vine5LinkMovingBase(VecTask):
 
         # Store contact force tensor
         contact_force_tensor = self.gym.acquire_net_contact_force_tensor(self.sim)
-        self.contact_force = gymtorch.wrap_tensor(contact_force_tensor)
+        self.contact_force = gymtorch.wrap_tensor(contact_force_tensor).view(
+            self.num_envs, -1, 3)  # shape: num_envs, num_bodies, xyz axis
+        link_names = ["link_0", "link_1", "link_2", "link_3", "link_4"]
+        self.link_indices = torch.zeros(len(link_names), dtype=torch.long, device=self.device, requires_grad=False)
+
+        for i, link_name in enumerate(link_names):
+            link_idx = self.gym.find_actor_rigid_body_index(
+                self.envs[0], self.vine_handles[0], link_name, gymapi.DOMAIN_ENV)
+            self.link_indices[i] = link_idx
 
         # Get tip and cart information
         arbitrary_idx = 0
@@ -739,7 +750,8 @@ class Vine5LinkMovingBase(VecTask):
             # How deep we want the target to be
             min_shelf_depth_target = 0.05
             max_shelf_depth_target = 0.2
-            shelf_depth_target = torch.FloatTensor(len(env_ids)).uniform_(min_shelf_depth_target, max_shelf_depth_target).to(self.device)
+            shelf_depth_target = torch.FloatTensor(len(env_ids)).uniform_(
+                min_shelf_depth_target, max_shelf_depth_target).to(self.device)
 
             shelf_pos_offset = torch.zeros(len(env_ids), 3, device=self.device)
             shelf_pos_offset[:, 1] -= half_shelf_length_y
@@ -1093,6 +1105,9 @@ class Vine5LinkMovingBase(VecTask):
         tip_y = self.tip_positions[:, 1]
         tip_limit_hit = tip_y < self.target_positions[:, 1]
 
+        # Get contact forces
+        link_contact_forces = self.contact_force[:, self.link_indices, :]
+
         self.wandb_dict.update({
             "dist_tip_to_target": dist_tip_to_target.mean().item(),
             "target_reached": target_reached.float().mean().item(),
@@ -1116,7 +1131,8 @@ class Vine5LinkMovingBase(VecTask):
         self.rew_buf[:], reward_matrix, weighted_reward_matrix = compute_reward_jit(
             dist_to_target=dist_tip_to_target, target_reached=target_reached, tip_velocities=self.tip_velocities,
             target_velocities=self.target_velocities, u_rail_velocity=self.u_rail_velocity, u_fpam=self.u_fpam, prev_u_rail_velocity=self.prev_u_rail_velocity,
-            smoothed_u_fpam=self.smoothed_u_fpam, limit_hit=limit_hit, tip_limit_hit=tip_limit_hit, cart_y=cart_y, reward_weights=self.reward_weights, reward_names=REWARD_NAMES
+            smoothed_u_fpam=self.smoothed_u_fpam, limit_hit=limit_hit, tip_limit_hit=tip_limit_hit, cart_y=cart_y,
+            link_contact_forces=link_contact_forces, reward_weights=self.reward_weights, reward_names=REWARD_NAMES
         )
         self.aggregated_rew_buf += self.rew_buf
 
@@ -1162,6 +1178,7 @@ class Vine5LinkMovingBase(VecTask):
                 f"Max Total Reward": self.rew_buf.max().item(),
             })
 
+        # TODO: Could add contact force as reset reason
         self.reset_buf[:] = compute_reset_jit(
             reset_buf=self.reset_buf, progress_buf=self.progress_buf,
             max_episode_length=self.max_episode_length, target_reached=target_reached, limit_hit=limit_hit, tip_limit_hit=tip_limit_hit,
@@ -1260,8 +1277,11 @@ def rescale_to_u_rail_velocity(u_rail_velocity, scale):
 
 
 @torch.jit.script
-def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_velocities, u_rail_velocity, u_fpam, prev_u_rail_velocity, smoothed_u_fpam, limit_hit, tip_limit_hit, cart_y, reward_weights, reward_names):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, List[str]) -> Tuple[Tensor, Tensor, Tensor]
+def compute_reward_jit(dist_to_target, target_reached, tip_velocities,
+                       target_velocities, u_rail_velocity, u_fpam, prev_u_rail_velocity,
+                       smoothed_u_fpam, limit_hit, tip_limit_hit, cart_y, link_contact_forces,
+                       reward_weights, reward_names):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, List[str]) -> Tuple[Tensor, Tensor, Tensor]
     # reward = sum(w_i * r_i) with various reward function r_i and weights w_i
 
     # position_reward = -dist_to_target [Try to reach target]
@@ -1276,12 +1296,14 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
     # rail_limit_reward = RAIL_LIMIT_PUNISHMENT if limit_hit else 0 [Punish for hitting rail limits]
     # cart_y_reward = -abs(cart_y) [Punish for getting near rail limits]
     # tip_y_reward = TIP_LIMIT_PUNISHMENT if tip_limit_hit else 0 [Punish for exceeding target]
+    # contact_force_reward = norm(link_contact_forces) if norm(link_contact_forces) > THRESH else 0 [Punish for large contact]
     N_REWARDS = torch.numel(reward_weights)
     N_ENVS = dist_to_target.shape[0]
 
     REWARD_BONUS = 1000.0
     RAIL_LIMIT_PUNISHMENT = -100.0
     TIP_LIMIT_PUNISHMENT = -100.0
+    CONTACT_FORCE_THRESHOLD = 0.0
 
     # Brittle: Ensure reward order matches
     reward_matrix = torch.zeros(N_ENVS, N_REWARDS, device=dist_to_target.device)
@@ -1312,8 +1334,9 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
             reward_matrix[:, i] -= torch.abs(cart_y)
         elif reward_name == "Tip Y":
             reward_matrix[:, i] += torch.where(tip_limit_hit, TIP_LIMIT_PUNISHMENT, 0.0)
-        # elif reward_name == "Contact Force":
-        #     reward_matrix[:, i] += torch.norm(contact_force, dim=-1)
+        elif reward_name == "Contact Force":
+            force_norms = torch.norm(link_contact_forces, dim=[-2, -1]).double()
+            reward_matrix[:, i] -= torch.where(force_norms > CONTACT_FORCE_THRESHOLD, force_norms, 0.0)
         else:
             raise ValueError(f"Invalid reward name: {reward_name}")
 
@@ -1323,7 +1346,9 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
     return total_reward, reward_matrix, weighted_reward_matrix
 
 
-def compute_reset_jit(reset_buf, progress_buf, max_episode_length, target_reached, limit_hit, tip_limit_hit, use_target_reached_reset, use_tip_limit_hit_reset):
+def compute_reset_jit(reset_buf, progress_buf, max_episode_length, target_reached,
+                      limit_hit, tip_limit_hit, use_target_reached_reset,
+                      use_tip_limit_hit_reset):
     # type: (Tensor, Tensor, float, Tensor, Tensor, Tensor, bool, bool) -> Tensor
     reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset_buf)
 
