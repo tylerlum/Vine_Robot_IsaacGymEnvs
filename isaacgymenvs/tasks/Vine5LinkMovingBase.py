@@ -82,6 +82,7 @@ N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.0
 
+# IMPORTANT: Tune these angles depending the task, affects the range of target positions
 MIN_EFFECTIVE_ANGLE = math.radians(-45)
 MAX_EFFECTIVE_ANGLE = math.radians(-30)
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
