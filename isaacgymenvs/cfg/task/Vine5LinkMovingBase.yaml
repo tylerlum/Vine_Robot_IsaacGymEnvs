@@ -32,7 +32,7 @@ env:
 
   CAPTURE_VIDEO: ${resolve_default:True,${...CAPTURE_VIDEO}}
   CREATE_SHELF: True
-  CREATE_PIPE: True
+  CREATE_PIPE: False
   CREATE_HISTOGRAMS_PERIODICALLY: False
 
   # Visualize mat file
@@ -81,6 +81,7 @@ env:
   RAIL_LIMIT_REWARD_WEIGHT: 1.0
   CART_Y_REWARD_WEIGHT: 0.0
   TIP_Y_REWARD_WEIGHT: 0.0
+  CONTACT_FORCE_REWARD_WEIGHT: 0.0
 
   # Reset
   USE_TARGET_REACHED_RESET: True
@@ -107,7 +108,7 @@ sim:
     default_buffer_size_multiplier: 2.0
     max_gpu_contact_pairs: 1048576 # 1024*1024
     num_subscenes: ${....num_subscenes}
-    contact_collection: 0 # 0: CC_NEVER (don't collect contact info), 1: CC_LAST_SUBSTEP (collect only contacts on last substep), 2: CC_ALL_SUBSTEPS (default - all contacts)
+    contact_collection: 2 # 0: CC_NEVER (don't collect contact info), 1: CC_LAST_SUBSTEP (collect only contacts on last substep), 2: CC_ALL_SUBSTEPS (default - all contacts)
 
 task:
   randomize: ${resolve_default:True,${...randomize}}
