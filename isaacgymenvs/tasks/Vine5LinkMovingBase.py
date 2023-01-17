@@ -757,7 +757,7 @@ class Vine5LinkMovingBase(VecTask):
             orientation = quat_from_angle_axis(theta, x_unit_tensor)
 
             min_depth = 0.0
-            max_depth = 0.1
+            max_depth = 0.05
             pipe_target_entrance_depth = torch.FloatTensor(len(env_ids)).uniform_(min_depth, max_depth).to(self.device)
             pipe_pos_offset_x = to_torch([-PIPE_RADIUS], dtype=torch.float,
                                          device=self.device).repeat((len(env_ids), 1))
