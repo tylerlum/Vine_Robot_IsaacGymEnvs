@@ -11,7 +11,7 @@ env:
   clipObservations: 5.0
   clipActions: 1.0
 
-  maxEpisodeLength: 1000
+  maxEpisodeLength: 300 #1000
   controlFrequencyInv: ${resolve_default:4,${...control_frequency_inv}}
 
   # set to True if you use camera sensors in the environment
@@ -71,9 +71,9 @@ env:
   # Rewards
   POSITION_REWARD_WEIGHT: 0.0
   CONST_NEGATIVE_REWARD_WEIGHT: 0.0
-  POSITION_SUCCESS_REWARD_WEIGHT: 1.0
+  POSITION_SUCCESS_REWARD_WEIGHT: .10
   VELOCITY_SUCCESS_REWARD_WEIGHT: 0
-  VELOCITY_REWARD_WEIGHT: 0.1
+  VELOCITY_REWARD_WEIGHT: 0.01
   U_RAIL_VELOCITY_CONTROL_REWARD_WEIGHT: 0.0
   U_FPAM_CONTROL_REWARD_WEIGHT: 0.0
   RAIL_VELOCITY_CHANGE_REWARD_WEIGHT: 0.0
@@ -84,7 +84,7 @@ env:
   CONTACT_FORCE_REWARD_WEIGHT: 0.0
 
   # Reset
-  USE_TARGET_REACHED_RESET: True
+  USE_TARGET_REACHED_RESET: False
   USE_TIP_LIMIT_HIT_RESET: False
 
 sim:
