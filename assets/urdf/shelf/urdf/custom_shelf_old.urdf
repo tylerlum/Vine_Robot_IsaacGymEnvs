@@ -1,0 +1,139 @@
+<robot name="shelf">
+    <link name="shelf">
+        <!-- VISUAL -->
+        <!-- layers -->
+        <visual>
+            <origin xyz="0 0 -0.2" />
+            <geometry>
+                <box size="0.1 0.4 0.01" />
+            </geometry>
+        </visual>
+        <visual>
+            <origin xyz="0 0 0.0" />
+            <geometry>
+                <box size="0.1 0.4 0.01" />
+            </geometry>
+        </visual>
+        <visual>
+            <origin xyz="0 0 0.2" />
+            <geometry>
+                <box size="0.1 0.4 0.01" />
+            </geometry>
+        </visual>
+        <visual>
+            <origin xyz="0 0 0.5" />
+            <geometry>
+                <box size="0.1 0.4 0.01" />
+            </geometry>
+        </visual>
+        <!-- legs -->
+        <visual>
+            <origin xyz="0.06 -0.18 0.15" />
+            <geometry>
+                <box size="0.025 0.025 0.75" />
+            </geometry>
+        </visual>
+        <visual>
+            <origin xyz="0.06 0.18 0.15" />
+            <geometry>
+                <box size="0.025 0.025 0.75" />
+            </geometry>
+        </visual>
+        <visual>
+            <origin xyz="0.06 0 0.15" />
+            <geometry>
+                <box size="0.025 0.025 0.75" />
+            </geometry>
+        </visual>
+
+        <visual>
+            <origin xyz="-0.06 0.18 0.15" />
+            <geometry>
+                <box size="0.025 0.025 0.75" />
+            </geometry>
+        </visual>
+        <visual>
+            <origin xyz="-0.06 -0.18 0.15" />
+            <geometry>
+                <box size="0.025 0.025 0.75" />
+            </geometry>
+        </visual>
+        <visual>
+            <origin xyz="-0.06 0 0.15" />
+            <geometry>
+                <box size="0.025 0.025 0.75" />
+            </geometry>
+        </visual>
+
+        <!-- COLLISION -->
+        <!-- layers -->
+        <collision>
+            <origin xyz="0 0 -0.2" />
+            <geometry>
+                <box size="0.1 0.4 0.01" />
+            </geometry>
+        </collision>
+        <collision>
+            <origin xyz="0 0 0.0" />
+            <geometry>
+                <box size="0.1 0.4 0.01" />
+            </geometry>
+        </collision>
+        <collision>
+            <origin xyz="0 0 0.2" />
+            <geometry>
+                <box size="0.1 0.4 0.01" />
+            </geometry>
+        </collision>
+        <collision>
+            <origin xyz="0 0 0.5" />
+            <geometry>
+                <box size="0.1 0.4 0.01" />
+            </geometry>
+        </collision>
+        <!-- legs -->
+        <collision>
+            <origin xyz="0.06 -0.18 0.15" />
+            <geometry>
+                <box size="0.025 0.025 0.75" />
+            </geometry>
+        </collision>
+        <collision>
+            <origin xyz="0.06 0.18 0.15" />
+            <geometry>
+                <box size="0.025 0.025 0.75" />
+            </geometry>
+        </collision>
+        <collision>
+            <origin xyz="0.06 0 0.15" />
+            <geometry>
+                <box size="0.025 0.025 0.75" />
+            </geometry>
+        </collision>
+
+        <collision>
+            <origin xyz="-0.06 0.18 0.15" />
+            <geometry>
+                <box size="0.025 0.025 0.75" />
+            </geometry>
+        </collision>
+        <collision>
+            <origin xyz="-0.06 -0.18 0.15" />
+            <geometry>
+                <box size="0.025 0.025 0.75" />
+            </geometry>
+        </collision>
+        <collision>
+            <origin xyz="-0.06 0 0.15" />
+            <geometry>
+                <box size="0.025 0.025 0.75" />
+            </geometry>
+        </collision>
+
+        <inertial>
+            <mass value="500" />
+            <friction value="1.0" />
+            <inertia ixx="1000.0" ixy="0.0" ixz="0.0" iyy="1000.0" iyz="0.0" izz="1000.0" />
+        </inertial>
+    </link>
+</robot>  
