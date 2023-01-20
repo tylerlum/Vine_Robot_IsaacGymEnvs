@@ -85,8 +85,8 @@ INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.0
 
 # IMPORTANT: Tune these angles depending the task, affects the range of target positions
-MIN_EFFECTIVE_ANGLE = math.radians(-45)
-MAX_EFFECTIVE_ANGLE = math.radians(-30)
+MIN_EFFECTIVE_ANGLE = math.radians(-25)
+MAX_EFFECTIVE_ANGLE = math.radians(-15)
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 PIPE_RADIUS = 0.065 * PIPE_ADDITIONAL_SCALING
 
@@ -757,7 +757,7 @@ class Vine5LinkMovingBase(VecTask):
             shelf_thickness = 0.01
 
             # How deep we want the target to be
-            min_shelf_depth_target = 0.05
+            min_shelf_depth_target = 0.0
             max_shelf_depth_target = 0.2
             shelf_depth_target = torch.FloatTensor(len(env_ids)).uniform_(
                 min_shelf_depth_target, max_shelf_depth_target).to(self.device)
