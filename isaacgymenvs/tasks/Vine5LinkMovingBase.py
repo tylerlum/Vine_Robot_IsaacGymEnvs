@@ -461,7 +461,7 @@ class Vine5LinkMovingBase(VecTask):
         obstacle_asset_options.vhacd_enabled = vhacd_enabled  # Convex decomposition for meshes
         if vhacd_enabled:
             # Numbers copied from isaacgym docs
-            obstacle_asset_options.vhacd_params.resolution = 300000
+            obstacle_asset_options.vhacd_params.resolution = 3000000
             obstacle_asset_options.vhacd_params.max_convex_hulls = 16
             obstacle_asset_options.vhacd_params.max_num_vertices_per_ch = 64
         obstacle_asset = self.gym.load_asset(self.sim, asset_root, asset_file, obstacle_asset_options)
