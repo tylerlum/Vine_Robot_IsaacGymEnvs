@@ -3,6 +3,9 @@
 The purpose of this repository is to model and simulate a [Vine robot](https://www.vinerobots.org/) and train a reinforcement learning policy to control the robot. Below are gifs of the Vine robot in action (in sim and real).
 
 <p align="center">
+  <img height="450" src="https://user-images.githubusercontent.com/26510814/213611552-bbc9d7e7-084c-47a5-942c-1d36873a0204.gif">
+  <img height="450" src="https://user-images.githubusercontent.com/26510814/213611573-58d733f6-af53-458a-81d4-51965dcc4448.gif">
+
   <img height="450" src="https://user-images.githubusercontent.com/26510814/207246825-f6f0171d-590a-4718-a47c-a5433cc202cd.gif">
   <img height="450" src="https://user-images.githubusercontent.com/26510814/207246835-394e0c04-be75-4a2e-b9ec-2d2b867bb215.gif">
   <img height="450" src="https://user-images.githubusercontent.com/26510814/207246862-0073e20e-16c8-44c0-8aa6-2b66dcfc5e91.gif">
