@@ -41,13 +41,14 @@ import wandb
 
 
 # Increase pipe size to make the problem easier
-PIPE_ADDITIONAL_SCALING = 1.4
+PIPE_ADDITIONAL_SCALING = 1.2
 
 
 # CONSTANTS (RARELY CHANGE)
 NUM_STATES = 13  # xyz, quat, v_xyz, w_xyz
 XYZ_LIST = ['x', 'y', 'z']
 NUM_XYZ = len(XYZ_LIST)
+NUM_OBJECT_INFO = 2 # target depth, angle
 NUM_RGBA = 4
 LENGTH_RAIL = 0.8
 LENGTH_PER_LINK = 0.0885
@@ -69,6 +70,7 @@ class ObservationType(Enum):
     POS_AND_VEL = "POS_AND_VEL"
     POS_AND_FD_VEL = "POS_AND_FD_VEL"
     POS_AND_PREV_POS = "POS_AND_PREV_POS"
+    POS_AND_FD_VEL_AND_OBJ_INFO = "POS_AND_FD_VEL_AND_OBJ_INFO"
 
 
 # Rewards
@@ -173,6 +175,9 @@ class Vine5LinkMovingBase(VecTask):
                 2 * (N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ) +
                 N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
             )
+            if observation_type == ObservationType.POS_AND_FD_VEL_AND_OBJ_INFO:
+                # Add more observations for object info
+                self.cfg["env"]["numObservations"] += NUM_OBJECT_INFO
         self.cfg["env"]["numActions"] = N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
 
         self.subscribe_to_keyboard_events()
@@ -237,6 +242,9 @@ class Vine5LinkMovingBase(VecTask):
         self.prev_tip_positions = self.tip_positions.clone()
         self.prev_u_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device)
         self.prev_cart_vel_error = torch.zeros(self.num_envs, 1, device=self.device)
+
+        # Keep track of object info
+        self.object_info = torch.zeros(self.num_envs, NUM_OBJECT_INFO, device=self.device)
 
         # Log and cache
         self.use_wandb = True
@@ -753,7 +761,7 @@ class Vine5LinkMovingBase(VecTask):
             max_shelf_depth_target = 0.2
             shelf_depth_target = torch.FloatTensor(len(env_ids)).uniform_(
                 min_shelf_depth_target, max_shelf_depth_target).to(self.device)
-
+            
             shelf_pos_offset = torch.zeros(len(env_ids), 3, device=self.device)
             shelf_pos_offset[:, 1] -= half_shelf_length_y
             shelf_pos_offset[:, 1] += shelf_depth_target
@@ -767,6 +775,8 @@ class Vine5LinkMovingBase(VecTask):
             shelf_indices = self.shelf_indices[env_ids].to(dtype=torch.int32)
             self.gym.set_actor_root_state_tensor_indexed(self.sim, gymtorch.unwrap_tensor(
                 self.root_state), gymtorch.unwrap_tensor(shelf_indices), len(shelf_indices))
+
+            self.object_info[env_ids, 0] = shelf_depth_target
 
         # TODO: Update obstacle positions based on targets?
         if self.cfg['env']["CREATE_PIPE"]:
@@ -801,6 +811,9 @@ class Vine5LinkMovingBase(VecTask):
             pipe_indices = self.pipe_indices[env_ids].to(dtype=torch.int32)
             self.gym.set_actor_root_state_tensor_indexed(self.sim, gymtorch.unwrap_tensor(
                 self.root_state), gymtorch.unwrap_tensor(pipe_indices), len(pipe_indices))
+
+            self.object_info[env_ids, 0] = pipe_target_entrance_depth
+            self.object_info[env_ids, 1] = theta_prime
 
     def sample_target_positions(self, num_envs):
         target_positions = torch.zeros(num_envs, NUM_XYZ, device=self.device)
@@ -1219,6 +1232,11 @@ class Vine5LinkMovingBase(VecTask):
             tensors_to_concat = [self.dof_pos, self.prev_dof_pos, self.tip_positions, self.prev_tip_positions,
                                  self.target_positions, self.target_velocities,
                                  self.smoothed_u_fpam, self.prev_u_rail_velocity]
+        elif observation_type == ObservationType.POS_AND_FD_VEL_AND_OBJ_INFO:
+            tensors_to_concat = [self.dof_pos, self.finite_difference_dof_vel, self.tip_positions, self.finite_difference_tip_velocities,
+                                 self.target_positions, self.target_velocities,
+                                 self.smoothed_u_fpam, self.prev_u_rail_velocity,
+                                 self.object_info]
         self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
 
         if self.cfg['env']['CREATE_HISTOGRAMS_PERIODICALLY'] or self.create_histogram:
