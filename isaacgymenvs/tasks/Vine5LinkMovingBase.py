@@ -41,7 +41,7 @@ import wandb
 
 
 # Increase pipe size to make the problem easier
-PIPE_ADDITIONAL_SCALING = 1.2
+PIPE_ADDITIONAL_SCALING = 1.05
 
 
 # CONSTANTS (RARELY CHANGE)
@@ -88,7 +88,8 @@ INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.0
 MIN_EFFECTIVE_ANGLE = math.radians(-25)
 MAX_EFFECTIVE_ANGLE = math.radians(-15)
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
-PIPE_RADIUS = 0.065 * PIPE_ADDITIONAL_SCALING
+# PIPE_RADIUS = 0.065 * PIPE_ADDITIONAL_SCALING
+PIPE_RADIUS = 0.07 * PIPE_ADDITIONAL_SCALING
 
 TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
 if USE_MOVING_BASE:
@@ -799,8 +800,8 @@ class Vine5LinkMovingBase(VecTask):
             x_unit_tensor = to_torch([1, 0, 0], dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
             orientation = quat_from_angle_axis(theta, x_unit_tensor)
 
-            min_depth = 0.0
-            max_depth = 0.05
+            min_depth = -0.05
+            max_depth = 0.1
             pipe_target_entrance_depth = torch.FloatTensor(len(env_ids)).uniform_(min_depth, max_depth).to(self.device)
             pipe_pos_offset_x = to_torch([-PIPE_RADIUS], dtype=torch.float,
                                          device=self.device).repeat((len(env_ids), 1))
