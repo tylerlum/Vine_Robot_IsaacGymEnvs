@@ -48,7 +48,7 @@ PIPE_ADDITIONAL_SCALING = 1.05
 NUM_STATES = 13  # xyz, quat, v_xyz, w_xyz
 XYZ_LIST = ['x', 'y', 'z']
 NUM_XYZ = len(XYZ_LIST)
-NUM_OBJECT_INFO = 2 # target depth, angle
+NUM_OBJECT_INFO = 2  # target depth, angle
 NUM_RGBA = 4
 LENGTH_RAIL = 0.8
 LENGTH_PER_LINK = 0.0885
@@ -759,11 +759,9 @@ class Vine5LinkMovingBase(VecTask):
             shelf_thickness = 0.01
 
             # How deep we want the target to be
-            min_shelf_depth_target = 0.0
-            max_shelf_depth_target = 0.2
             shelf_depth_target = torch.FloatTensor(len(env_ids)).uniform_(
-                min_shelf_depth_target, max_shelf_depth_target).to(self.device)
-            
+                self.cfg['env']['MIN_TARGET_DEPTH_IN_OBSTACLE'], self.cfg['env']['MAX_TARGET_DEPTH_IN_OBSTACLE']).to(self.device)
+
             shelf_pos_offset = torch.zeros(len(env_ids), 3, device=self.device)
             shelf_pos_offset[:, 1] -= half_shelf_length_y
             shelf_pos_offset[:, 1] += shelf_depth_target
@@ -795,15 +793,15 @@ class Vine5LinkMovingBase(VecTask):
             # Where f is a cubic that outputs in degrees
             effective_z = INIT_Z - self.target_positions[env_ids, 2]
             polynomial_coefficients = 1.0e+04 * np.array([1.3199, -1.2276, 0.4045, -0.0447])
-            theta_prime = torch.deg2rad(to_torch(np.polyval(p=polynomial_coefficients, x=effective_z.cpu()), device=self.device))
+            theta_prime = torch.deg2rad(to_torch(np.polyval(p=polynomial_coefficients,
+                                        x=effective_z.cpu()), device=self.device))
             theta = theta_prime + torch.deg2rad(torch.tensor(90.0, device=self.device))
 
             x_unit_tensor = to_torch([1, 0, 0], dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
             orientation = quat_from_angle_axis(theta, x_unit_tensor)
 
-            min_depth = -0.05
-            max_depth = 0.1
-            pipe_target_entrance_depth = torch.FloatTensor(len(env_ids)).uniform_(min_depth, max_depth).to(self.device)
+            pipe_target_entrance_depth = torch.FloatTensor(len(env_ids)).uniform_(
+                self.cfg['env']['MIN_TARGET_DEPTH_IN_OBSTACLE'], self.cfg['env']['MAX_TARGET_DEPTH_IN_OBSTACLE']).to(self.device)
             pipe_pos_offset_x = to_torch([-PIPE_RADIUS], dtype=torch.float,
                                          device=self.device).repeat((len(env_ids), 1))
             pipe_pos_offset_y = pipe_target_entrance_depth * torch.cos(theta_prime)
@@ -973,10 +971,10 @@ class Vine5LinkMovingBase(VecTask):
             # torque = - Kq - Cqd - b - Bu;
             #        = - [K C diag(b) diag(B)] @ [q; qd; ones(5), u_fpam*ones(5)]
             #        = - A @ x
-            K = torch.diag(torch.tensor([ 0.8385, 1.5400, 1.5109, 1.2887, 0.4347], device=self.device))
-            C = torch.diag(torch.tensor([ 0.0178, 0.0304, 0.0528, 0.0367, 0.0223], device=self.device))
-            b = torch.tensor([ 0.0007, 0.0062, 0.0402, 0.0160, 0.0133], device=self.device)
-            B = torch.tensor([ 0.0247, 0.0616, 0.0779, 0.0498, 0.0268], device=self.device)
+            K = torch.diag(torch.tensor([0.8385, 1.5400, 1.5109, 1.2887, 0.4347], device=self.device))
+            C = torch.diag(torch.tensor([0.0178, 0.0304, 0.0528, 0.0367, 0.0223], device=self.device))
+            b = torch.tensor([0.0007, 0.0062, 0.0402, 0.0160, 0.0133], device=self.device)
+            B = torch.tensor([0.0247, 0.0616, 0.0779, 0.0498, 0.0268], device=self.device)
 
             A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
             self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
