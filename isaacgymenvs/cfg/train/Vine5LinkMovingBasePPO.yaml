@@ -35,7 +35,7 @@ params:
       name: lstm
       units: 256
       layers: 1
-      before_mlp: True
+      before_mlp: False  # Should be better training with False: https://wandb.ai/tylerlum/vine_robot_v3/reports/2023-01-21-Model-Architecture-Comparison--VmlldzozMzg3ODI0
       concat_input: True
       layer_norm: True
 
