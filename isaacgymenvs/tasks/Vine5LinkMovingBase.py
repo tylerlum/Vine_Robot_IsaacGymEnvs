@@ -75,14 +75,17 @@ class ObservationType(Enum):
 # Brittle: Ensure reward order matches
 REWARD_NAMES = ["Position", "Const Negative", "Position Success",
                 "Velocity Success", "Velocity", "Rail Velocity Control",
-                "FPAM Control", "Rail Velocity Change", "FPAM Change", "Rail Limit", "Cart Y", "Tip Y"]
+                "FPAM Control", "Rail Velocity Change", "FPAM Change", "Rail Limit",
+                "Cart Y", "Tip Y", "Contact Force"]
 
 N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.0
 
-MIN_EFFECTIVE_ANGLE = math.radians(-60)
-MAX_EFFECTIVE_ANGLE = math.radians(-10)
+# IMPORTANT: Tune these angles depending the task, affects the range of target positions
+MIN_EFFECTIVE_ANGLE = math.radians(-45)
+MAX_EFFECTIVE_ANGLE = math.radians(-30)
+
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 PIPE_RADIUS = 0.065 * PIPE_ADDITIONAL_SCALING
 
@@ -94,7 +97,8 @@ if USE_MOVING_BASE:
 else:
     TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MIN_EFFECTIVE_ANGLE)*VINE_LENGTH,
                                           math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
-TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
+TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - \
+    math.cos(MAX_EFFECTIVE_ANGLE) * VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
 
 
 class Vine5LinkMovingBase(VecTask):
@@ -198,6 +202,7 @@ class Vine5LinkMovingBase(VecTask):
             "Rail Limit": self.cfg['env']['RAIL_LIMIT_REWARD_WEIGHT'],
             "Cart Y": self.cfg['env']['CART_Y_REWARD_WEIGHT'],
             "Tip Y": self.cfg['env']['TIP_Y_REWARD_WEIGHT'],
+            "Contact Force": self.cfg['env']['CONTACT_FORCE_REWARD_WEIGHT'],
         }
         assert (set(REWARD_NAMES) == set(reward_name_to_weight_dict.keys()))
         reward_weights = [reward_name_to_weight_dict[name] for name in REWARD_NAMES]
@@ -269,7 +274,15 @@ class Vine5LinkMovingBase(VecTask):
 
         # Store contact force tensor
         contact_force_tensor = self.gym.acquire_net_contact_force_tensor(self.sim)
-        self.contact_force = gymtorch.wrap_tensor(contact_force_tensor)
+        self.contact_force = gymtorch.wrap_tensor(contact_force_tensor).view(
+            self.num_envs, -1, 3)  # shape: num_envs, num_bodies, xyz axis
+        link_names = ["link_0", "link_1", "link_2", "link_3", "link_4"]
+        self.link_indices = torch.zeros(len(link_names), dtype=torch.long, device=self.device, requires_grad=False)
+
+        for i, link_name in enumerate(link_names):
+            link_idx = self.gym.find_actor_rigid_body_index(
+                self.envs[0], self.vine_handles[0], link_name, gymapi.DOMAIN_ENV)
+            self.link_indices[i] = link_idx
 
         # Get tip and cart information
         arbitrary_idx = 0
@@ -317,7 +330,8 @@ class Vine5LinkMovingBase(VecTask):
         self.pipe_asset = self.get_obstacle_asset(
             "urdf/pipe/urdf/pipe.urdf", vhacd_enabled=True)  # Mesh needs convex decomposition
         self.shelf_asset = self.get_obstacle_asset("urdf/shelf/urdf/shelf.urdf")
-        self.sushi_shelf_asset = self.get_obstacle_asset("urdf/sushi_shelf/urdf/sushi_shelf.urdf")
+        self.custom_shelf_asset = self.get_obstacle_asset("urdf/shelf/urdf/custom_shelf.urdf")
+        self.sushi_shelf_asset = self.get_obstacle_asset("urdf/sushi_shelf/urdf/sushi_shelf.urdf", vhacd_enabled=True)
         self.shelf_super_market1_asset = self.get_obstacle_asset(
             "urdf/shelf_super_market1/urdf/shelf_super_market1.urdf")
         self.shelf_super_market2_asset = self.get_obstacle_asset(
@@ -397,11 +411,11 @@ class Vine5LinkMovingBase(VecTask):
             shelf_init_pose = gymapi.Transform()
             shelf_init_pose.p.y = 0.2
             shelf_init_pose.p.z = 0.0
-            shelf_handle = self.gym.create_actor(env_ptr, self.shelf_asset, shelf_init_pose, "shelf",
+            shelf_handle = self.gym.create_actor(env_ptr, self.custom_shelf_asset, shelf_init_pose, "shelf",
                                                  group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 1) if self.cfg['env']['CREATE_SHELF'] else None
             if self.cfg['env']['CREATE_SHELF']:
-                new_scale = 0.1
-                self.gym.set_actor_scale(env_ptr, shelf_handle, new_scale)
+                shelf_scale = 1.0
+                self.gym.set_actor_scale(env_ptr, shelf_handle, shelf_scale)
 
             # Create other obstacles
             pipe_init_pose = gymapi.Transform()
@@ -410,8 +424,8 @@ class Vine5LinkMovingBase(VecTask):
             pipe_handle = self.gym.create_actor(env_ptr, self.pipe_asset, pipe_init_pose, "pipe",
                                                 group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 2) if self.cfg['env']['CREATE_PIPE'] else None
             if self.cfg['env']['CREATE_PIPE']:
-                new_scale = 0.001 * PIPE_ADDITIONAL_SCALING
-                self.gym.set_actor_scale(env_ptr, pipe_handle, new_scale)
+                pipe_scale = 0.001 * PIPE_ADDITIONAL_SCALING
+                self.gym.set_actor_scale(env_ptr, pipe_handle, pipe_scale)
 
             # Create vine robots
             vine_handle = self.gym.create_actor(
@@ -462,7 +476,7 @@ class Vine5LinkMovingBase(VecTask):
         if vhacd_enabled:
             # Numbers copied from isaacgym docs
             obstacle_asset_options.vhacd_params.resolution = 300000
-            obstacle_asset_options.vhacd_params.max_convex_hulls = 16
+            obstacle_asset_options.vhacd_params.max_convex_hulls = 64
             obstacle_asset_options.vhacd_params.max_num_vertices_per_ch = 64
         obstacle_asset = self.gym.load_asset(self.sim, asset_root, asset_file, obstacle_asset_options)
         return obstacle_asset
@@ -730,19 +744,30 @@ class Vine5LinkMovingBase(VecTask):
         self.target_positions[env_ids, :] = self.sample_target_positions(len(env_ids))
         self.target_velocities[env_ids, :] = self.sample_target_velocities(len(env_ids))
 
-        # TODO: Update obstacle positions based on targets?
-        # if self.cfg['env']['CREATE_SHELF']:
-        #     self.root_state[self.shelf_indices[env_ids], START_POS_IDX:END_POS_IDX] = torch.stack([torch.FloatTensor(len(env_ids)).uniform_(0, 0),
-        #                                                                                        torch.FloatTensor(
-        #                                                                                            len(env_ids)).uniform_(-0.5, 0.5),
-        #                                                                                        torch.FloatTensor(len(env_ids)).uniform_(0, 0)], dim=-1).to(self.device)
-        #     # self.root_state[self.shelf_indices[env_ids], START_QUAT_IDX:END_QUAT_IDX] = self.goal_states[env_ids, 3:7]
-        #     self.root_state[self.shelf_indices[env_ids], START_LIN_VEL_IDX:END_LIN_VEL_IDX] = 0
-        #     self.root_state[self.shelf_indices[env_ids], START_ANG_VEL_IDX:END_ANG_VEL_IDX] = 0
+        if self.cfg['env']['CREATE_SHELF']:
+            # Shelf dimensions
+            half_shelf_length_y = 0.4 / 2
+            shelf_thickness = 0.01
 
-        #     shelf_indices = self.shelf_indices[env_ids].to(dtype=torch.int32)
-        #     self.gym.set_actor_root_state_tensor_indexed(self.sim, gymtorch.unwrap_tensor(
-        #         self.root_state), gymtorch.unwrap_tensor(shelf_indices), len(shelf_indices))
+            # How deep we want the target to be
+            min_shelf_depth_target = 0.05
+            max_shelf_depth_target = 0.2
+            shelf_depth_target = torch.FloatTensor(len(env_ids)).uniform_(
+                min_shelf_depth_target, max_shelf_depth_target).to(self.device)
+
+            shelf_pos_offset = torch.zeros(len(env_ids), 3, device=self.device)
+            shelf_pos_offset[:, 1] -= half_shelf_length_y
+            shelf_pos_offset[:, 1] += shelf_depth_target
+            shelf_pos_offset[:, 2] -= shelf_thickness
+            shelf_pos = self.target_positions[env_ids, :] + shelf_pos_offset
+
+            self.root_state[self.shelf_indices[env_ids], START_POS_IDX:END_POS_IDX] = shelf_pos
+            self.root_state[self.shelf_indices[env_ids], START_LIN_VEL_IDX:END_LIN_VEL_IDX] = 0
+            self.root_state[self.shelf_indices[env_ids], START_ANG_VEL_IDX:END_ANG_VEL_IDX] = 0
+
+            shelf_indices = self.shelf_indices[env_ids].to(dtype=torch.int32)
+            self.gym.set_actor_root_state_tensor_indexed(self.sim, gymtorch.unwrap_tensor(
+                self.root_state), gymtorch.unwrap_tensor(shelf_indices), len(shelf_indices))
 
         if self.cfg['env']["CREATE_PIPE"]:
             # Our goal is the set the pipe pose, give the target position
@@ -934,14 +959,10 @@ class Vine5LinkMovingBase(VecTask):
             # torque = - Kq - Cqd - b - Bu;
             #        = - [K C diag(b) diag(B)] @ [q; qd; ones(5), u_fpam*ones(5)]
             #        = - A @ x
-            K = torch.diag(torch.tensor([1.0822678619473745, 1.3960597815085283,
-                                         0.7728716674414156, 0.566602254820747, 0.20000000042282678], device=self.device))
-            C = torch.diag(torch.tensor([0.010098832804688505, 0.008001446516454621,
-                                         0.01352315902253585, 0.021895211325047674, 0.017533205699630634], device=self.device))
-            b = -torch.tensor([-0.002961879962361915, -0.019149230853283454, -0.01339719175569314, -
-                               0.011436913019114144, -0.0031035566743229624], device=self.device)
-            B = -torch.tensor([-0.02525783894248118, -0.06298872026151316, -0.049676622868418834, -
-                               0.029474741498381096, -0.015412936470522515], device=self.device)
+            K = torch.diag(torch.tensor([ 0.8385, 1.5400, 1.5109, 1.2887, 0.4347], device=self.device))
+            C = torch.diag(torch.tensor([ 0.0178, 0.0304, 0.0528, 0.0367, 0.0223], device=self.device))
+            b = torch.tensor([ 0.0007, 0.0062, 0.0402, 0.0160, 0.0133], device=self.device)
+            B = torch.tensor([ 0.0247, 0.0616, 0.0779, 0.0498, 0.0268], device=self.device)
 
             A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
             self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
@@ -1091,6 +1112,9 @@ class Vine5LinkMovingBase(VecTask):
         tip_y = self.tip_positions[:, 1]
         tip_limit_hit = tip_y < self.target_positions[:, 1]
 
+        # Get contact forces
+        link_contact_forces = self.contact_force[:, self.link_indices, :]
+
         self.wandb_dict.update({
             "dist_tip_to_target": dist_tip_to_target.mean().item(),
             "target_reached": target_reached.float().mean().item(),
@@ -1114,7 +1138,8 @@ class Vine5LinkMovingBase(VecTask):
         self.rew_buf[:], reward_matrix, weighted_reward_matrix = compute_reward_jit(
             dist_to_target=dist_tip_to_target, target_reached=target_reached, tip_velocities=self.tip_velocities,
             target_velocities=self.target_velocities, u_rail_velocity=self.u_rail_velocity, u_fpam=self.u_fpam, prev_u_rail_velocity=self.prev_u_rail_velocity,
-            smoothed_u_fpam=self.smoothed_u_fpam, limit_hit=limit_hit, tip_limit_hit=tip_limit_hit, cart_y=cart_y, reward_weights=self.reward_weights, reward_names=REWARD_NAMES
+            smoothed_u_fpam=self.smoothed_u_fpam, limit_hit=limit_hit, tip_limit_hit=tip_limit_hit, cart_y=cart_y,
+            link_contact_forces=link_contact_forces, reward_weights=self.reward_weights, reward_names=REWARD_NAMES
         )
         self.aggregated_rew_buf += self.rew_buf
 
@@ -1160,6 +1185,7 @@ class Vine5LinkMovingBase(VecTask):
                 f"Max Total Reward": self.rew_buf.max().item(),
             })
 
+        # TODO: Could add contact force as reset reason
         self.reset_buf[:] = compute_reset_jit(
             reset_buf=self.reset_buf, progress_buf=self.progress_buf,
             max_episode_length=self.max_episode_length, target_reached=target_reached, limit_hit=limit_hit, tip_limit_hit=tip_limit_hit,
@@ -1258,8 +1284,11 @@ def rescale_to_u_rail_velocity(u_rail_velocity, scale):
 
 
 @torch.jit.script
-def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_velocities, u_rail_velocity, u_fpam, prev_u_rail_velocity, smoothed_u_fpam, limit_hit, tip_limit_hit, cart_y, reward_weights, reward_names):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, List[str]) -> Tuple[Tensor, Tensor, Tensor]
+def compute_reward_jit(dist_to_target, target_reached, tip_velocities,
+                       target_velocities, u_rail_velocity, u_fpam, prev_u_rail_velocity,
+                       smoothed_u_fpam, limit_hit, tip_limit_hit, cart_y, link_contact_forces,
+                       reward_weights, reward_names):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, List[str]) -> Tuple[Tensor, Tensor, Tensor]
     # reward = sum(w_i * r_i) with various reward function r_i and weights w_i
 
     # position_reward = -dist_to_target [Try to reach target]
@@ -1274,12 +1303,14 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
     # rail_limit_reward = RAIL_LIMIT_PUNISHMENT if limit_hit else 0 [Punish for hitting rail limits]
     # cart_y_reward = -abs(cart_y) [Punish for getting near rail limits]
     # tip_y_reward = TIP_LIMIT_PUNISHMENT if tip_limit_hit else 0 [Punish for exceeding target]
+    # contact_force_reward = norm(link_contact_forces) if norm(link_contact_forces) > THRESH else 0 [Punish for large contact]
     N_REWARDS = torch.numel(reward_weights)
     N_ENVS = dist_to_target.shape[0]
 
     REWARD_BONUS = 1000.0
     RAIL_LIMIT_PUNISHMENT = -100.0
     TIP_LIMIT_PUNISHMENT = -100.0
+    CONTACT_FORCE_THRESHOLD = 0.0
 
     # Brittle: Ensure reward order matches
     reward_matrix = torch.zeros(N_ENVS, N_REWARDS, device=dist_to_target.device)
@@ -1310,6 +1341,9 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
             reward_matrix[:, i] -= torch.abs(cart_y)
         elif reward_name == "Tip Y":
             reward_matrix[:, i] += torch.where(tip_limit_hit, TIP_LIMIT_PUNISHMENT, 0.0)
+        elif reward_name == "Contact Force":
+            force_norms = torch.norm(link_contact_forces, dim=[-2, -1]).double()
+            reward_matrix[:, i] -= torch.where(force_norms > CONTACT_FORCE_THRESHOLD, force_norms, 0.0)
         else:
             raise ValueError(f"Invalid reward name: {reward_name}")
 
@@ -1319,7 +1353,9 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities, target_ve
     return total_reward, reward_matrix, weighted_reward_matrix
 
 
-def compute_reset_jit(reset_buf, progress_buf, max_episode_length, target_reached, limit_hit, tip_limit_hit, use_target_reached_reset, use_tip_limit_hit_reset):
+def compute_reset_jit(reset_buf, progress_buf, max_episode_length, target_reached,
+                      limit_hit, tip_limit_hit, use_target_reached_reset,
+                      use_tip_limit_hit_reset):
     # type: (Tensor, Tensor, float, Tensor, Tensor, Tensor, bool, bool) -> Tensor
     reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset_buf)
 
