@@ -85,8 +85,8 @@ INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.0
 
 # IMPORTANT: Tune these angles depending the task, affects the range of target positions
-MIN_EFFECTIVE_ANGLE = math.radians(-25)
-MAX_EFFECTIVE_ANGLE = math.radians(-15)
+MIN_EFFECTIVE_ANGLE = math.radians(-45)
+MAX_EFFECTIVE_ANGLE = math.radians(-30)
 
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 # PIPE_RADIUS = 0.065 * PIPE_ADDITIONAL_SCALING
@@ -400,8 +400,6 @@ class Vine5LinkMovingBase(VecTask):
 
         self.envs = []
         self.vine_handles = []
-        self.shelf_handles = []
-        self.pipe_handles = []
 
         self.vine_indices = []
         self.shelf_indices = []
@@ -411,34 +409,39 @@ class Vine5LinkMovingBase(VecTask):
             env_ptr = self.gym.create_env(
                 self.sim, lower, upper, num_per_row
             )
+            self.envs.append(env_ptr)
 
             # Different collision_groups so that different envs don't interact
             # collision_filter = 0 for enabled self-collision, collision_filter > 0 disable self-collisions
             collision_group, collision_filter, segmentation_id = i, 0, 0
 
-            # Create other obstacles
-            shelf_init_pose = gymapi.Transform()
-            shelf_init_pose.p.y = 0.2
-            shelf_init_pose.p.z = 0.0
-            shelf_handle = self.gym.create_actor(env_ptr, self.custom_shelf_asset, shelf_init_pose, "shelf",
-                                                 group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 1) if self.cfg['env']['CREATE_SHELF'] else None
+            # Create shelf
             if self.cfg['env']['CREATE_SHELF']:
+                shelf_init_pose = gymapi.Transform()
+                shelf_init_pose.p.y = 0.2
+                shelf_init_pose.p.z = 0.0
+                shelf_handle = self.gym.create_actor(env_ptr, self.custom_shelf_asset, shelf_init_pose, "shelf",
+                                                     group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 1)
                 shelf_scale = 1.0
                 self.gym.set_actor_scale(env_ptr, shelf_handle, shelf_scale)
+                self.shelf_indices.append(self.gym.get_actor_index(env_ptr, shelf_handle, gymapi.DOMAIN_SIM))
 
-            # Create other obstacles
-            pipe_init_pose = gymapi.Transform()
-            pipe_init_pose.p.y = -0.4
-            pipe_init_pose.p.z = 0.50
-            pipe_handle = self.gym.create_actor(env_ptr, self.pipe_asset, pipe_init_pose, "pipe",
-                                                group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 2) if self.cfg['env']['CREATE_PIPE'] else None
+            # Create pipe
             if self.cfg['env']['CREATE_PIPE']:
+                pipe_init_pose = gymapi.Transform()
+                pipe_init_pose.p.y = -0.4
+                pipe_init_pose.p.z = 0.50
+                pipe_handle = self.gym.create_actor(env_ptr, self.pipe_asset, pipe_init_pose, "pipe",
+                                                    group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 2)
                 pipe_scale = 0.001 * PIPE_ADDITIONAL_SCALING
                 self.gym.set_actor_scale(env_ptr, pipe_handle, pipe_scale)
+                self.pipe_indices.append(self.gym.get_actor_index(env_ptr, pipe_handle, gymapi.DOMAIN_SIM))
 
             # Create vine robots
-            vine_handle = self.gym.create_actor(
-                env_ptr, self.vine_asset, vine_init_pose, "vine", group=collision_group, filter=collision_filter, segmentationId=segmentation_id)
+            vine_handle = self.gym.create_actor(env_ptr, self.vine_asset, vine_init_pose, "vine",
+                                                group=collision_group, filter=collision_filter, segmentationId=segmentation_id)
+            self.vine_indices.append(self.gym.get_actor_index(env_ptr, vine_handle, gymapi.DOMAIN_SIM))
+            self.vine_handles.append(vine_handle)
 
             # Set dof properties
             dof_props = self.gym.get_actor_dof_properties(env_ptr, vine_handle)
@@ -455,18 +458,6 @@ class Vine5LinkMovingBase(VecTask):
                 dof_props['stiffness'][j] = self.cfg['env']['STIFFNESS'] if dof_type == gymapi.DofType.DOF_ROTATION else 0.0
 
             self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
-
-            # Store handles and indices
-            self.envs.append(env_ptr)
-            self.shelf_handles.append(shelf_handle)
-            self.pipe_handles.append(pipe_handle)
-            self.vine_handles.append(vine_handle)
-
-            self.shelf_indices.append(self.gym.get_actor_index(
-                env_ptr, shelf_handle, gymapi.DOMAIN_SIM) if self.cfg['env']['CREATE_SHELF'] else None)
-            self.pipe_indices.append(self.gym.get_actor_index(
-                env_ptr, pipe_handle, gymapi.DOMAIN_SIM) if self.cfg['env']['CREATE_PIPE'] else None)
-            self.vine_indices.append(self.gym.get_actor_index(env_ptr, vine_handle, gymapi.DOMAIN_SIM))
 
         if self.cfg['env']['CREATE_SHELF']:
             self.shelf_indices = to_torch(self.shelf_indices, dtype=torch.long, device=self.device)
