@@ -10,14 +10,23 @@
       <origin xyz="0 0 0.0" rpy="0 0 0" />
       <geometry>
         <!-- <mesh filename="../meshes/pipe.obj" /> -->
-        <mesh filename="../meshes/pipe.stl" />
+        <!-- <mesh filename="../meshes/pipe.stl" /> -->
+        <mesh filename="../meshes/cylinder-13_8cm-ID.STL" />
       </geometry>
     </visual>
+    <!-- To confirm pipe diameter -->
+    <!-- <visual>
+      <origin xyz="74 74 0.0" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="75" length="30" />
+      </geometry>
+    </visual> -->
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
         <!-- <mesh filename="../meshes/pipe.obj" /> -->
-        <mesh filename="../meshes/pipe.stl" />
+        <!-- <mesh filename="../meshes/pipe.stl" /> -->
+        <mesh filename="../meshes/cylinder-13_8cm-ID.STL" />
       </geometry>
     </collision>
   </link>

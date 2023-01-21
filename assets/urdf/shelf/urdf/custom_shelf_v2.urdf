@@ -8,41 +8,41 @@
         <visual>
             <origin xyz="0 0 -0.2" />
             <geometry>
-                <box size="0.15 0.4 0.01" />
+                <box size="0.1 0.4 0.01" />
             </geometry>
             <material name="beige"/>
         </visual>
         <visual>
             <origin xyz="0 0 0.0" />
             <geometry>
-                <box size="0.15 0.4 0.01" />
+                <box size="0.1 0.4 0.01" />
             </geometry>
             <material name="beige"/>
         </visual>
         <visual>
             <origin xyz="0 0 0.2" />
             <geometry>
-                <box size="0.15 0.4 0.01" />
+                <box size="0.1 0.4 0.01" />
             </geometry>
             <material name="beige"/>
         </visual>        
         <!-- legs -->
         <visual>
-            <origin xyz="0.11 -0.18 -0.175" />
+            <origin xyz="0.06 -0.18 -0.175" />
             <geometry>
                 <box size="0.025 0.025 0.75" />
             </geometry>
             <material name="beige"/>
         </visual>
         <visual>
-            <origin xyz="0.11 0.18 -0.175" />
+            <origin xyz="0.06 0.18 -0.175" />
             <geometry>
                 <box size="0.025 0.025 0.75" />
             </geometry>
             <material name="beige"/>
         </visual>
         <visual>
-            <origin xyz="0.11 0 -0.175" />
+            <origin xyz="0.06 0 -0.175" />
             <geometry>
                 <box size="0.025 0.025 0.75" />
             </geometry>
@@ -50,21 +50,21 @@
         </visual>
 
         <visual>
-            <origin xyz="-0.11 0.18 -0.175" />
+            <origin xyz="-0.06 0.18 -0.175" />
             <geometry>
                 <box size="0.025 0.025 0.75" />
             </geometry>
             <material name="beige"/>
         </visual>
         <visual>
-            <origin xyz="-0.11 -0.18 -0.175" />
+            <origin xyz="-0.06 -0.18 -0.175" />
             <geometry>
                 <box size="0.025 0.025 0.75" />
             </geometry>
             <material name="beige"/>
         </visual>
         <visual>
-            <origin xyz="-0.11 0 -0.175" />
+            <origin xyz="-0.06 0 -0.175" />
             <geometry>
                 <box size="0.025 0.025 0.75" />
             </geometry>
@@ -76,55 +76,55 @@
         <collision>
             <origin xyz="0 0 -0.2" />
             <geometry>
-                <box size="0.15 0.4 0.01" />
+                <box size="0.1 0.4 0.01" />
             </geometry>
         </collision>
         <collision>
             <origin xyz="0 0 0.0" />
             <geometry>
-                <box size="0.15 0.4 0.01" />
+                <box size="0.1 0.4 0.01" />
             </geometry>
         </collision>
         <collision>
             <origin xyz="0 0 0.2" />
             <geometry>
-                <box size="0.15 0.4 0.01" />
+                <box size="0.1 0.4 0.01" />
             </geometry>
         </collision>
         <!-- legs -->
         <collision>
-            <origin xyz="0.11 -0.18 -0.175" />
+            <origin xyz="0.06 -0.18 -0.175" />
             <geometry>
                 <box size="0.025 0.025 0.75" />
             </geometry>
         </collision>
         <collision>
-            <origin xyz="0.11 0.18 -0.175" />
+            <origin xyz="0.06 0.18 -0.175" />
             <geometry>
                 <box size="0.025 0.025 0.75" />
             </geometry>
         </collision>
         <collision>
-            <origin xyz="0.11 0 -0.175" />
+            <origin xyz="0.06 0 -0.175" />
             <geometry>
                 <box size="0.025 0.025 0.75" />
             </geometry>
         </collision>
 
         <collision>
-            <origin xyz="-0.11 0.18 -0.175" />
+            <origin xyz="-0.06 0.18 -0.175" />
             <geometry>
                 <box size="0.025 0.025 0.75" />
             </geometry>
         </collision>
         <collision>
-            <origin xyz="-0.11 -0.18 -0.175" />
+            <origin xyz="-0.06 -0.18 -0.175" />
             <geometry>
                 <box size="0.025 0.025 0.75" />
             </geometry>
         </collision>
         <collision>
-            <origin xyz="-0.11 0 -0.175" />
+            <origin xyz="-0.06 0 -0.175" />
             <geometry>
                 <box size="0.025 0.025 0.75" />
             </geometry>
