@@ -35,7 +35,7 @@ params:
       name: lstm
       units: 256
       layers: 1
-      before_mlp: False
+      before_mlp: True
       concat_input: True
       layer_norm: True
 
