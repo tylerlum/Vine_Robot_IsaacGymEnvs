@@ -87,6 +87,7 @@ INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.0
 # IMPORTANT: Tune these angles depending the task, affects the range of target positions
 MIN_EFFECTIVE_ANGLE = math.radians(-25)
 MAX_EFFECTIVE_ANGLE = math.radians(-15)
+
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 # PIPE_RADIUS = 0.065 * PIPE_ADDITIONAL_SCALING
 PIPE_RADIUS = 0.07 * PIPE_ADDITIONAL_SCALING
