@@ -426,6 +426,8 @@ class Vine5LinkMovingBase(VecTask):
                 self.gym.set_actor_scale(env_ptr, shelf_handle, shelf_scale)
                 self.shelf_indices.append(self.gym.get_actor_index(env_ptr, shelf_handle, gymapi.DOMAIN_SIM))
 
+                self.set_friction(env_ptr=env_ptr, object_handle=shelf_handle, friction_coefficient=0.0)
+
             # Create pipe
             if self.cfg['env']['CREATE_PIPE']:
                 pipe_init_pose = gymapi.Transform()
@@ -437,32 +439,31 @@ class Vine5LinkMovingBase(VecTask):
                 self.gym.set_actor_scale(env_ptr, pipe_handle, pipe_scale)
                 self.pipe_indices.append(self.gym.get_actor_index(env_ptr, pipe_handle, gymapi.DOMAIN_SIM))
 
+                self.set_friction(env_ptr=env_ptr, object_handle=pipe_handle, friction_coefficient=0.0)
+
             # Create vine robots
             vine_handle = self.gym.create_actor(env_ptr, self.vine_asset, vine_init_pose, "vine",
                                                 group=collision_group, filter=collision_filter, segmentationId=segmentation_id)
             self.vine_indices.append(self.gym.get_actor_index(env_ptr, vine_handle, gymapi.DOMAIN_SIM))
             self.vine_handles.append(vine_handle)
+            self.set_friction(env_ptr=env_ptr, object_handle=vine_handle, friction_coefficient=0.0)
 
             # Set dof properties
-            dof_props = self.gym.get_actor_dof_properties(env_ptr, vine_handle)
-
-            # Set stiffness and damping
-            dof_props['driveMode'].fill(DOF_MODE)
-            dof_props['damping'].fill(self.cfg['env']['DAMPING'])
+            vine_dof_props = self.gym.get_actor_dof_properties(env_ptr, vine_handle)
+            vine_dof_props['driveMode'].fill(DOF_MODE)
+            vine_dof_props['damping'].fill(self.cfg['env']['DAMPING'])
             for j in range(self.gym.get_asset_dof_count(self.vine_asset)):
                 dof_type = self.gym.get_asset_dof_type(self.vine_asset, j)
                 if dof_type not in [gymapi.DofType.DOF_ROTATION, gymapi.DofType.DOF_TRANSLATION]:
                     raise ValueError(f"Invalid dof_type = {dof_type}")
 
                 # Prismatic joint should have no stiffness
-                dof_props['stiffness'][j] = self.cfg['env']['STIFFNESS'] if dof_type == gymapi.DofType.DOF_ROTATION else 0.0
+                vine_dof_props['stiffness'][j] = self.cfg['env']['STIFFNESS'] if dof_type == gymapi.DofType.DOF_ROTATION else 0.0
 
-            self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
+            self.gym.set_actor_dof_properties(env_ptr, vine_handle, vine_dof_props)
 
-        if self.cfg['env']['CREATE_SHELF']:
-            self.shelf_indices = to_torch(self.shelf_indices, dtype=torch.long, device=self.device)
-        if self.cfg['env']['CREATE_PIPE']:
-            self.pipe_indices = to_torch(self.pipe_indices, dtype=torch.long, device=self.device)
+        self.shelf_indices = to_torch(self.shelf_indices, dtype=torch.long, device=self.device)
+        self.pipe_indices = to_torch(self.pipe_indices, dtype=torch.long, device=self.device)
         self.vine_indices = to_torch(self.vine_indices, dtype=torch.long, device=self.device)
 
         self._print_asset_info(self.vine_asset)
@@ -480,6 +481,14 @@ class Vine5LinkMovingBase(VecTask):
             obstacle_asset_options.vhacd_params.max_num_vertices_per_ch = 64
         obstacle_asset = self.gym.load_asset(self.sim, asset_root, asset_file, obstacle_asset_options)
         return obstacle_asset
+
+    def set_friction(self, env_ptr, object_handle, friction_coefficient):
+        # Set rigid shape properties
+        object_rigid_shape_props = self.gym.get_actor_rigid_shape_properties(env_ptr, object_handle)
+        # assert(len(object_rigid_shape_props) == self.gym.get_asset_rigid_shape_count(object_asset))  # Sanity check
+        for j in range(len(object_rigid_shape_props)):
+            object_rigid_shape_props[j].friction = friction_coefficient
+        self.gym.set_actor_rigid_shape_properties(env_ptr, object_handle, object_rigid_shape_props)
 
     def get_vine_asset(self):
         # Find asset file
@@ -672,22 +681,22 @@ class Vine5LinkMovingBase(VecTask):
         self.logger.info(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
 
     def _move_left_callback(self):
-        self.MOVE_LEFT_COUNTER = 100
+        self.MOVE_LEFT_COUNTER = 10
         self.MOVE_RIGHT_COUNTER = 0
         self.logger.info(f"self.MOVE_LEFT_COUNTER = {self.MOVE_LEFT_COUNTER}")
 
     def _move_right_callback(self):
-        self.MOVE_RIGHT_COUNTER = 100
+        self.MOVE_RIGHT_COUNTER = 10
         self.MOVE_LEFT_COUNTER = 0
         self.logger.info(f"self.MOVE_RIGHT_COUNTER = {self.MOVE_RIGHT_COUNTER}")
 
     def _max_pressure_callback(self):
-        self.MAX_PRESSURE_COUNTER = 100
+        self.MAX_PRESSURE_COUNTER = 10
         self.MIN_PRESSURE_COUNTER = 0
         self.logger.info(f"self.MAX_PRESSURE_COUNTER = {self.MAX_PRESSURE_COUNTER}")
 
     def _min_pressure_callback(self):
-        self.MIN_PRESSURE_COUNTER = 100
+        self.MIN_PRESSURE_COUNTER = 10
         self.MAX_PRESSURE_COUNTER = 0
         self.logger.info(f"self.MIN_PRESSURE_COUNTER = {self.MIN_PRESSURE_COUNTER}")
 
