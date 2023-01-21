@@ -38,6 +38,7 @@ params:
     name: ${resolve_default:Vine5LinkMovingBase,${....experiment}}
     full_experiment_name: ${.name}
     env_name: rlgpu
+    device: ${....rl_device}
     multi_gpu: ${....multi_gpu}
     ppo: True
     mixed_precision: True
