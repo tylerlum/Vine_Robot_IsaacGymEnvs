@@ -29,25 +29,22 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import datetime
-import isaacgym
-
-import os
 import hydra
-import yaml
 from omegaconf import DictConfig, OmegaConf
-from hydra.utils import to_absolute_path
-import gym
 
-from isaacgymenvs.utils.reformat import omegaconf_to_dict, print_dict
-
-from isaacgymenvs.utils.utils import set_np_formatting, set_seed
-
-## OmegaConf & Hydra Config
-
-# Resolvers used in hydra configs (see https://omegaconf.readthedocs.io/en/2.1_branch/usage.html#resolvers)
-@hydra.main(config_name="config", config_path="./cfg")
 def launch_rlg_hydra(cfg: DictConfig):
+    import datetime
+    import isaacgym
+
+    import os
+    import yaml
+    from hydra.utils import to_absolute_path
+    import gym
+
+    from isaacgymenvs.utils.reformat import omegaconf_to_dict, print_dict
+
+    from isaacgymenvs.utils.utils import set_np_formatting, set_seed
+
     from isaacgymenvs.utils.rlgames_utils import RLGPUEnv, RLGPUAlgoObserver, get_rlgames_env_creator
     from rl_games.common import env_configurations, vecenv
     from rl_games.torch_runner import Runner
@@ -176,5 +173,11 @@ def launch_rlg_hydra(cfg: DictConfig):
     if cfg.wandb_activate and rank == 0:
         wandb.finish()
 
+## OmegaConf & Hydra Config
+# Resolvers used in hydra configs (see https://omegaconf.readthedocs.io/en/2.1_branch/usage.html#resolvers)
+@hydra.main(version_base=None, config_name="config", config_path="./cfg")
+def main(cfg: DictConfig):
+    launch_rlg_hydra(cfg)
+
 if __name__ == "__main__":
-    launch_rlg_hydra()
+    main()
