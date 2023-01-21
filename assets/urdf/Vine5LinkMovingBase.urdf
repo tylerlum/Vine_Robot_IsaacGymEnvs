@@ -73,14 +73,17 @@
     <!-- CYLINDERS -->
     <!-- Each link has radius = 0.0381 m  length = 0.0885 m -->
     <!-- First 4 are "shells" with mass 0.005 -->
-    <!--                      with inertia ixx = 6.89246e-6, iyy = 6.89246e-6, izz = 7.25805e-6 (others 0)-->
+    <!--                      with inertia ixx = 6.89246e-6, iyy = 6.89246e-6, izz = 7.25805e-6
+    (others 0)-->
     <!-- Last 1 is full cylinder with mass 0.1 -->
-    <!--                         with inertia ixx = 0.000101559, iyy = 0.000101559, izz = 7.25805e-5 (others 0)-->
+    <!--                         with inertia ixx = 0.000101559, iyy = 0.000101559, izz = 7.25805e-5
+    (others 0)-->
     <link name="link_0">
         <inertial>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <mass value="0.005" />
-            <inertia ixx="0.00000689246" ixy="0.0" ixz="0.0" iyy="0.00000689246" iyz="0.0" izz="0.00000725805" />
+            <inertia ixx="0.00000689246" ixy="0.0" ixz="0.0" iyy="0.00000689246" iyz="0.0"
+                izz="0.00000725805" />
         </inertial>
         <visual>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
@@ -95,12 +98,30 @@
                 <cylinder radius="0.0381" length="0.0885" />
             </geometry>
         </collision>
+
+        <!-- FPAM -->
+        <visual>
+            <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <cylinder radius="0.0169" length="0.0885" />
+            </geometry>
+            <material name="blue" />
+        </visual>
+        <collision>
+            <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <cylinder radius="0.0169" length="0.0885" />
+            </geometry>
+        </collision>
+
+
     </link>
     <link name="link_1">
         <inertial>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <mass value="0.005" />
-            <inertia ixx="0.00000689246" ixy="0.0" ixz="0.0" iyy="0.00000689246" iyz="0.0" izz="0.00000725805" />
+            <inertia ixx="0.00000689246" ixy="0.0" ixz="0.0" iyy="0.00000689246" iyz="0.0"
+                izz="0.00000725805" />
         </inertial>
         <visual>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
@@ -113,6 +134,21 @@
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
                 <cylinder radius="0.0381" length="0.0885" />
+            </geometry>
+        </collision>
+
+        <!-- FPAM -->
+        <visual>
+            <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <cylinder radius="0.0169" length="0.0885" />
+            </geometry>
+            <material name="blue" />
+        </visual>
+        <collision>
+            <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <cylinder radius="0.0169" length="0.0885" />
             </geometry>
         </collision>
     </link>
@@ -120,7 +156,8 @@
         <inertial>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <mass value="0.005" />
-            <inertia ixx="0.00000689246" ixy="0.0" ixz="0.0" iyy="0.00000689246" iyz="0.0" izz="0.00000725805" />
+            <inertia ixx="0.00000689246" ixy="0.0" ixz="0.0" iyy="0.00000689246" iyz="0.0"
+                izz="0.00000725805" />
         </inertial>
         <visual>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
@@ -133,6 +170,21 @@
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
                 <cylinder radius="0.0381" length="0.0885" />
+            </geometry>
+        </collision>
+
+        <!-- FPAM -->
+        <visual>
+            <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <cylinder radius="0.0169" length="0.0885" />
+            </geometry>
+            <material name="blue" />
+        </visual>
+        <collision>
+            <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <cylinder radius="0.0169" length="0.0885" />
             </geometry>
         </collision>
     </link>
@@ -140,7 +192,8 @@
         <inertial>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <mass value="0.005" />
-            <inertia ixx="0.00000689246" ixy="0.0" ixz="0.0" iyy="0.00000689246" iyz="0.0" izz="0.00000725805" />
+            <inertia ixx="0.00000689246" ixy="0.0" ixz="0.0" iyy="0.00000689246" iyz="0.0"
+                izz="0.00000725805" />
         </inertial>
         <visual>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
@@ -153,6 +206,21 @@
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
                 <cylinder radius="0.0381" length="0.0885" />
+            </geometry>
+        </collision>
+
+        <!-- FPAM -->
+        <visual>
+            <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <cylinder radius="0.0169" length="0.0885" />
+            </geometry>
+            <material name="blue" />
+        </visual>
+        <collision>
+            <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <cylinder radius="0.0169" length="0.0885" />
             </geometry>
         </collision>
     </link>
@@ -160,7 +228,8 @@
         <inertial>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <mass value="0.1" />
-            <inertia ixx="0.000101559" ixy="0.0" ixz="0.0" iyy="0.000101559" iyz="0.0" izz="0.0000725805" />
+            <inertia ixx="0.000101559" ixy="0.0" ixz="0.0" iyy="0.000101559" iyz="0.0"
+                izz="0.0000725805" />
         </inertial>
         <visual>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
@@ -175,8 +244,24 @@
                 <cylinder radius="0.0381" length="0.0885" />
             </geometry>
         </collision>
+
+        <!-- FPAM -->
+        <visual>
+            <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <cylinder radius="0.0169" length="0.0885" />
+            </geometry>
+            <material name="blue" />
+        </visual>
+        <collision>
+            <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <cylinder radius="0.0169" length="0.0885" />
+            </geometry>
+        </collision>
     </link>
-    <link name="tip"/>
+
+    <link name="tip" />
     <!-- Visual limits -->
     <link name="left_limit">
         <visual>
@@ -197,92 +282,16 @@
         </visual>
     </link>
 
-     <!-- FPAM -->
-     <!-- Small cylinders to model FPAM visual and collisions (not inertial) -->
-     <!-- Turn off collisions of most because they affect bending -->
-    <link name="fpam_0">
-        <visual>
-            <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
-            <geometry>
-                <cylinder radius="0.0169" length="0.0885" />
-            </geometry>
-            <material name="blue" />
-        </visual>
-        <!-- <collision>
-            <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
-            <geometry>
-                <cylinder radius="0.0169" length="0.0885" />
-            </geometry>
-        </collision> -->
-    </link>
-    <link name="fpam_1">
-        <visual>
-            <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
-            <geometry>
-                <cylinder radius="0.0169" length="0.0885" />
-            </geometry>
-            <material name="blue" />
-        </visual>
-        <!-- <collision>
-            <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
-            <geometry>
-                <cylinder radius="0.0169" length="0.0885" />
-            </geometry>
-        </collision> -->
-    </link>
-    <link name="fpam_2">
-        <visual>
-            <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
-            <geometry>
-                <cylinder radius="0.0169" length="0.0885" />
-            </geometry>
-            <material name="blue" />
-        </visual>
-        <!-- <collision>
-            <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
-            <geometry>
-                <cylinder radius="0.0169" length="0.0885" />
-            </geometry>
-        </collision> -->
-    </link>
-    <link name="fpam_3">
-        <visual>
-            <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
-            <geometry>
-                <cylinder radius="0.0169" length="0.0885" />
-            </geometry>
-            <material name="blue" />
-        </visual>
-        <!-- <collision>
-            <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
-            <geometry>
-                <cylinder radius="0.0169" length="0.0885" />
-            </geometry>
-        </collision> -->
-    </link>
-    <link name="fpam_4">
-        <visual>
-            <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
-            <geometry>
-                <cylinder radius="0.0169" length="0.0885" />
-            </geometry>
-            <material name="blue" />
-        </visual>
-        <!-- Model last fpam collision for pipe entering -->
-        <collision>
-            <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
-            <geometry>
-                <cylinder radius="0.0169" length="0.0885" />
-            </geometry>
-        </collision>
-    </link>
-
+    <!-- FPAM -->
+    <!-- Small cylinders to model FPAM visual and collisions (not inertial) -->
+    <!-- Turn off collisions of most because they affect bending -->
     <!-- JOINTS -->
     <!-- 1 slider joint, 5 revolute joints -->
 
     <!-- PRISMATIC -->
     <!-- conservative values: effort=1N, velocity=0.5m/s  -->
-    <!-- length=0.8m (technically 1m, but round down to be safe), so limits are halfway in each dir, minus cart size -->
+    <!-- length=0.8m (technically 1m, but round down to be safe), so limits are halfway in each dir,
+    minus cart size -->
     <joint name="slider_to_cart" type="prismatic">
         <axis xyz="0.0 1.0 0.0" />
 
@@ -295,7 +304,8 @@
     </joint>
 
     <!-- REVOLUTE -->
-    <!-- Do not need to enforce limits because the model SHOULD handle it, in fact adding 30 deg limit caused some instabilities -->
+    <!-- Do not need to enforce limits because the model SHOULD handle it, in fact adding 30 deg
+    limit caused some instabilities -->
     <joint name="cart_to_link_0" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
 
@@ -352,31 +362,4 @@
         <child link="right_limit" />
     </joint>
 
-    <!-- Origin offset must be sum of link and fpam radius -->
-    <joint name="link_0_to_fpam_0" type="fixed">
-        <origin xyz="0.0 0.055 0.0" rpy="0.0 0.0 0.0"/>
-        <parent link="link_0"/>
-        <child link="fpam_0"/>
-    </joint>
-    <joint name="link_1_to_fpam_1" type="fixed">
-        <origin xyz="0.0 0.055 0.0" rpy="0.0 0.0 0.0"/>
-        <parent link="link_1"/>
-        <child link="fpam_1"/>
-    </joint>
-    <joint name="link_2_to_fpam_2" type="fixed">
-        <origin xyz="0.0 0.055 0.0" rpy="0.0 0.0 0.0"/>
-        <parent link="link_2"/>
-        <child link="fpam_2"/>
-    </joint>
-    <joint name="link_3_to_fpam_3" type="fixed">
-        <origin xyz="0.0 0.055 0.0" rpy="0.0 0.0 0.0"/>
-        <parent link="link_3"/>
-        <child link="fpam_3"/>
-    </joint>
-    <joint name="link_4_to_fpam_4" type="fixed">
-        <origin xyz="0.0 0.055 0.0" rpy="0.0 0.0 0.0"/>
-        <parent link="link_4"/>
-        <child link="fpam_4"/>
-    </joint>
- 
 </robot>
