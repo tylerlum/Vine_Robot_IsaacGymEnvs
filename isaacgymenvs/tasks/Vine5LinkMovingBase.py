@@ -41,13 +41,14 @@ import wandb
 
 
 # Increase pipe size to make the problem easier
-PIPE_ADDITIONAL_SCALING = 1.4
+PIPE_ADDITIONAL_SCALING = 1.05
 
 
 # CONSTANTS (RARELY CHANGE)
 NUM_STATES = 13  # xyz, quat, v_xyz, w_xyz
 XYZ_LIST = ['x', 'y', 'z']
 NUM_XYZ = len(XYZ_LIST)
+NUM_OBJECT_INFO = 2 # target depth, angle
 NUM_RGBA = 4
 LENGTH_RAIL = 0.8
 LENGTH_PER_LINK = 0.0885
@@ -69,6 +70,7 @@ class ObservationType(Enum):
     POS_AND_VEL = "POS_AND_VEL"
     POS_AND_FD_VEL = "POS_AND_FD_VEL"
     POS_AND_PREV_POS = "POS_AND_PREV_POS"
+    POS_AND_FD_VEL_AND_OBJ_INFO = "POS_AND_FD_VEL_AND_OBJ_INFO"
 
 
 # Rewards
@@ -83,10 +85,12 @@ INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.0
 
 # IMPORTANT: Tune these angles depending the task, affects the range of target positions
-MIN_EFFECTIVE_ANGLE = math.radians(-45)
-MAX_EFFECTIVE_ANGLE = math.radians(-30)
+MIN_EFFECTIVE_ANGLE = math.radians(-25)
+MAX_EFFECTIVE_ANGLE = math.radians(-15)
+
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
-PIPE_RADIUS = 0.065 * PIPE_ADDITIONAL_SCALING
+# PIPE_RADIUS = 0.065 * PIPE_ADDITIONAL_SCALING
+PIPE_RADIUS = 0.07 * PIPE_ADDITIONAL_SCALING
 
 TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
 if USE_MOVING_BASE:
@@ -173,6 +177,9 @@ class Vine5LinkMovingBase(VecTask):
                 2 * (N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ) +
                 N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
             )
+            if observation_type == ObservationType.POS_AND_FD_VEL_AND_OBJ_INFO:
+                # Add more observations for object info
+                self.cfg["env"]["numObservations"] += NUM_OBJECT_INFO
         self.cfg["env"]["numActions"] = N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
 
         self.subscribe_to_keyboard_events()
@@ -237,6 +244,9 @@ class Vine5LinkMovingBase(VecTask):
         self.prev_tip_positions = self.tip_positions.clone()
         self.prev_u_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device)
         self.prev_cart_vel_error = torch.zeros(self.num_envs, 1, device=self.device)
+
+        # Keep track of object info
+        self.object_info = torch.zeros(self.num_envs, NUM_OBJECT_INFO, device=self.device)
 
         # Log and cache
         self.use_wandb = True
@@ -474,8 +484,8 @@ class Vine5LinkMovingBase(VecTask):
         obstacle_asset_options.vhacd_enabled = vhacd_enabled  # Convex decomposition for meshes
         if vhacd_enabled:
             # Numbers copied from isaacgym docs
-            obstacle_asset_options.vhacd_params.resolution = 300000
-            obstacle_asset_options.vhacd_params.max_convex_hulls = 64
+            obstacle_asset_options.vhacd_params.resolution = 3000000
+            obstacle_asset_options.vhacd_params.max_convex_hulls = 16
             obstacle_asset_options.vhacd_params.max_num_vertices_per_ch = 64
         obstacle_asset = self.gym.load_asset(self.sim, asset_root, asset_file, obstacle_asset_options)
         return obstacle_asset
@@ -749,11 +759,11 @@ class Vine5LinkMovingBase(VecTask):
             shelf_thickness = 0.01
 
             # How deep we want the target to be
-            min_shelf_depth_target = 0.05
+            min_shelf_depth_target = 0.0
             max_shelf_depth_target = 0.2
             shelf_depth_target = torch.FloatTensor(len(env_ids)).uniform_(
                 min_shelf_depth_target, max_shelf_depth_target).to(self.device)
-
+            
             shelf_pos_offset = torch.zeros(len(env_ids), 3, device=self.device)
             shelf_pos_offset[:, 1] -= half_shelf_length_y
             shelf_pos_offset[:, 1] += shelf_depth_target
@@ -768,19 +778,30 @@ class Vine5LinkMovingBase(VecTask):
             self.gym.set_actor_root_state_tensor_indexed(self.sim, gymtorch.unwrap_tensor(
                 self.root_state), gymtorch.unwrap_tensor(shelf_indices), len(shelf_indices))
 
-        # TODO: Update obstacle positions based on targets?
+            self.object_info[env_ids, 0] = shelf_depth_target
+
         if self.cfg['env']["CREATE_PIPE"]:
-            HACKY_TUNE_THETA_PRIME_REASONABLE = 0.5
+            # Our goal is the set the pipe pose, give the target position
+            # The pipe orientation, theta, should vary based on the target z
+            #
+            # When theta = 0, the pipe is vertical, with opening facing down
+            # When theta = 90, the pipe is horizontal, with opening facing right
+            # When theta = 180, the pipe is vertical, with opening facing up
+            # effective_z is the distance from the vine base to the target
+            # When effective_z is large, it is close to the ground, so theta should be close to 180
+            # When effective_z is small, it is far from the ground, so theta should be close to 90
+            #
+            # We fit a polynomial function to data, theta_prime = f(effective_z)
+            # Where f is a cubic that outputs in degrees
             effective_z = INIT_Z - self.target_positions[env_ids, 2]
-            theta_prime = HACKY_TUNE_THETA_PRIME_REASONABLE * torch.asin(effective_z / VINE_LENGTH)
+            polynomial_coefficients = 1.0e+04 * np.array([1.3199, -1.2276, 0.4045, -0.0447])
+            theta_prime = torch.deg2rad(to_torch(np.polyval(p=polynomial_coefficients, x=effective_z.cpu()), device=self.device))
             theta = theta_prime + torch.deg2rad(torch.tensor(90.0, device=self.device))
 
-            # orientation = gymapi.Quat.from_axis_angle(gymapi.Vec3(1, 0, 0), math.radians(90))
-            # orientation_torch = torch.tensor([orientation.x, orientation.y, orientation.z, orientation.w], device=self.device)
             x_unit_tensor = to_torch([1, 0, 0], dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
             orientation = quat_from_angle_axis(theta, x_unit_tensor)
 
-            min_depth = 0.0
+            min_depth = -0.05
             max_depth = 0.1
             pipe_target_entrance_depth = torch.FloatTensor(len(env_ids)).uniform_(min_depth, max_depth).to(self.device)
             pipe_pos_offset_x = to_torch([-PIPE_RADIUS], dtype=torch.float,
@@ -801,6 +822,9 @@ class Vine5LinkMovingBase(VecTask):
             pipe_indices = self.pipe_indices[env_ids].to(dtype=torch.int32)
             self.gym.set_actor_root_state_tensor_indexed(self.sim, gymtorch.unwrap_tensor(
                 self.root_state), gymtorch.unwrap_tensor(pipe_indices), len(pipe_indices))
+
+            self.object_info[env_ids, 0] = pipe_target_entrance_depth
+            self.object_info[env_ids, 1] = theta_prime
 
     def sample_target_positions(self, num_envs):
         target_positions = torch.zeros(num_envs, NUM_XYZ, device=self.device)
@@ -1219,6 +1243,11 @@ class Vine5LinkMovingBase(VecTask):
             tensors_to_concat = [self.dof_pos, self.prev_dof_pos, self.tip_positions, self.prev_tip_positions,
                                  self.target_positions, self.target_velocities,
                                  self.smoothed_u_fpam, self.prev_u_rail_velocity]
+        elif observation_type == ObservationType.POS_AND_FD_VEL_AND_OBJ_INFO:
+            tensors_to_concat = [self.dof_pos, self.finite_difference_dof_vel, self.tip_positions, self.finite_difference_tip_velocities,
+                                 self.target_positions, self.target_velocities,
+                                 self.smoothed_u_fpam, self.prev_u_rail_velocity,
+                                 self.object_info]
         self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
 
         if self.cfg['env']['CREATE_HISTOGRAMS_PERIODICALLY'] or self.create_histogram:
