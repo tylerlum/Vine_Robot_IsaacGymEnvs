@@ -1284,7 +1284,7 @@ class Vine5LinkMovingBase(VecTask):
                 self.logger.info("-" * 100)
 
             # Store observations (from all envs or just one)
-            HISTOGRAM_USING_ALL_ENVS = False
+            HISTOGRAM_USING_ALL_ENVS = True
             if HISTOGRAM_USING_ALL_ENVS:
                 new_data = [self.obs_buf[i, :].cpu().numpy().tolist() for i in range(self.obs_buf.shape[0])
                             ]  # list of lists (inner list has length num_obs)
@@ -1308,15 +1308,29 @@ class Vine5LinkMovingBase(VecTask):
                                      "smoothed_u_fpam", "prev_u_rail_vel",
                                      "target_depth", "target_angle"]
                 # Each entry is a row in the table
-                table = wandb.Table(data=self.histogram_observation_data_list, columns=observation_names)
-                ALL_HISTOGRAMS = True
-                names_to_plot = observation_names if ALL_HISTOGRAMS else [
-                    "tip_pos_y", "tip_pos_z", "tip_vel_y", "tip_vel_z"]
-                histograms_dict = {f'{name}_histogram {self.num_steps}': wandb.plot.histogram(
-                    table, name, title=f"{name} Histogram {self.num_steps}") for name in names_to_plot}
-                wandb.log(histograms_dict)
-                self.logger.info("DONE")
-                self.logger.info("-" * 100)
+                # table = wandb.Table(data=self.histogram_observation_data_list, columns=observation_names)
+                # ALL_HISTOGRAMS = True
+                # names_to_plot = observation_names if ALL_HISTOGRAMS else [
+                #     "tip_pos_y", "tip_pos_z", "tip_vel_y", "tip_vel_z"]
+                # histograms_dict = {f'{name}_histogram {self.num_steps}': wandb.plot.histogram(
+                #     table, name, title=f"{name} Histogram {self.num_steps}") for name in names_to_plot}
+                # wandb.log(histograms_dict)
+                # self.logger.info("DONE")
+                # self.logger.info("-" * 100)
+
+
+
+                # TODO: REMOVE
+                all_data = np.array(self.histogram_observation_data_list)  # (num_rows, obs_dim)
+                all_std = np.std(all_data, axis=0)
+                print(f"all_std = {all_std}")
+                for i, name in enumerate(observation_names):
+                    obs = all_data[:, i]
+                    wandb.log({f"TEMP_{i}_{name}_min": np.min(obs)})
+                    wandb.log({f"TEMP_{i}_{name}_max": np.max(obs)})
+                    wandb.log({f"TEMP_{i}_{name}_mean": np.mean(obs)})
+                    wandb.log({f"TEMP_{i}_{name}_mean_plus_std": np.mean(obs) + np.std(obs)})
+                    wandb.log({f"TEMP_{i}_{name}_mean_minus_std": np.mean(obs) - np.std(obs)})
 
                 # Reset
                 self.histogram_observation_data_list = []
