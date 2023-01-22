@@ -1036,8 +1036,8 @@ class Vine5LinkMovingBase(VecTask):
                 radius=visualization_sphere_radius, num_lats=3, num_lons=3, color=(0, 1, 0))
 
             self.gym.clear_lines(self.viewer)
+            # Draw target
             for i in range(self.num_envs):
-                # Draw target
                 target_position = self.target_positions[i]
                 sphere_pose = gymapi.Transform(gymapi.Vec3(
                     target_position[0], target_position[1], target_position[2]), r=None)
@@ -1057,6 +1057,24 @@ class Vine5LinkMovingBase(VecTask):
                 pos2_vec3 = left_most_pos + gymapi.Vec3(0, fraction_complete * (right_most_pos.y - left_most_pos.y), 0)
                 green_color = gymapi.Vec3(0.1, 0.9, 0.1)
                 gymutil.draw_line(pos1_vec3, pos2_vec3, green_color, self.gym, self.viewer, self.envs[i])
+
+            # Draw rail soft limits
+            for i in range(self.num_envs):
+                # For now, draw only one env to save time
+                if i != self.index_to_view:
+                    continue
+
+                half_line_length = 0.1
+                center = gymapi.Vec3(0, 0, INIT_Z)
+                left_line_bottom = center + gymapi.Vec3(0, -self.cfg['env']['RAIL_SOFT_LIMIT'], -half_line_length)
+                left_line_top = left_line_bottom + gymapi.Vec3(0, 0, 2 * half_line_length)
+                right_line_bottom = center + gymapi.Vec3(0, self.cfg['env']['RAIL_SOFT_LIMIT'], -half_line_length)
+                right_line_top = right_line_bottom + gymapi.Vec3(0, 0, 2 * half_line_length)
+
+                red_color = gymapi.Vec3(0.9, 0.1, 0.1)
+                gymutil.draw_line(left_line_bottom, left_line_top, red_color, self.gym, self.viewer, self.envs[i])
+                gymutil.draw_line(right_line_bottom, right_line_top, red_color, self.gym, self.viewer, self.envs[i])
+
 
         # Create video
         should_start_video_capture = self.num_steps % self.capture_video_every == 0
