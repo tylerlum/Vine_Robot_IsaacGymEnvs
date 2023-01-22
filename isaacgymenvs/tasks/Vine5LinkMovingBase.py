@@ -48,7 +48,7 @@ PIPE_ADDITIONAL_SCALING = 1.05
 NUM_STATES = 13  # xyz, quat, v_xyz, w_xyz
 XYZ_LIST = ['x', 'y', 'z']
 NUM_XYZ = len(XYZ_LIST)
-NUM_OBJECT_INFO = 2 # target depth, angle
+NUM_OBJECT_INFO = 2  # target depth, angle
 NUM_RGBA = 4
 LENGTH_RAIL = 0.8
 LENGTH_PER_LINK = 0.0885
@@ -85,8 +85,8 @@ INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.0
 
 # IMPORTANT: Tune these angles depending the task, affects the range of target positions
-MIN_EFFECTIVE_ANGLE = math.radians(-25)
-MAX_EFFECTIVE_ANGLE = math.radians(-15)
+MIN_EFFECTIVE_ANGLE = math.radians(-45)
+MAX_EFFECTIVE_ANGLE = math.radians(-30)
 
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 # PIPE_RADIUS = 0.065 * PIPE_ADDITIONAL_SCALING
@@ -248,6 +248,23 @@ class Vine5LinkMovingBase(VecTask):
         # Keep track of object info
         self.object_info = torch.zeros(self.num_envs, NUM_OBJECT_INFO, device=self.device)
 
+        # Observation scaling
+        self.obs_scaling = torch.ones(self.cfg["env"]["numObservations"], device=self.device)
+        if self.cfg["env"]["SCALE_OBSERVATIONS"]:
+            observation_type = ObservationType[self.cfg["env"]["OBSERVATION_TYPE"]]
+            # BRITTLE: Need to ensure these are reasonable and adjust as observations change
+            if observation_type == ObservationType.POS_AND_FD_VEL_AND_OBJ_INFO:
+                self.obs_scaling[:] = to_torch([0.12, 0.269, 0.148, 0.249, 0.148, 0.344,
+                                                0.67, 2.22, 1.47, 1.14, 0.903, 0.716,
+                                                0.0656, 0.238, 0.0656,
+                                                0.732, 2.0, 0.732,
+                                                0.02, 0.0235, 0.02,
+                                                0.732, 2.0, 0.732,
+                                                0.845,
+                                                0.86,
+                                                0.0385,
+                                                0.5], dtype=torch.float, device=self.device)
+
         # Log and cache
         self.use_wandb = True
         self.wandb_dict = {}
@@ -400,8 +417,6 @@ class Vine5LinkMovingBase(VecTask):
 
         self.envs = []
         self.vine_handles = []
-        self.shelf_handles = []
-        self.pipe_handles = []
 
         self.vine_indices = []
         self.shelf_indices = []
@@ -411,67 +426,61 @@ class Vine5LinkMovingBase(VecTask):
             env_ptr = self.gym.create_env(
                 self.sim, lower, upper, num_per_row
             )
+            self.envs.append(env_ptr)
 
             # Different collision_groups so that different envs don't interact
             # collision_filter = 0 for enabled self-collision, collision_filter > 0 disable self-collisions
             collision_group, collision_filter, segmentation_id = i, 0, 0
 
-            # Create other obstacles
-            shelf_init_pose = gymapi.Transform()
-            shelf_init_pose.p.y = 0.2
-            shelf_init_pose.p.z = 0.0
-            shelf_handle = self.gym.create_actor(env_ptr, self.custom_shelf_asset, shelf_init_pose, "shelf",
-                                                 group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 1) if self.cfg['env']['CREATE_SHELF'] else None
+            # Create shelf
             if self.cfg['env']['CREATE_SHELF']:
+                shelf_init_pose = gymapi.Transform()
+                shelf_init_pose.p.y = 0.2
+                shelf_init_pose.p.z = 0.0
+                shelf_handle = self.gym.create_actor(env_ptr, self.custom_shelf_asset, shelf_init_pose, "shelf",
+                                                     group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 1)
                 shelf_scale = 1.0
                 self.gym.set_actor_scale(env_ptr, shelf_handle, shelf_scale)
+                self.shelf_indices.append(self.gym.get_actor_index(env_ptr, shelf_handle, gymapi.DOMAIN_SIM))
 
-            # Create other obstacles
-            pipe_init_pose = gymapi.Transform()
-            pipe_init_pose.p.y = -0.4
-            pipe_init_pose.p.z = 0.50
-            pipe_handle = self.gym.create_actor(env_ptr, self.pipe_asset, pipe_init_pose, "pipe",
-                                                group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 2) if self.cfg['env']['CREATE_PIPE'] else None
+                self.set_friction(env_ptr=env_ptr, object_handle=shelf_handle, friction_coefficient=0.0)
+
+            # Create pipe
             if self.cfg['env']['CREATE_PIPE']:
+                pipe_init_pose = gymapi.Transform()
+                pipe_init_pose.p.y = -0.4
+                pipe_init_pose.p.z = 0.50
+                pipe_handle = self.gym.create_actor(env_ptr, self.pipe_asset, pipe_init_pose, "pipe",
+                                                    group=collision_group, filter=collision_filter, segmentationId=segmentation_id + 2)
                 pipe_scale = 0.001 * PIPE_ADDITIONAL_SCALING
                 self.gym.set_actor_scale(env_ptr, pipe_handle, pipe_scale)
+                self.pipe_indices.append(self.gym.get_actor_index(env_ptr, pipe_handle, gymapi.DOMAIN_SIM))
+
+                self.set_friction(env_ptr=env_ptr, object_handle=pipe_handle, friction_coefficient=0.0)
 
             # Create vine robots
-            vine_handle = self.gym.create_actor(
-                env_ptr, self.vine_asset, vine_init_pose, "vine", group=collision_group, filter=collision_filter, segmentationId=segmentation_id)
+            vine_handle = self.gym.create_actor(env_ptr, self.vine_asset, vine_init_pose, "vine",
+                                                group=collision_group, filter=collision_filter, segmentationId=segmentation_id)
+            self.vine_indices.append(self.gym.get_actor_index(env_ptr, vine_handle, gymapi.DOMAIN_SIM))
+            self.vine_handles.append(vine_handle)
+            self.set_friction(env_ptr=env_ptr, object_handle=vine_handle, friction_coefficient=0.0)
 
             # Set dof properties
-            dof_props = self.gym.get_actor_dof_properties(env_ptr, vine_handle)
-
-            # Set stiffness and damping
-            dof_props['driveMode'].fill(DOF_MODE)
-            dof_props['damping'].fill(self.cfg['env']['DAMPING'])
+            vine_dof_props = self.gym.get_actor_dof_properties(env_ptr, vine_handle)
+            vine_dof_props['driveMode'].fill(DOF_MODE)
+            vine_dof_props['damping'].fill(self.cfg['env']['DAMPING'])
             for j in range(self.gym.get_asset_dof_count(self.vine_asset)):
                 dof_type = self.gym.get_asset_dof_type(self.vine_asset, j)
                 if dof_type not in [gymapi.DofType.DOF_ROTATION, gymapi.DofType.DOF_TRANSLATION]:
                     raise ValueError(f"Invalid dof_type = {dof_type}")
 
                 # Prismatic joint should have no stiffness
-                dof_props['stiffness'][j] = self.cfg['env']['STIFFNESS'] if dof_type == gymapi.DofType.DOF_ROTATION else 0.0
+                vine_dof_props['stiffness'][j] = self.cfg['env']['STIFFNESS'] if dof_type == gymapi.DofType.DOF_ROTATION else 0.0
 
-            self.gym.set_actor_dof_properties(env_ptr, vine_handle, dof_props)
+            self.gym.set_actor_dof_properties(env_ptr, vine_handle, vine_dof_props)
 
-            # Store handles and indices
-            self.envs.append(env_ptr)
-            self.shelf_handles.append(shelf_handle)
-            self.pipe_handles.append(pipe_handle)
-            self.vine_handles.append(vine_handle)
-
-            self.shelf_indices.append(self.gym.get_actor_index(
-                env_ptr, shelf_handle, gymapi.DOMAIN_SIM) if self.cfg['env']['CREATE_SHELF'] else None)
-            self.pipe_indices.append(self.gym.get_actor_index(
-                env_ptr, pipe_handle, gymapi.DOMAIN_SIM) if self.cfg['env']['CREATE_PIPE'] else None)
-            self.vine_indices.append(self.gym.get_actor_index(env_ptr, vine_handle, gymapi.DOMAIN_SIM))
-
-        if self.cfg['env']['CREATE_SHELF']:
-            self.shelf_indices = to_torch(self.shelf_indices, dtype=torch.long, device=self.device)
-        if self.cfg['env']['CREATE_PIPE']:
-            self.pipe_indices = to_torch(self.pipe_indices, dtype=torch.long, device=self.device)
+        self.shelf_indices = to_torch(self.shelf_indices, dtype=torch.long, device=self.device)
+        self.pipe_indices = to_torch(self.pipe_indices, dtype=torch.long, device=self.device)
         self.vine_indices = to_torch(self.vine_indices, dtype=torch.long, device=self.device)
 
         self._print_asset_info(self.vine_asset)
@@ -489,6 +498,14 @@ class Vine5LinkMovingBase(VecTask):
             obstacle_asset_options.vhacd_params.max_num_vertices_per_ch = 64
         obstacle_asset = self.gym.load_asset(self.sim, asset_root, asset_file, obstacle_asset_options)
         return obstacle_asset
+
+    def set_friction(self, env_ptr, object_handle, friction_coefficient):
+        # Set rigid shape properties
+        object_rigid_shape_props = self.gym.get_actor_rigid_shape_properties(env_ptr, object_handle)
+        # assert(len(object_rigid_shape_props) == self.gym.get_asset_rigid_shape_count(object_asset))  # Sanity check
+        for j in range(len(object_rigid_shape_props)):
+            object_rigid_shape_props[j].friction = friction_coefficient
+        self.gym.set_actor_rigid_shape_properties(env_ptr, object_handle, object_rigid_shape_props)
 
     def get_vine_asset(self):
         # Find asset file
@@ -630,6 +647,7 @@ class Vine5LinkMovingBase(VecTask):
             "MAX_PRESSURE": gymapi.KEY_UP,
             "MIN_PRESSURE": gymapi.KEY_DOWN,
             "HISTOGRAM": gymapi.KEY_H,
+            "VIDEO": gymapi.KEY_C,
         }
         self.event_action_to_function = {
             "RESET": self._reset_callback,
@@ -642,6 +660,7 @@ class Vine5LinkMovingBase(VecTask):
             "MAX_PRESSURE": self._max_pressure_callback,
             "MIN_PRESSURE": self._min_pressure_callback,
             "HISTOGRAM": self._histogram_callback,
+            "VIDEO": self._video_callback,
         }
         # Create state variables
         self.PRINT_DEBUG = False
@@ -650,7 +669,8 @@ class Vine5LinkMovingBase(VecTask):
         self.MOVE_RIGHT_COUNTER = 0
         self.MAX_PRESSURE_COUNTER = 0
         self.MIN_PRESSURE_COUNTER = 0
-        self.create_histogram = False
+        self.create_histogram_command_from_keyboard_press = False
+        self.create_video_command_from_keyboard_press = False
 
         assert (sorted(list(self.event_action_to_key.keys())) == sorted(list(self.event_action_to_function.keys())))
 
@@ -681,29 +701,36 @@ class Vine5LinkMovingBase(VecTask):
         self.logger.info(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
 
     def _move_left_callback(self):
-        self.MOVE_LEFT_COUNTER = 100
+        self.MOVE_LEFT_COUNTER = 10
         self.MOVE_RIGHT_COUNTER = 0
         self.logger.info(f"self.MOVE_LEFT_COUNTER = {self.MOVE_LEFT_COUNTER}")
 
     def _move_right_callback(self):
-        self.MOVE_RIGHT_COUNTER = 100
+        self.MOVE_RIGHT_COUNTER = 10
         self.MOVE_LEFT_COUNTER = 0
         self.logger.info(f"self.MOVE_RIGHT_COUNTER = {self.MOVE_RIGHT_COUNTER}")
 
     def _max_pressure_callback(self):
-        self.MAX_PRESSURE_COUNTER = 100
+        self.MAX_PRESSURE_COUNTER = 10
         self.MIN_PRESSURE_COUNTER = 0
         self.logger.info(f"self.MAX_PRESSURE_COUNTER = {self.MAX_PRESSURE_COUNTER}")
 
     def _min_pressure_callback(self):
-        self.MIN_PRESSURE_COUNTER = 100
+        self.MIN_PRESSURE_COUNTER = 10
         self.MAX_PRESSURE_COUNTER = 0
         self.logger.info(f"self.MIN_PRESSURE_COUNTER = {self.MIN_PRESSURE_COUNTER}")
 
     def _histogram_callback(self):
-        self.create_histogram = True
+        self.create_histogram_command_from_keyboard_press = True
         self.histogram_observation_data_list = []
-        self.logger.info(f"self.create_histogram = {self.create_histogram}")
+        self.logger.info(
+            f"self.create_histogram_command_from_keyboard_press = {self.create_histogram_command_from_keyboard_press}")
+
+    def _video_callback(self):
+        self.create_video_command_from_keyboard_press = True
+        self.logger.info(
+            f"self.create_video_command_from_keyboard_press = {self.create_video_command_from_keyboard_press}")
+
     ##### KEYBOARD EVENT SUBSCRIPTIONS END #####
 
     ##### RESET START #####
@@ -759,11 +786,9 @@ class Vine5LinkMovingBase(VecTask):
             shelf_thickness = 0.01
 
             # How deep we want the target to be
-            min_shelf_depth_target = 0.0
-            max_shelf_depth_target = 0.2
             shelf_depth_target = torch.FloatTensor(len(env_ids)).uniform_(
-                min_shelf_depth_target, max_shelf_depth_target).to(self.device)
-            
+                self.cfg['env']['MIN_TARGET_DEPTH_IN_OBSTACLE'], self.cfg['env']['MAX_TARGET_DEPTH_IN_OBSTACLE']).to(self.device)
+
             shelf_pos_offset = torch.zeros(len(env_ids), 3, device=self.device)
             shelf_pos_offset[:, 1] -= half_shelf_length_y
             shelf_pos_offset[:, 1] += shelf_depth_target
@@ -795,15 +820,15 @@ class Vine5LinkMovingBase(VecTask):
             # Where f is a cubic that outputs in degrees
             effective_z = INIT_Z - self.target_positions[env_ids, 2]
             polynomial_coefficients = 1.0e+04 * np.array([1.3199, -1.2276, 0.4045, -0.0447])
-            theta_prime = torch.deg2rad(to_torch(np.polyval(p=polynomial_coefficients, x=effective_z.cpu()), device=self.device))
+            theta_prime = torch.deg2rad(to_torch(np.polyval(p=polynomial_coefficients,
+                                        x=effective_z.cpu()), device=self.device))
             theta = theta_prime + torch.deg2rad(torch.tensor(90.0, device=self.device))
 
             x_unit_tensor = to_torch([1, 0, 0], dtype=torch.float, device=self.device).repeat((len(env_ids), 1))
             orientation = quat_from_angle_axis(theta, x_unit_tensor)
 
-            min_depth = -0.05
-            max_depth = 0.1
-            pipe_target_entrance_depth = torch.FloatTensor(len(env_ids)).uniform_(min_depth, max_depth).to(self.device)
+            pipe_target_entrance_depth = torch.FloatTensor(len(env_ids)).uniform_(
+                self.cfg['env']['MIN_TARGET_DEPTH_IN_OBSTACLE'], self.cfg['env']['MAX_TARGET_DEPTH_IN_OBSTACLE']).to(self.device)
             pipe_pos_offset_x = to_torch([-PIPE_RADIUS], dtype=torch.float,
                                          device=self.device).repeat((len(env_ids), 1))
             pipe_pos_offset_y = pipe_target_entrance_depth * torch.cos(theta_prime)
@@ -973,10 +998,10 @@ class Vine5LinkMovingBase(VecTask):
             # torque = - Kq - Cqd - b - Bu;
             #        = - [K C diag(b) diag(B)] @ [q; qd; ones(5), u_fpam*ones(5)]
             #        = - A @ x
-            K = torch.diag(torch.tensor([ 0.8385, 1.5400, 1.5109, 1.2887, 0.4347], device=self.device))
-            C = torch.diag(torch.tensor([ 0.0178, 0.0304, 0.0528, 0.0367, 0.0223], device=self.device))
-            b = torch.tensor([ 0.0007, 0.0062, 0.0402, 0.0160, 0.0133], device=self.device)
-            B = torch.tensor([ 0.0247, 0.0616, 0.0779, 0.0498, 0.0268], device=self.device)
+            K = torch.diag(torch.tensor([0.8385, 1.5400, 1.5109, 1.2887, 0.4347], device=self.device))
+            C = torch.diag(torch.tensor([0.0178, 0.0304, 0.0528, 0.0367, 0.0223], device=self.device))
+            b = torch.tensor([0.0007, 0.0062, 0.0402, 0.0160, 0.0133], device=self.device)
+            B = torch.tensor([0.0247, 0.0616, 0.0779, 0.0498, 0.0268], device=self.device)
 
             A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
             self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
@@ -1038,8 +1063,8 @@ class Vine5LinkMovingBase(VecTask):
                 radius=visualization_sphere_radius, num_lats=3, num_lons=3, color=(0, 1, 0))
 
             self.gym.clear_lines(self.viewer)
+            # Draw target
             for i in range(self.num_envs):
-                # Draw target
                 target_position = self.target_positions[i]
                 sphere_pose = gymapi.Transform(gymapi.Vec3(
                     target_position[0], target_position[1], target_position[2]), r=None)
@@ -1060,10 +1085,29 @@ class Vine5LinkMovingBase(VecTask):
                 green_color = gymapi.Vec3(0.1, 0.9, 0.1)
                 gymutil.draw_line(pos1_vec3, pos2_vec3, green_color, self.gym, self.viewer, self.envs[i])
 
+            # Draw rail soft limits
+            for i in range(self.num_envs):
+                # For now, draw only one env to save time
+                if i != self.index_to_view:
+                    continue
+
+                half_line_length = 0.1
+                center = gymapi.Vec3(0, 0, INIT_Z)
+                left_line_bottom = center + gymapi.Vec3(0, -self.cfg['env']['RAIL_SOFT_LIMIT'], -half_line_length)
+                left_line_top = left_line_bottom + gymapi.Vec3(0, 0, 2 * half_line_length)
+                right_line_bottom = center + gymapi.Vec3(0, self.cfg['env']['RAIL_SOFT_LIMIT'], -half_line_length)
+                right_line_top = right_line_bottom + gymapi.Vec3(0, 0, 2 * half_line_length)
+
+                red_color = gymapi.Vec3(0.9, 0.1, 0.1)
+                gymutil.draw_line(left_line_bottom, left_line_top, red_color, self.gym, self.viewer, self.envs[i])
+                gymutil.draw_line(right_line_bottom, right_line_top, red_color, self.gym, self.viewer, self.envs[i])
+
         # Create video
-        should_start_video_capture = self.num_steps % self.capture_video_every == 0
+        should_start_video_capture = (self.num_steps % self.capture_video_every ==
+                                      0) or self.create_video_command_from_keyboard_press
         video_capture_in_progress = len(self.video_frames) > 0
         if self.cfg['env']['CAPTURE_VIDEO'] and (should_start_video_capture or video_capture_in_progress):
+            self.create_video_command_from_keyboard_press = False
             if not video_capture_in_progress:
                 self.logger.info("-" * 100)
                 self.logger.info("Starting to capture video frames...")
@@ -1081,7 +1125,8 @@ class Vine5LinkMovingBase(VecTask):
                 # Save to file and wandb
                 video_filename = f"{self.time_str}_video_{self.num_steps}.gif"
                 video_path = os.path.join(self.log_dir, video_filename)
-                self.logger.info(f"Saving to {video_path}...")
+                self.logger.info("-" * 100)
+                self.logger.info(f"Saving video to {video_path}...")
 
                 if not self.enable_viewer_sync_before:
                     self.video_frames.pop(0)  # Remove first frame because it was not synced
@@ -1090,6 +1135,7 @@ class Vine5LinkMovingBase(VecTask):
                 imageio.mimsave(video_path, self.video_frames)
                 self.wandb_dict["video"] = wandb.Video(video_path, fps=1./self.control_dt)
                 self.logger.info("DONE")
+                self.logger.info("-" * 100)
 
                 # Reset variables
                 self.video_frames = []
@@ -1250,7 +1296,15 @@ class Vine5LinkMovingBase(VecTask):
                                  self.object_info]
         self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
 
-        if self.cfg['env']['CREATE_HISTOGRAMS_PERIODICALLY'] or self.create_histogram:
+        # Scale observations
+        self.obs_buf = self.obs_buf / self.obs_scaling
+
+        if self.cfg['env']['CREATE_HISTOGRAMS_PERIODICALLY'] or self.create_histogram_command_from_keyboard_press:
+            if len(self.histogram_observation_data_list) == 0:
+                self.logger.info("-" * 100)
+                self.logger.info("Starting to store observation data for histogram...")
+                self.logger.info("-" * 100)
+
             # Store observations (from all envs or just one)
             HISTOGRAM_USING_ALL_ENVS = False
             if HISTOGRAM_USING_ALL_ENVS:
@@ -1263,7 +1317,8 @@ class Vine5LinkMovingBase(VecTask):
             self.histogram_observation_data_list += new_data
 
             if len(self.histogram_observation_data_list) == 100 * len(new_data):
-                self.logger.info(f"Creating histogram at self.num_steps {self.num_steps}")
+                self.logger.info("-" * 100)
+                self.logger.info(f"Creating histogram at self.num_steps {self.num_steps}...")
 
                 # BRITTLE: Depends on observations above
                 observation_names = [*[f"joint_pos_{i}" for i in range(self.num_dof)],
@@ -1272,7 +1327,8 @@ class Vine5LinkMovingBase(VecTask):
                                      *[f"tip_vel_{i}" for i in XYZ_LIST],
                                      *[f"target_pos_{i}" for i in XYZ_LIST],
                                      *[f"target_vel_{i}" for i in XYZ_LIST],
-                                     "smoothed_u_fpam", "prev_u_rail_vel"]
+                                     "smoothed_u_fpam", "prev_u_rail_vel",
+                                     "target_depth", "target_angle"]
                 # Each entry is a row in the table
                 table = wandb.Table(data=self.histogram_observation_data_list, columns=observation_names)
                 ALL_HISTOGRAMS = True
@@ -1281,10 +1337,12 @@ class Vine5LinkMovingBase(VecTask):
                 histograms_dict = {f'{name}_histogram {self.num_steps}': wandb.plot.histogram(
                     table, name, title=f"{name} Histogram {self.num_steps}") for name in names_to_plot}
                 wandb.log(histograms_dict)
+                self.logger.info("DONE")
+                self.logger.info("-" * 100)
 
                 # Reset
                 self.histogram_observation_data_list = []
-                self.create_histogram = False
+                self.create_histogram_command_from_keyboard_press = False
 
         return self.obs_buf
     ##### POST PHYSICS STEP END #####

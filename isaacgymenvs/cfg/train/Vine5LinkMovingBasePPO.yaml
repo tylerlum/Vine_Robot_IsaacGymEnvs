@@ -31,6 +31,15 @@ params:
       regularizer:
         name: None
 
+    rnn:
+      name: lstm
+      units: 256
+      layers: 1
+      before_mlp: False  # Should be better training with False: https://wandb.ai/tylerlum/vine_robot_v3/reports/2023-01-21-Model-Architecture-Comparison--VmlldzozMzg3ODI0
+      concat_input: True
+      layer_norm: True
+
+
   load_checkpoint: ${if:${...checkpoint},True,False} # flag which sets whether to load the checkpoint
   load_path: ${...checkpoint} # path to the checkpoint to load
 
