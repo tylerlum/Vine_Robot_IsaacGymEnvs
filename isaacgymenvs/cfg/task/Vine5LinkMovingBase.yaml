@@ -117,8 +117,8 @@ task:
   randomization_params:
     frequency: 720   # Define how many simulation steps between generating new randomizations
     observations:
-      range: [0, .05] # range for the white noise
-      range_correlated: [0, .025 ] # range for correlated noise, refreshed with freq `frequency`
+      range: [0, .002] # range for the white noise
+      range_correlated: [0, .001 ] # range for correlated noise, refreshed with freq `frequency`
       operation: "additive"
       distribution: "gaussian"
       # schedule: "linear"   # "constant" is to turn on noise after `schedule_steps` num steps
@@ -138,6 +138,7 @@ task:
         # schedule: "linear"  # "linear" will linearly interpolate between no rand and max rand
         # schedule_steps: 40000
     actor_params:
+      # TODO: Consider adding randomization to the other objects
       vine:
         color: True
         scale:
@@ -149,7 +150,7 @@ task:
           # schedule_steps: 30000
         dof_properties:
           damping:
-            range: [.7, 6] # Tuned so that .7 swings more than real but stable, 6 still swings but more damped than real hardware
+            range: [0.7, 1.3] # Tuned so that .7 swings more than real but stable, 6 still swings but more damped than real hardware
             operation: "scaling"
             distribution: "loguniform"
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
@@ -183,7 +184,7 @@ task:
         rigid_shape_properties:
           friction:
             num_buckets: 250
-            range: [0.5, 1.5]
+            range: [0.7, 1.3]
             operation: "scaling"
             distribution: "uniform"
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
