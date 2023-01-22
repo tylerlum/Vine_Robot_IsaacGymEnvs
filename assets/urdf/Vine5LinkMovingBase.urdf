@@ -263,12 +263,6 @@
 
     <link name="tip" />
 
-    <!-- FPAM -->
-    <!-- Small cylinders to model FPAM visual and collisions (not inertial) -->
-    <!-- Turn off collisions of most because they affect bending -->
-    <!-- JOINTS -->
-    <!-- 1 slider joint, 5 revolute joints -->
-
     <!-- PRISMATIC -->
     <!-- conservative values: effort=1N, velocity=0.5m/s  -->
     <!-- length=0.8m (technically 1m, but round down to be safe), so limits are halfway in each dir,
