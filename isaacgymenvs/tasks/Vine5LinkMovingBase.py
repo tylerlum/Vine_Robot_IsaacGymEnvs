@@ -630,6 +630,7 @@ class Vine5LinkMovingBase(VecTask):
             "MAX_PRESSURE": gymapi.KEY_UP,
             "MIN_PRESSURE": gymapi.KEY_DOWN,
             "HISTOGRAM": gymapi.KEY_H,
+            "VIDEO": gymapi.KEY_V,
         }
         self.event_action_to_function = {
             "RESET": self._reset_callback,
@@ -642,6 +643,7 @@ class Vine5LinkMovingBase(VecTask):
             "MAX_PRESSURE": self._max_pressure_callback,
             "MIN_PRESSURE": self._min_pressure_callback,
             "HISTOGRAM": self._histogram_callback,
+            "VIDEO": self._video_callback,
         }
         # Create state variables
         self.PRINT_DEBUG = False
@@ -650,7 +652,8 @@ class Vine5LinkMovingBase(VecTask):
         self.MOVE_RIGHT_COUNTER = 0
         self.MAX_PRESSURE_COUNTER = 0
         self.MIN_PRESSURE_COUNTER = 0
-        self.create_histogram = False
+        self.create_histogram_command_from_keyboard_press = False
+        self.create_video_command_from_keyboard_press = False
 
         assert (sorted(list(self.event_action_to_key.keys())) == sorted(list(self.event_action_to_function.keys())))
 
@@ -701,9 +704,14 @@ class Vine5LinkMovingBase(VecTask):
         self.logger.info(f"self.MIN_PRESSURE_COUNTER = {self.MIN_PRESSURE_COUNTER}")
 
     def _histogram_callback(self):
-        self.create_histogram = True
+        self.create_histogram_command_from_keyboard_press = True
         self.histogram_observation_data_list = []
-        self.logger.info(f"self.create_histogram = {self.create_histogram}")
+        self.logger.info(f"self.create_histogram_command_from_keyboard_press = {self.create_histogram_command_from_keyboard_press}")
+
+    def _video_callback(self):
+        self.create_video_command_from_keyboard_press = True
+        self.logger.info(f"self.create_video_command_from_keyboard_press = {self.create_video_command_from_keyboard_press}")
+
     ##### KEYBOARD EVENT SUBSCRIPTIONS END #####
 
     ##### RESET START #####
@@ -1077,9 +1085,10 @@ class Vine5LinkMovingBase(VecTask):
 
 
         # Create video
-        should_start_video_capture = self.num_steps % self.capture_video_every == 0
+        should_start_video_capture = (self.num_steps % self.capture_video_every == 0) or self.create_video_command_from_keyboard_press
         video_capture_in_progress = len(self.video_frames) > 0
         if self.cfg['env']['CAPTURE_VIDEO'] and (should_start_video_capture or video_capture_in_progress):
+            self.create_video_command_from_keyboard_press = False
             if not video_capture_in_progress:
                 self.logger.info("-" * 100)
                 self.logger.info("Starting to capture video frames...")
@@ -1097,7 +1106,8 @@ class Vine5LinkMovingBase(VecTask):
                 # Save to file and wandb
                 video_filename = f"{self.time_str}_video_{self.num_steps}.gif"
                 video_path = os.path.join(self.log_dir, video_filename)
-                self.logger.info(f"Saving to {video_path}...")
+                self.logger.info("-" * 100)
+                self.logger.info(f"Saving video to {video_path}...")
 
                 if not self.enable_viewer_sync_before:
                     self.video_frames.pop(0)  # Remove first frame because it was not synced
@@ -1106,6 +1116,7 @@ class Vine5LinkMovingBase(VecTask):
                 imageio.mimsave(video_path, self.video_frames)
                 self.wandb_dict["video"] = wandb.Video(video_path, fps=1./self.control_dt)
                 self.logger.info("DONE")
+                self.logger.info("-" * 100)
 
                 # Reset variables
                 self.video_frames = []
@@ -1266,7 +1277,12 @@ class Vine5LinkMovingBase(VecTask):
                                  self.object_info]
         self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
 
-        if self.cfg['env']['CREATE_HISTOGRAMS_PERIODICALLY'] or self.create_histogram:
+        if self.cfg['env']['CREATE_HISTOGRAMS_PERIODICALLY'] or self.create_histogram_command_from_keyboard_press:
+            if len(self.histogram_observation_data_list) == 0:
+                self.logger.info("-" * 100)
+                self.logger.info("Starting to store observation data for histogram...")
+                self.logger.info("-" * 100)
+
             # Store observations (from all envs or just one)
             HISTOGRAM_USING_ALL_ENVS = False
             if HISTOGRAM_USING_ALL_ENVS:
@@ -1279,7 +1295,8 @@ class Vine5LinkMovingBase(VecTask):
             self.histogram_observation_data_list += new_data
 
             if len(self.histogram_observation_data_list) == 100 * len(new_data):
-                self.logger.info(f"Creating histogram at self.num_steps {self.num_steps}")
+                self.logger.info("-" * 100)
+                self.logger.info(f"Creating histogram at self.num_steps {self.num_steps}...")
 
                 # BRITTLE: Depends on observations above
                 observation_names = [*[f"joint_pos_{i}" for i in range(self.num_dof)],
@@ -1288,7 +1305,8 @@ class Vine5LinkMovingBase(VecTask):
                                      *[f"tip_vel_{i}" for i in XYZ_LIST],
                                      *[f"target_pos_{i}" for i in XYZ_LIST],
                                      *[f"target_vel_{i}" for i in XYZ_LIST],
-                                     "smoothed_u_fpam", "prev_u_rail_vel"]
+                                     "smoothed_u_fpam", "prev_u_rail_vel",
+                                     "target_depth", "target_angle"]
                 # Each entry is a row in the table
                 table = wandb.Table(data=self.histogram_observation_data_list, columns=observation_names)
                 ALL_HISTOGRAMS = True
@@ -1297,10 +1315,12 @@ class Vine5LinkMovingBase(VecTask):
                 histograms_dict = {f'{name}_histogram {self.num_steps}': wandb.plot.histogram(
                     table, name, title=f"{name} Histogram {self.num_steps}") for name in names_to_plot}
                 wandb.log(histograms_dict)
+                self.logger.info("DONE")
+                self.logger.info("-" * 100)
 
                 # Reset
                 self.histogram_observation_data_list = []
-                self.create_histogram = False
+                self.create_histogram_command_from_keyboard_press = False
 
         return self.obs_buf
     ##### POST PHYSICS STEP END #####
