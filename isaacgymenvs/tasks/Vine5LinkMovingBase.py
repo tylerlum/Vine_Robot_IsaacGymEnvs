@@ -647,7 +647,7 @@ class Vine5LinkMovingBase(VecTask):
             "MAX_PRESSURE": gymapi.KEY_UP,
             "MIN_PRESSURE": gymapi.KEY_DOWN,
             "HISTOGRAM": gymapi.KEY_H,
-            "VIDEO": gymapi.KEY_V,
+            "VIDEO": gymapi.KEY_C,
         }
         self.event_action_to_function = {
             "RESET": self._reset_callback,
