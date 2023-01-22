@@ -89,6 +89,9 @@ env:
   USE_TARGET_REACHED_RESET: True
   USE_TIP_LIMIT_HIT_RESET: False
 
+  # Observation scaling
+  SCALE_OBSERVATIONS: True
+
 sim:
   dt: 0.00833 # 120 Hz
   substeps: 10  # Default 2

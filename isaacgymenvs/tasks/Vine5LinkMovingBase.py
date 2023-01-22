@@ -248,6 +248,23 @@ class Vine5LinkMovingBase(VecTask):
         # Keep track of object info
         self.object_info = torch.zeros(self.num_envs, NUM_OBJECT_INFO, device=self.device)
 
+        # Observation scaling
+        self.obs_scaling = torch.ones(self.cfg["env"]["numObservations"], device=self.device)
+        if self.cfg["env"]["SCALE_OBSERVATIONS"]:
+            observation_type = ObservationType[self.cfg["env"]["OBSERVATION_TYPE"]]
+            # BRITTLE: Need to ensure these are reasonable and adjust as observations change
+            if observation_type == ObservationType.POS_AND_FD_VEL_AND_OBJ_INFO:
+                self.obs_scaling[:] = to_torch([0.12, 0.269, 0.148, 0.249, 0.148, 0.344,
+                                                0.67, 2.22, 1.47, 1.14, 0.903, 0.716,
+                                                0.0656, 0.238, 0.0656,
+                                                0.732, 2.0, 0.732,
+                                                0.02, 0.0235, 0.02,
+                                                0.732, 2.0, 0.732,
+                                                0.845,
+                                                0.86,
+                                                0.0385,
+                                                0.5], dtype=torch.float, device=self.device)
+
         # Log and cache
         self.use_wandb = True
         self.wandb_dict = {}
@@ -706,11 +723,13 @@ class Vine5LinkMovingBase(VecTask):
     def _histogram_callback(self):
         self.create_histogram_command_from_keyboard_press = True
         self.histogram_observation_data_list = []
-        self.logger.info(f"self.create_histogram_command_from_keyboard_press = {self.create_histogram_command_from_keyboard_press}")
+        self.logger.info(
+            f"self.create_histogram_command_from_keyboard_press = {self.create_histogram_command_from_keyboard_press}")
 
     def _video_callback(self):
         self.create_video_command_from_keyboard_press = True
-        self.logger.info(f"self.create_video_command_from_keyboard_press = {self.create_video_command_from_keyboard_press}")
+        self.logger.info(
+            f"self.create_video_command_from_keyboard_press = {self.create_video_command_from_keyboard_press}")
 
     ##### KEYBOARD EVENT SUBSCRIPTIONS END #####
 
@@ -1083,9 +1102,9 @@ class Vine5LinkMovingBase(VecTask):
                 gymutil.draw_line(left_line_bottom, left_line_top, red_color, self.gym, self.viewer, self.envs[i])
                 gymutil.draw_line(right_line_bottom, right_line_top, red_color, self.gym, self.viewer, self.envs[i])
 
-
         # Create video
-        should_start_video_capture = (self.num_steps % self.capture_video_every == 0) or self.create_video_command_from_keyboard_press
+        should_start_video_capture = (self.num_steps % self.capture_video_every ==
+                                      0) or self.create_video_command_from_keyboard_press
         video_capture_in_progress = len(self.video_frames) > 0
         if self.cfg['env']['CAPTURE_VIDEO'] and (should_start_video_capture or video_capture_in_progress):
             self.create_video_command_from_keyboard_press = False
@@ -1276,6 +1295,9 @@ class Vine5LinkMovingBase(VecTask):
                                  self.smoothed_u_fpam, self.prev_u_rail_velocity,
                                  self.object_info]
         self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
+
+        # Scale observations
+        self.obs_buf = self.obs_buf / self.obs_scaling
 
         if self.cfg['env']['CREATE_HISTOGRAMS_PERIODICALLY'] or self.create_histogram_command_from_keyboard_press:
             if len(self.histogram_observation_data_list) == 0:
