@@ -153,7 +153,7 @@ task:
           # schedule_steps: 30000
         dof_properties:
           damping:
-            range: [0.99, 1.01] # Tuned so that .7 swings more than real but stable, 6 still swings but more damped than real hardware
+            range: [0.9, 1.1] # Tuned so that .7 swings more than real but stable, 6 still swings but more damped than real hardware
             operation: "scaling"
             distribution: "loguniform"
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
@@ -178,7 +178,7 @@ task:
             # schedule_steps: 30000
         rigid_body_properties:
           mass:
-            range: [0.99, 1.01]
+            range: [0.9, 1.1]
             operation: "scaling"
             distribution: "uniform"
             # setup_only: True # Property will only be randomized once before simulation is started. See Domain Randomization Documentation for more info.
@@ -187,7 +187,7 @@ task:
         rigid_shape_properties:
           friction:
             num_buckets: 250
-            range: [0.99, 1.01]
+            range: [0.9, 1.1]
             operation: "scaling"
             distribution: "uniform"
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
