@@ -343,9 +343,14 @@ class VecTask(Env):
             # TYLER ADDITION START: Manually added event
             IS_VINE = hasattr(self, "cfg") and "name" in self.cfg.keys() and self.cfg["name"] == "Vine5LinkMovingBase"
             if IS_VINE:
+                if i == 0:
+                    self.shelf_contact_force_norms = []
                 # Update state and actuation force tensors
                 self.refresh_state_tensors()
                 self.compute_and_set_dof_actuation_force_tensor()
+                link_contact_forces = self.contact_force[:, self.shelf_link_indices, :]
+                link_contact_force_norm = torch.norm(link_contact_forces, dim=[-2, -1])
+                self.shelf_contact_force_norms.append(link_contact_force_norm)
             # TYLER ADDITION END: Manually added event
 
         # to fix!

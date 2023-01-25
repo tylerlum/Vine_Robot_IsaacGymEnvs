@@ -271,6 +271,9 @@ class Vine5LinkMovingBase(VecTask):
         self.histogram_observation_data_list = []
         self.A = None  # Cache this matrix
 
+        # Hacky solution to contact forces
+        self.shelf_contact_force_norms = []
+
         if len(self.cfg['env']['MAT_FILE']) > 0:
             self.mat = self.read_mat_file(self.cfg['env']['MAT_FILE'])
         else:
@@ -302,16 +305,33 @@ class Vine5LinkMovingBase(VecTask):
         contact_force_tensor = self.gym.acquire_net_contact_force_tensor(self.sim)
         self.contact_force = gymtorch.wrap_tensor(contact_force_tensor).view(
             self.num_envs, -1, 3)  # shape: num_envs, num_bodies, xyz axis
+
+        arbitrary_idx = 0  # Any index in list would work
+
         link_names = ["link_0", "link_1", "link_2", "link_3", "link_4"]
         self.link_indices = torch.zeros(len(link_names), dtype=torch.long, device=self.device, requires_grad=False)
-
         for i, link_name in enumerate(link_names):
             link_idx = self.gym.find_actor_rigid_body_index(
-                self.envs[0], self.vine_handles[0], link_name, gymapi.DOMAIN_ENV)
+                self.envs[arbitrary_idx], self.vine_handles[arbitrary_idx], link_name, gymapi.DOMAIN_ENV)
             self.link_indices[i] = link_idx
 
+        if self.cfg["env"]["CREATE_SHELF"]:
+            shelf_link_names = ["shelf_link"]
+            self.shelf_link_indices = torch.zeros(len(shelf_link_names), dtype=torch.long, device=self.device, requires_grad=False)
+            for i, shelf_link_name in enumerate(shelf_link_names):
+                shelf_link_idx = self.gym.find_actor_rigid_body_index(
+                    self.envs[arbitrary_idx], self.shelf_handles[arbitrary_idx], shelf_link_name, gymapi.DOMAIN_ENV)
+                self.shelf_link_indices[i] = shelf_link_idx
+
+        if self.cfg["env"]["CREATE_PIPE"]:
+            pipe_link_names = ["base_link"]
+            self.pipe_link_indices = torch.zeros(len(pipe_link_names), dtype=torch.long, device=self.device, requires_grad=False)
+            for i, pipe_link_name in enumerate(pipe_link_names):
+                pipe_link_idx = self.gym.find_actor_rigid_body_index(
+                    self.envs[arbitrary_idx], self.pipe_handles[arbitrary_idx], pipe_link_name, gymapi.DOMAIN_ENV)
+                self.pipe_link_indices[i] = pipe_link_idx
+
         # Get tip and cart information
-        arbitrary_idx = 0
         tip_idx = self.gym.find_actor_rigid_body_index(
             self.envs[arbitrary_idx], self.vine_handles[arbitrary_idx], "tip", gymapi.DOMAIN_ENV)
         cart_idx = self.gym.find_actor_rigid_body_index(
@@ -417,6 +437,8 @@ class Vine5LinkMovingBase(VecTask):
 
         self.envs = []
         self.vine_handles = []
+        self.shelf_handles = []
+        self.pipe_handles = []
 
         self.vine_indices = []
         self.shelf_indices = []
@@ -444,6 +466,7 @@ class Vine5LinkMovingBase(VecTask):
                 self.shelf_indices.append(self.gym.get_actor_index(env_ptr, shelf_handle, gymapi.DOMAIN_SIM))
 
                 self.set_friction(env_ptr=env_ptr, object_handle=shelf_handle, friction_coefficient=0.0)
+                self.shelf_handles.append(shelf_handle)
 
             # Create pipe
             if self.cfg['env']['CREATE_PIPE']:
@@ -457,6 +480,7 @@ class Vine5LinkMovingBase(VecTask):
                 self.pipe_indices.append(self.gym.get_actor_index(env_ptr, pipe_handle, gymapi.DOMAIN_SIM))
 
                 self.set_friction(env_ptr=env_ptr, object_handle=pipe_handle, friction_coefficient=0.0)
+                self.pipe_handles.append(pipe_handle)
 
             # Create vine robots
             vine_handle = self.gym.create_actor(env_ptr, self.vine_asset, vine_init_pose, "vine",
@@ -1173,9 +1197,10 @@ class Vine5LinkMovingBase(VecTask):
         tip_limit_hit = tip_y < self.target_positions[:, 1]
 
         # Get contact forces
-        link_contact_forces = self.contact_force[:, self.link_indices, :]
-        link_contact_force_norm = torch.norm(link_contact_forces, dim=[-2, -1])
-        nonzero_contact_force = link_contact_force_norm > 0
+        assert(len(self.shelf_contact_force_norms) > 0)
+        contact_force_norms = torch.stack(self.shelf_contact_force_norms, dim=0)  # (control_freq_inv, num_envs)
+        contact_force_norm = torch.mean(contact_force_norms, dim=0)  # (num_envs)
+        nonzero_contact_force = contact_force_norm > 0
 
         self.wandb_dict.update({
             "dist_tip_to_target": dist_tip_to_target.mean().item(),
@@ -1195,7 +1220,7 @@ class Vine5LinkMovingBase(VecTask):
             "smoothed_u_fpam": torch.norm(self.smoothed_u_fpam, dim=-1).mean().item(),
             "tip_target_velocity_difference": torch.norm(self.tip_velocities - self.target_velocities, dim=-1).mean().item(),
             "progress_buf": self.progress_buf.float().mean().item(),
-            "link_contact_forces": link_contact_force_norm.mean().item(),
+            "contact_forces": contact_force_norm.mean().item(),
             "nonzero_contact_force": nonzero_contact_force.float().mean().item(),
         })
 
@@ -1203,7 +1228,7 @@ class Vine5LinkMovingBase(VecTask):
             dist_to_target=dist_tip_to_target, target_reached=target_reached, tip_velocities=self.tip_velocities,
             target_velocities=self.target_velocities, u_rail_velocity=self.u_rail_velocity, u_fpam=self.u_fpam, prev_u_rail_velocity=self.prev_u_rail_velocity,
             smoothed_u_fpam=self.smoothed_u_fpam, limit_hit=limit_hit, tip_limit_hit=tip_limit_hit, cart_y=cart_y,
-            link_contact_forces=link_contact_forces, reward_weights=self.reward_weights, reward_names=REWARD_NAMES
+            contact_force_norm=contact_force_norm, reward_weights=self.reward_weights, reward_names=REWARD_NAMES
         )
         self.aggregated_rew_buf += self.rew_buf
 
@@ -1238,11 +1263,8 @@ class Vine5LinkMovingBase(VecTask):
         self.wandb_dict["smoothed u_fpam at self.index_to_view"] = self.smoothed_u_fpam[self.index_to_view]
         self.wandb_dict["u_rail_velocity at self.index_to_view"] = self.u_rail_velocity[self.index_to_view]
         self.wandb_dict["rail_force at self.index_to_view"] = self.rail_force[self.index_to_view]
-        self.wandb_dict["contact_force at self.index_to_view"] = link_contact_force_norm[self.index_to_view]
+        self.wandb_dict["contact_force at self.index_to_view"] = contact_force_norm[self.index_to_view]
         self.wandb_dict["nonzero_contact_force at self.index_to_view"] = nonzero_contact_force[self.index_to_view]
-        print(f"link_contact_force_norm at self.index_to_view: {link_contact_force_norm[self.index_to_view]}")
-        print(f"nonzero_contact_force at self.index_to_view: {nonzero_contact_force[self.index_to_view]}")
-        print()
 
         for i, reward_name in enumerate(REWARD_NAMES):
             self.wandb_dict.update({
@@ -1373,7 +1395,7 @@ def rescale_to_u_rail_velocity(u_rail_velocity, scale):
 @torch.jit.script
 def compute_reward_jit(dist_to_target, target_reached, tip_velocities,
                        target_velocities, u_rail_velocity, u_fpam, prev_u_rail_velocity,
-                       smoothed_u_fpam, limit_hit, tip_limit_hit, cart_y, link_contact_forces,
+                       smoothed_u_fpam, limit_hit, tip_limit_hit, cart_y, contact_force_norm,
                        reward_weights, reward_names):
     # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, List[str]) -> Tuple[Tensor, Tensor, Tensor]
     # reward = sum(w_i * r_i) with various reward function r_i and weights w_i
@@ -1390,7 +1412,7 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities,
     # rail_limit_reward = RAIL_LIMIT_PUNISHMENT if limit_hit else 0 [Punish for hitting rail limits]
     # cart_y_reward = -abs(cart_y) [Punish for getting near rail limits]
     # tip_y_reward = TIP_LIMIT_PUNISHMENT if tip_limit_hit else 0 [Punish for exceeding target]
-    # contact_force_reward = norm(link_contact_forces) if norm(link_contact_forces) > THRESH else 0 [Punish for large contact]
+    # contact_force_reward = contact_force_norm if contact_force_norm > THRESH else 0 [Punish for large contact]
     N_REWARDS = torch.numel(reward_weights)
     N_ENVS = dist_to_target.shape[0]
 
@@ -1429,7 +1451,7 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities,
         elif reward_name == "Tip Y":
             reward_matrix[:, i] += torch.where(tip_limit_hit, TIP_LIMIT_PUNISHMENT, 0.0)
         elif reward_name == "Contact Force":
-            force_norms = torch.norm(link_contact_forces, dim=[-2, -1]).double()
+            force_norms = contact_force_norm.double()
             reward_matrix[:, i] -= torch.where(force_norms > CONTACT_FORCE_THRESHOLD, force_norms, 0.0)
         else:
             raise ValueError(f"Invalid reward name: {reward_name}")

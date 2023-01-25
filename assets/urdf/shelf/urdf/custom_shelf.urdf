@@ -2,7 +2,7 @@
     <material name="beige">
         <color rgba="0.878 0.71 0.576 1.0"/>
     </material>
-    <link name="shelf">
+    <link name="shelf_link">
         <!-- VISUAL -->
         <!-- layers -->
         <visual>
