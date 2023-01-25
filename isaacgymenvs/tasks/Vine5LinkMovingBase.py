@@ -1174,6 +1174,8 @@ class Vine5LinkMovingBase(VecTask):
 
         # Get contact forces
         link_contact_forces = self.contact_force[:, self.link_indices, :]
+        link_contact_force_norm = torch.norm(link_contact_forces, dim=[-2, -1])
+        nonzero_contact_force = link_contact_force_norm > 0
 
         self.wandb_dict.update({
             "dist_tip_to_target": dist_tip_to_target.mean().item(),
@@ -1193,6 +1195,8 @@ class Vine5LinkMovingBase(VecTask):
             "smoothed_u_fpam": torch.norm(self.smoothed_u_fpam, dim=-1).mean().item(),
             "tip_target_velocity_difference": torch.norm(self.tip_velocities - self.target_velocities, dim=-1).mean().item(),
             "progress_buf": self.progress_buf.float().mean().item(),
+            "link_contact_forces": link_contact_force_norm.mean().item(),
+            "nonzero_contact_force": nonzero_contact_force.float().mean().item(),
         })
 
         self.rew_buf[:], reward_matrix, weighted_reward_matrix = compute_reward_jit(
@@ -1234,6 +1238,11 @@ class Vine5LinkMovingBase(VecTask):
         self.wandb_dict["smoothed u_fpam at self.index_to_view"] = self.smoothed_u_fpam[self.index_to_view]
         self.wandb_dict["u_rail_velocity at self.index_to_view"] = self.u_rail_velocity[self.index_to_view]
         self.wandb_dict["rail_force at self.index_to_view"] = self.rail_force[self.index_to_view]
+        self.wandb_dict["contact_force at self.index_to_view"] = link_contact_force_norm[self.index_to_view]
+        self.wandb_dict["nonzero_contact_force at self.index_to_view"] = nonzero_contact_force[self.index_to_view]
+        print(f"link_contact_force_norm at self.index_to_view: {link_contact_force_norm[self.index_to_view]}")
+        print(f"nonzero_contact_force at self.index_to_view: {nonzero_contact_force[self.index_to_view]}")
+        print()
 
         for i, reward_name in enumerate(REWARD_NAMES):
             self.wandb_dict.update({
@@ -1245,12 +1254,13 @@ class Vine5LinkMovingBase(VecTask):
                 f"Max Total Reward": self.rew_buf.max().item(),
             })
 
-        # TODO: Could add contact force as reset reason
         self.reset_buf[:] = compute_reset_jit(
             reset_buf=self.reset_buf, progress_buf=self.progress_buf,
             max_episode_length=self.max_episode_length, target_reached=target_reached, limit_hit=limit_hit, tip_limit_hit=tip_limit_hit,
+            nonzero_contact_force=nonzero_contact_force,
             use_target_reached_reset=self.cfg['env']['USE_TARGET_REACHED_RESET'],
             use_tip_limit_hit_reset=self.cfg['env']['USE_TIP_LIMIT_HIT_RESET'],
+            use_nonzero_contact_force_reset=self.cfg['env']['USE_NONZERO_CONTACT_FORCE_RESET'],
         )
 
     def refresh_state_tensors(self):
@@ -1431,9 +1441,9 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities,
 
 
 def compute_reset_jit(reset_buf, progress_buf, max_episode_length, target_reached,
-                      limit_hit, tip_limit_hit, use_target_reached_reset,
-                      use_tip_limit_hit_reset):
-    # type: (Tensor, Tensor, float, Tensor, Tensor, Tensor, bool, bool) -> Tensor
+                      limit_hit, tip_limit_hit, nonzero_contact_force,
+                      use_target_reached_reset, use_tip_limit_hit_reset, use_nonzero_contact_force_reset):
+    # type: (Tensor, Tensor, float, Tensor, Tensor, Tensor, Tensor, bool, bool, bool) -> Tensor
     reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), reset_buf)
 
     reset_for_target_reached = torch.logical_and(target_reached, torch.tensor(
@@ -1444,4 +1454,8 @@ def compute_reset_jit(reset_buf, progress_buf, max_episode_length, target_reache
         [use_tip_limit_hit_reset], device=tip_limit_hit.device))
     reset = torch.where(reset_for_tip_limit_hit, torch.ones_like(reset), reset)
     reset = torch.where(limit_hit, torch.ones_like(reset), reset)
+
+    reset_for_nonzero_contact_force = torch.logical_and(nonzero_contact_force, torch.tensor(
+        [use_nonzero_contact_force_reset], device=nonzero_contact_force.device))
+    reset = torch.where(reset_for_nonzero_contact_force, torch.ones_like(reset), reset)
     return reset

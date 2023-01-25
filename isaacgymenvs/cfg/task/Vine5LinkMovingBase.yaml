@@ -88,6 +88,7 @@ env:
   # Reset
   USE_TARGET_REACHED_RESET: True
   USE_TIP_LIMIT_HIT_RESET: False
+  USE_NONZERO_CONTACT_FORCE_RESET: True
 
   # Observation scaling
   SCALE_OBSERVATIONS: True
