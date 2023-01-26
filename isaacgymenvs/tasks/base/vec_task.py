@@ -336,10 +336,7 @@ class VecTask(Env):
 
         # step physics and render each frame
         for i in range(self.control_freq_inv):
-            if self.force_render:
-                self.render()
-            self.gym.simulate(self.sim)
-
+            
             # TYLER ADDITION START: Manually added event
             IS_VINE = hasattr(self, "cfg") and "name" in self.cfg.keys() and self.cfg["name"] == "Vine5LinkMovingBase"
             if IS_VINE:
@@ -352,6 +349,10 @@ class VecTask(Env):
                 link_contact_force_norm = torch.norm(link_contact_forces, dim=[-2, -1])
                 self.shelf_contact_force_norms.append(link_contact_force_norm)
             # TYLER ADDITION END: Manually added event
+
+            if self.force_render:
+                self.render()
+            self.gym.simulate(self.sim)
 
         # to fix!
         if self.device == 'cpu':

@@ -42,6 +42,7 @@ import wandb
 
 # Increase pipe size to make the problem easier
 PIPE_ADDITIONAL_SCALING = 1.05
+RAIL_ACCELERATION = 8.0
 
 
 # CONSTANTS (RARELY CHANGE)
@@ -244,6 +245,7 @@ class Vine5LinkMovingBase(VecTask):
         self.prev_tip_positions = self.tip_positions.clone()
         self.prev_u_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device)
         self.prev_cart_vel_error = torch.zeros(self.num_envs, 1, device=self.device)
+        self.prev_cart_vel = torch.zeros(self.num_envs, 1, device=self.device)
 
         # Keep track of object info
         self.object_info = torch.zeros(self.num_envs, NUM_OBJECT_INFO, device=self.device)
@@ -916,9 +918,6 @@ class Vine5LinkMovingBase(VecTask):
         self.prev_tip_positions = self.tip_positions.clone()
         self.prev_u_rail_velocity = self.u_rail_velocity.clone()
 
-        # Compute and set joint actutation
-        self.compute_and_set_dof_actuation_force_tensor()
-
     def overwrite_with_mat(self):
         # Get dof positions from mat file
         all_cart_pos = self.mat['cart_pos']  # (1, num_steps)
@@ -1042,15 +1041,39 @@ class Vine5LinkMovingBase(VecTask):
         torques = -torch.matmul(A, x).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
 
         # Compute rail force
+        # Previous approach:
+        # * given v and v_target, we compute v_target
+        # * set force = P * V_MAX
+        
         cart_vel_y = self.cart_velocities[:, 1:2]  # (num_envs, 1)
         cart_vel_error = self.u_rail_velocity - cart_vel_y
-        RAIL_FORCE_MAX = self.cfg['env']['RAIL_P_GAIN'] * self.cfg['env']['RAIL_VELOCITY_SCALE']
-        rail_force_pid = self.cfg['env']['RAIL_P_GAIN'] * cart_vel_error + \
-            self.cfg['env']['RAIL_D_GAIN'] * (cart_vel_error - self.prev_cart_vel_error)
+
+        # compute force for acceleration tracking to be used when velocity error is large
+        # baseline force is bang-bang control
+        RAIL_FORCE_MAX = RAIL_ACCELERATION/2.0
         rail_force_minmax = torch.where(cart_vel_error > 0, torch.tensor(
             RAIL_FORCE_MAX, device=self.device), torch.tensor(-RAIL_FORCE_MAX, device=self.device))
+        # fine tune with P control on acceleration
+        accel = (cart_vel_y - self.prev_cart_vel) / self.dt
+        
+        accel_target = torch.where(cart_vel_error > 0, torch.tensor(
+            RAIL_ACCELERATION, device=self.device), torch.tensor(-RAIL_ACCELERATION, device=self.device))
+        COURSE_P_GAIN = .30
+        COURSE_D_GAIN = .01
+        adjustment = COURSE_P_GAIN * (accel_target - accel)
+        
+        rail_force_minmax += adjustment
+
+        # compute force for velocity tracking to be used when velocity error is small
+        rail_force_pid = self.cfg['env']['RAIL_P_GAIN'] * cart_vel_error + \
+            self.cfg['env']['RAIL_D_GAIN'] * (cart_vel_error - self.prev_cart_vel_error)
+        
+        # choose between velocity and acceleration tracking for each environment
         self.rail_force = torch.where(torch.abs(cart_vel_error) > 0.1, rail_force_minmax, rail_force_pid)
-        self.prev_cart_vel_error = cart_vel_error
+        
+        # print(f"accel: {accel[0,0]}\cart_vel_error: {cart_vel_error[0,0]}\tadjustment: {adjustment[0,0]}")
+        self.prev_cart_vel_error = cart_vel_error.detach().clone()
+        self.prev_cart_vel = cart_vel_y.detach().clone()
 
         if self.randomize:
             # TODO: Maybe remove because handled by action noise?
