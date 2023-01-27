@@ -319,7 +319,8 @@ class Vine5LinkMovingBase(VecTask):
 
         if self.cfg["env"]["CREATE_SHELF"]:
             shelf_link_names = ["shelf_link"]
-            self.shelf_link_indices = torch.zeros(len(shelf_link_names), dtype=torch.long, device=self.device, requires_grad=False)
+            self.shelf_link_indices = torch.zeros(
+                len(shelf_link_names), dtype=torch.long, device=self.device, requires_grad=False)
             for i, shelf_link_name in enumerate(shelf_link_names):
                 shelf_link_idx = self.gym.find_actor_rigid_body_index(
                     self.envs[arbitrary_idx], self.shelf_handles[arbitrary_idx], shelf_link_name, gymapi.DOMAIN_ENV)
@@ -327,7 +328,8 @@ class Vine5LinkMovingBase(VecTask):
 
         if self.cfg["env"]["CREATE_PIPE"]:
             pipe_link_names = ["base_link"]
-            self.pipe_link_indices = torch.zeros(len(pipe_link_names), dtype=torch.long, device=self.device, requires_grad=False)
+            self.pipe_link_indices = torch.zeros(len(pipe_link_names), dtype=torch.long,
+                                                 device=self.device, requires_grad=False)
             for i, pipe_link_name in enumerate(pipe_link_names):
                 pipe_link_idx = self.gym.find_actor_rigid_body_index(
                     self.envs[arbitrary_idx], self.pipe_handles[arbitrary_idx], pipe_link_name, gymapi.DOMAIN_ENV)
@@ -648,14 +650,19 @@ class Vine5LinkMovingBase(VecTask):
         if not self.use_wandb:
             return
 
-        assumed_model_file = os.path.join(self.log_dir, "nn", f"{self.cfg['name']}.pth")
-        if self.num_steps % 100 == 99 and os.path.exists(assumed_model_file):
-            self.logger.info(f"Saving model to wandb: {assumed_model_file}")
-            try:
-                wandb.save(assumed_model_file)
-            except wandb.errors.Error:
-                self.logger.warning("Wandb not initialized, no longer trying to log")
-                self.use_wandb = False
+        if self.num_steps % 100 != 99:
+            return
+
+        models_dir = os.path.join(self.log_dir, "nn")
+        for model_file in os.listdir(models_dir):
+            if model_file.endswith(".pth"):
+                model_file_path = os.path.join(models_dir, model_file)
+                self.logger.info(f"Saving model to wandb: {model_file_path}")
+                try:
+                    wandb.save(model_file_path)
+                except wandb.errors.Error:
+                    self.logger.warning("Wandb not initialized, no longer trying to log")
+                    self.use_wandb = False
     ##### WANDB LOGGING END #####
 
     ##### KEYBOARD EVENT SUBSCRIPTIONS START #####
@@ -1039,7 +1046,7 @@ class Vine5LinkMovingBase(VecTask):
         # Previous approach:
         # * given v and v_target, we compute v_target
         # * set force = P * V_MAX
-        
+
         cart_vel_y = self.cart_velocities[:, 1:2]  # (num_envs, 1)
         cart_vel_error = self.u_rail_velocity - cart_vel_y
 
@@ -1050,22 +1057,22 @@ class Vine5LinkMovingBase(VecTask):
             RAIL_FORCE_MAX, device=self.device), torch.tensor(-RAIL_FORCE_MAX, device=self.device))
         # fine tune with P control on acceleration
         accel = (cart_vel_y - self.prev_cart_vel) / self.dt
-        
+
         accel_target = torch.where(cart_vel_error > 0, torch.tensor(
             RAIL_ACCELERATION, device=self.device), torch.tensor(-RAIL_ACCELERATION, device=self.device))
         COURSE_P_GAIN = .30
         COURSE_D_GAIN = .01
         adjustment = COURSE_P_GAIN * (accel_target - accel)
-        
+
         rail_force_minmax += adjustment
 
         # compute force for velocity tracking to be used when velocity error is small
         rail_force_pid = self.cfg['env']['RAIL_P_GAIN'] * cart_vel_error + \
             self.cfg['env']['RAIL_D_GAIN'] * (cart_vel_error - self.prev_cart_vel_error)
-        
+
         # choose between velocity and acceleration tracking for each environment
         self.rail_force = torch.where(torch.abs(cart_vel_error) > 0.1, rail_force_minmax, rail_force_pid)
-        
+
         # print(f"accel: {accel[0,0]}\cart_vel_error: {cart_vel_error[0,0]}\tadjustment: {adjustment[0,0]}")
         self.prev_cart_vel_error = cart_vel_error.detach().clone()
         self.prev_cart_vel = cart_vel_y.detach().clone()
@@ -1210,7 +1217,7 @@ class Vine5LinkMovingBase(VecTask):
         tip_limit_hit = tip_y < self.target_positions[:, 1]
 
         # Get contact forces
-        assert(len(self.shelf_contact_force_norms) > 0)
+        assert (len(self.shelf_contact_force_norms) > 0)
         contact_force_norms = torch.stack(self.shelf_contact_force_norms, dim=0)  # (control_freq_inv, num_envs)
         contact_force_norm = torch.mean(contact_force_norms, dim=0)  # (num_envs)
         nonzero_contact_force = contact_force_norm > 0
