@@ -975,11 +975,6 @@ class Vine5LinkMovingBase(VecTask):
         alphas = torch.where(u_fpam > smoothed_u_fpam,
                              self.cfg['env']['SMOOTHING_ALPHA_INFLATE'], self.cfg['env']['SMOOTHING_ALPHA_DEFLATE'])
 
-        if self.randomize:
-            alphas *= torch.FloatTensor(*alphas.shape).uniform_(self.cfg['env']['DOMAIN_RANDOMIZATION_SCALING_MIN'],
-                                                                self.cfg['env']['DOMAIN_RANDOMIZATION_SCALING_MAX']).to(alphas.device)
-            alphas = torch.clamp(alphas, min=0.0, max=1.0)
-
         smoothed_u_fpam = alphas * smoothed_u_fpam + (1 - alphas) * u_fpam
         return smoothed_u_fpam
 
@@ -1074,11 +1069,6 @@ class Vine5LinkMovingBase(VecTask):
         # print(f"accel: {accel[0,0]}\cart_vel_error: {cart_vel_error[0,0]}\tadjustment: {adjustment[0,0]}")
         self.prev_cart_vel_error = cart_vel_error.detach().clone()
         self.prev_cart_vel = cart_vel_y.detach().clone()
-
-        if self.randomize:
-            # TODO: Maybe remove because handled by action noise?
-            self.rail_force *= torch.FloatTensor(*self.rail_force.shape).uniform_(
-                self.cfg['env']['DOMAIN_RANDOMIZATION_SCALING_MIN'], self.cfg['env']['DOMAIN_RANDOMIZATION_SCALING_MAX']).to(self.rail_force.device)
 
         # Set efforts
         if N_PRISMATIC_DOFS == 1:

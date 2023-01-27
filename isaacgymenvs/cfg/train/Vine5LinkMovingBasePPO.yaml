@@ -64,7 +64,7 @@ params:
     lr_schedule: adaptive
     schedule_type: legacy
     kl_threshold: 0.008
-    score_to_win: 20000
+    score_to_win: 20_000_000_000
     max_epochs: ${resolve_default:500,${....max_iterations}}
     save_best_after: 20
     save_frequency: 10

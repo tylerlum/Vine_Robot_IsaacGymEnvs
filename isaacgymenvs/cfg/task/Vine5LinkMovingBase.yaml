@@ -11,7 +11,7 @@ env:
   clipObservations: 5.0
   clipActions: 1.0
 
-  maxEpisodeLength: 1000
+  maxEpisodeLength: 500
   controlFrequencyInv: ${resolve_default:4,${...control_frequency_inv}}
 
   # set to True if you use camera sensors in the environment
