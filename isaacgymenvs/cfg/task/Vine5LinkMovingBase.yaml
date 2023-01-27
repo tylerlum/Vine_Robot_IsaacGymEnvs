@@ -136,7 +136,7 @@ task:
       # schedule_steps: 40000
     sim_params:
       gravity:
-        range: [0, 0.9]
+        range: [0, 0.5]
         operation: "additive"
         distribution: "gaussian"
         # schedule: "linear"  # "linear" will linearly interpolate between no rand and max rand
