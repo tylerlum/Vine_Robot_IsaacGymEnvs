@@ -42,7 +42,7 @@ import wandb
 
 # Increase pipe size to make the problem easier
 PIPE_ADDITIONAL_SCALING = 1.05
-RAIL_ACCELERATION = 8.0
+RAIL_ACCELERATION = 6.0
 
 
 # CONSTANTS (RARELY CHANGE)
