@@ -33,6 +33,7 @@ import math
 import datetime
 from enum import Enum
 import logging
+import time
 
 from isaacgym import gymutil, gymtorch, gymapi
 from isaacgym.torch_utils import to_torch, quat_from_angle_axis
@@ -280,6 +281,8 @@ class Vine5LinkMovingBase(VecTask):
             self.mat = self.read_mat_file(self.cfg['env']['MAT_FILE'])
         else:
             self.mat = None
+
+        self.start_time = time.time()
 
     def read_mat_file(self, filename):
         # TODO: Unused right now
@@ -655,8 +658,8 @@ class Vine5LinkMovingBase(VecTask):
 
         models_dir = os.path.join(self.log_dir, "nn")
         for model_file in os.listdir(models_dir):
-            if model_file.endswith(".pth"):
-                model_file_path = os.path.join(models_dir, model_file)
+            model_file_path = os.path.join(models_dir, model_file)
+            if model_file_path.endswith(".pth") and os.path.getctime(model_file_path) > self.start_time:
                 self.logger.info(f"Saving model to wandb: {model_file_path}")
                 try:
                     wandb.save(model_file_path)
@@ -714,7 +717,6 @@ class Vine5LinkMovingBase(VecTask):
 
     def _pause_callback(self):
         self.logger.info("PAUSING")
-        import time
         time.sleep(1)
 
     def _print_debug_callback(self):
