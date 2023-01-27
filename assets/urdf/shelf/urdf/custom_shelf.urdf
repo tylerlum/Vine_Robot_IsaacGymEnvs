@@ -73,12 +73,12 @@
 
         <!-- COLLISION -->
         <!-- layers -->
-        <collision>
+        <!-- <collision>
             <origin xyz="0 0 -0.2" />
             <geometry>
                 <box size="0.15 0.4 0.01" />
             </geometry>
-        </collision>
+        </collision> -->
         <collision>
             <origin xyz="0 0 0.0" />
             <geometry>
@@ -92,7 +92,7 @@
             </geometry>
         </collision>
         <!-- legs -->
-        <collision>
+        <!-- <collision>
             <origin xyz="0.11 -0.18 -0.175" />
             <geometry>
                 <box size="0.025 0.025 0.75" />
@@ -128,7 +128,7 @@
             <geometry>
                 <box size="0.025 0.025 0.75" />
             </geometry>
-        </collision>
+        </collision> -->
 
         <inertial>
             <mass value="500" />
@@ -136,4 +136,24 @@
             <inertia ixx="1000.0" ixy="0.0" ixz="0.0" iyy="1000.0" iyz="0.0" izz="1000.0" />
         </inertial>
     </link>
+    <link name="main_surface">
+        <visual >
+            <origin xyz="0 0 0.0" />
+            <geometry>
+                <box size="0.15 0.399 0.011" />
+            </geometry> 
+        </visual>
+        <collision>
+            <origin xyz="0 0 0.0" />
+            <geometry>
+                <box size="0.15 0.399 0.011" />
+            </geometry> 
+        </collision>
+    </link>
+    <joint name="surface_to_shelf" type="fixed">
+        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+        <parent link="shelf_link"/>
+        <child link="main_surface"/>
+        <axis xyz="0.0 0.0 0.0"/>
+    </joint>
 </robot>  
