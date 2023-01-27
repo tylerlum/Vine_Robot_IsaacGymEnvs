@@ -98,7 +98,7 @@ TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
 if USE_MOVING_BASE:
     # TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, LENGTH_RAIL/2  # Set to length of rail
     # TODO: Tune the Y limits of target position depending on task and pipe dims/orientation
-    TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -0.6*LENGTH_RAIL, -0.5*LENGTH_RAIL  # Left side of rail
+    TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -0.7*LENGTH_RAIL, -0.5*LENGTH_RAIL  # Left side of rail
 else:
     TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MIN_EFFECTIVE_ANGLE)*VINE_LENGTH,
                                           math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
