@@ -43,8 +43,6 @@ import wandb
 
 # Increase pipe size to make the problem easier
 PIPE_ADDITIONAL_SCALING = 1.05
-RAIL_ACCELERATION = 6.0
-
 
 # CONSTANTS (RARELY CHANGE)
 NUM_STATES = 13  # xyz, quat, v_xyz, w_xyz
@@ -86,25 +84,9 @@ N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.0
 
-# IMPORTANT: Tune these angles depending the task, affects the range of target positions
-MIN_EFFECTIVE_ANGLE = math.radians(-45)
-MAX_EFFECTIVE_ANGLE = math.radians(-30)
-
 VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 # PIPE_RADIUS = 0.065 * PIPE_ADDITIONAL_SCALING
 PIPE_RADIUS = 0.07 * PIPE_ADDITIONAL_SCALING
-
-TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
-if USE_MOVING_BASE:
-    # TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, LENGTH_RAIL/2  # Set to length of rail
-    # TODO: Tune the Y limits of target position depending on task and pipe dims/orientation
-    TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -0.7*LENGTH_RAIL, -0.5*LENGTH_RAIL  # Left side of rail
-else:
-    TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MIN_EFFECTIVE_ANGLE)*VINE_LENGTH,
-                                          math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
-TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - \
-    math.cos(MAX_EFFECTIVE_ANGLE) * VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
-
 
 class Vine5LinkMovingBase(VecTask):
     """
@@ -888,6 +870,22 @@ class Vine5LinkMovingBase(VecTask):
 
     def sample_target_positions(self, num_envs):
         target_positions = torch.zeros(num_envs, NUM_XYZ, device=self.device)
+        # TODO: move this to init for efficiency
+        # IMPORTANT: Tune these angles depending the task, affects the range of target positions
+        MIN_EFFECTIVE_ANGLE = math.radians(self.cfg['env']['MIN_EFFECTIVE_ANGLE_DEG'])
+        MAX_EFFECTIVE_ANGLE = math.radians(self.cfg['env']['MAX_EFFECTIVE_ANGLE_DEG'])
+
+        TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
+        if USE_MOVING_BASE:
+            # TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, LENGTH_RAIL/2  # Set to length of rail
+            # TODO: Tune the Y limits of target position depending on task and pipe dims/orientation
+            TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -0.6*LENGTH_RAIL, -0.5*LENGTH_RAIL  # Left side of rail
+        else:
+            TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MIN_EFFECTIVE_ANGLE)*VINE_LENGTH,
+                                                math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
+        TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - \
+            math.cos(MAX_EFFECTIVE_ANGLE) * VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
+
         if self.cfg['env']['RANDOMIZE_TARGETS']:
             # TODO Find the best way to set targets
             # angles = torch.FloatTensor(num_envs).uniform_(MIN_EFFECTIVE_ANGLE, MAX_EFFECTIVE_ANGLE).to(self.device)
@@ -1054,6 +1052,7 @@ class Vine5LinkMovingBase(VecTask):
 
         # compute force for acceleration tracking to be used when velocity error is large
         # baseline force is bang-bang control
+        RAIL_ACCELERATION = self.cfg['env']['RAIL_ACCELERATION']
         RAIL_FORCE_MAX = RAIL_ACCELERATION/2.0
         rail_force_minmax = torch.where(cart_vel_error > 0, torch.tensor(
             RAIL_FORCE_MAX, device=self.device), torch.tensor(-RAIL_FORCE_MAX, device=self.device))
