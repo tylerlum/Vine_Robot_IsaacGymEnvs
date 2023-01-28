@@ -64,14 +64,16 @@ env:
   RANDOM_INIT_CART_MIN_Y: ${eval:'-0.1 * ${.RAIL_SOFT_LIMIT}'}  # Set to avoid initial collision, but still want to be -ve so includes 0 in range
   RANDOM_INIT_CART_MAX_Y: ${.RAIL_SOFT_LIMIT}
   RANDOMIZE_TARGETS: True
-  DOMAIN_RANDOMIZATION_SCALING_MIN: 0.9
-  DOMAIN_RANDOMIZATION_SCALING_MAX: 1.1
+  DOMAIN_RANDOMIZATION_SCALING_MIN: 0.99
+  DOMAIN_RANDOMIZATION_SCALING_MAX: 1.01
 
   SUCCESS_DIST: 0.08
   MIN_TARGET_DEPTH_IN_OBSTACLE: -0.05
   MAX_TARGET_DEPTH_IN_OBSTACLE: 0.2
   MIN_EFFECTIVE_ANGLE_DEG: -45.0
   MAX_EFFECTIVE_ANGLE_DEG: -30.0
+  TARGET_POS_MIN_Y_RATIO: -0.6
+  TARGET_POS_MAX_Y_RATIO: -0.5
 
   # Rewards
   POSITION_REWARD_WEIGHT: 0.0
@@ -139,7 +141,7 @@ task:
       # schedule_steps: 40000
     sim_params:
       gravity:
-        range: [0, 0.5]
+        range: [0, 0.01]
         operation: "additive"
         distribution: "gaussian"
         # schedule: "linear"  # "linear" will linearly interpolate between no rand and max rand
@@ -149,7 +151,7 @@ task:
       vine:
         color: True
         scale:
-          range: [0.9, 1.1]
+          range: [1.0, 1.02]
           operation: "scaling"
           distribution: "uniform"
           # setup_only: True # Property will only be randomized once before simulation is started. See Domain Randomization Documentation for more info.
@@ -157,7 +159,7 @@ task:
           # schedule_steps: 30000
         dof_properties:
           damping:
-            range: [0.9, 1.1] # Tuned so that .7 swings more than real but stable, 6 still swings but more damped than real hardware
+            range: [0.99, 1.01] # Tuned so that .7 swings more than real but stable, 6 still swings but more damped than real hardware
             operation: "scaling"
             distribution: "loguniform"
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
@@ -182,7 +184,7 @@ task:
             # schedule_steps: 30000
         rigid_body_properties:
           mass:
-            range: [0.9, 1.1]
+            range: [0.99, 1.01]
             operation: "scaling"
             distribution: "uniform"
             # setup_only: True # Property will only be randomized once before simulation is started. See Domain Randomization Documentation for more info.
@@ -191,7 +193,7 @@ task:
         rigid_shape_properties:
           friction:
             num_buckets: 250
-            range: [0.9, 1.1]
+            range: [0.99, 1.01]
             operation: "scaling"
             distribution: "uniform"
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`

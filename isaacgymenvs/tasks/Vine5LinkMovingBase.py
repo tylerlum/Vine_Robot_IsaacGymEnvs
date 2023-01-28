@@ -51,7 +51,7 @@ NUM_XYZ = len(XYZ_LIST)
 NUM_OBJECT_INFO = 2  # target depth, angle
 NUM_RGBA = 4
 LENGTH_RAIL = 0.8
-LENGTH_PER_LINK = 0.0885
+LENGTH_PER_LINK = 0.095
 N_REVOLUTE_DOFS = 5
 N_PRESSURE_ACTIONS = 1
 START_POS_IDX, END_POS_IDX = 0, 3
@@ -879,7 +879,7 @@ class Vine5LinkMovingBase(VecTask):
         if USE_MOVING_BASE:
             # TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, LENGTH_RAIL/2  # Set to length of rail
             # TODO: Tune the Y limits of target position depending on task and pipe dims/orientation
-            TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -0.6*LENGTH_RAIL, -0.5*LENGTH_RAIL  # Left side of rail
+            TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = self.cfg['env']['TARGET_POS_MIN_Y_RATIO']*LENGTH_RAIL,  self.cfg['env']['TARGET_POS_MAX_Y_RATIO']*LENGTH_RAIL  # Left side of rail
         else:
             TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MIN_EFFECTIVE_ANGLE)*VINE_LENGTH,
                                                 math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
