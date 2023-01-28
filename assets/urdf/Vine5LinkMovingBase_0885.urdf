@@ -71,7 +71,7 @@
     </link>
 
     <!-- CYLINDERS -->
-    <!-- Each link has radius = 0.0381 m  length = 0.0950 m -->
+    <!-- Each link has radius = 0.0381 m  length = 0.0885 m -->
     <!-- First 4 are "shells" with mass 0.005 -->
     <!--                      with inertia ixx = 6.89246e-6, iyy = 6.89246e-6, izz = 7.25805e-6
     (others 0)-->
@@ -88,14 +88,14 @@
         <visual>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.0381" length="0.0950" />
+                <cylinder radius="0.0381" length="0.0885" />
             </geometry>
             <material name="blue" />
         </visual>
         <collision>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.0381" length="0.0950" />
+                <cylinder radius="0.0381" length="0.0885" />
             </geometry>
         </collision>
 
@@ -103,14 +103,14 @@
         <visual>
             <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.0169" length="0.0950" />
+                <cylinder radius="0.0169" length="0.0885" />
             </geometry>
             <material name="blue" />
         </visual>
         <collision>
             <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.0169" length="0.0950" />
+                <cylinder radius="0.0169" length="0.0885" />
             </geometry>
         </collision>
 
@@ -126,14 +126,14 @@
         <visual>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.0381" length="0.0950" />
+                <cylinder radius="0.0381" length="0.0885" />
             </geometry>
             <material name="blue" />
         </visual>
         <collision>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.0381" length="0.0950" />
+                <cylinder radius="0.0381" length="0.0885" />
             </geometry>
         </collision>
 
@@ -141,14 +141,14 @@
         <visual>
             <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.0169" length="0.0950" />
+                <cylinder radius="0.0169" length="0.0885" />
             </geometry>
             <material name="blue" />
         </visual>
         <collision>
             <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.0169" length="0.0950" />
+                <cylinder radius="0.0169" length="0.0885" />
             </geometry>
         </collision>
     </link>
@@ -162,14 +162,14 @@
         <visual>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.0381" length="0.0950" />
+                <cylinder radius="0.0381" length="0.0885" />
             </geometry>
             <material name="blue" />
         </visual>
         <collision>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.0381" length="0.0950" />
+                <cylinder radius="0.0381" length="0.0885" />
             </geometry>
         </collision>
 
@@ -177,14 +177,14 @@
         <visual>
             <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.0169" length="0.0950" />
+                <cylinder radius="0.0169" length="0.0885" />
             </geometry>
             <material name="blue" />
         </visual>
         <collision>
             <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.0169" length="0.0950" />
+                <cylinder radius="0.0169" length="0.0885" />
             </geometry>
         </collision>
     </link>
@@ -198,14 +198,14 @@
         <visual>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.0381" length="0.0950" />
+                <cylinder radius="0.0381" length="0.0885" />
             </geometry>
             <material name="blue" />
         </visual>
         <collision>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.0381" length="0.0950" />
+                <cylinder radius="0.0381" length="0.0885" />
             </geometry>
         </collision>
 
@@ -213,14 +213,14 @@
         <visual>
             <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.0169" length="0.0950" />
+                <cylinder radius="0.0169" length="0.0885" />
             </geometry>
             <material name="blue" />
         </visual>
         <collision>
             <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.0169" length="0.0950" />
+                <cylinder radius="0.0169" length="0.0885" />
             </geometry>
         </collision>
     </link>
@@ -234,14 +234,14 @@
         <visual>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.0381" length="0.0950" />
+                <cylinder radius="0.0381" length="0.0885" />
             </geometry>
             <material name="blue" />
         </visual>
         <collision>
             <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.0381" length="0.0950" />
+                <cylinder radius="0.0381" length="0.0885" />
             </geometry>
         </collision>
 
@@ -249,14 +249,14 @@
         <visual>
             <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.0169" length="0.0950" />
+                <cylinder radius="0.0169" length="0.0885" />
             </geometry>
             <material name="blue" />
         </visual>
         <collision>
             <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
             <geometry>
-                <cylinder radius="0.0169" length="0.0950" />
+                <cylinder radius="0.0169" length="0.0885" />
             </geometry>
         </collision>
     </link>
@@ -293,34 +293,34 @@
     </joint>
     <joint name="link_0_to_link_1" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
-        <origin xyz="0.0 0.0 0.0950" rpy="0.0 0.0 0.0" />
+        <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_0" />
         <child link="link_1" />
         <!-- <limit lower="-0.523599" upper="0.523599" /> -->
     </joint>
     <joint name="link_1_to_link_2" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
-        <origin xyz="0.0 0.0 0.0950" rpy="0.0 0.0 0.0" />
+        <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_1" />
         <child link="link_2" />
         <!-- <limit lower="-0.523599" upper="0.523599" /> -->
     </joint>
     <joint name="link_2_to_link_3" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
-        <origin xyz="0.0 0.0 0.0950" rpy="0.0 0.0 0.0" />
+        <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_2" />
         <child link="link_3" />
         <!-- <limit lower="-0.523599" upper="0.523599" /> -->
     </joint>
     <joint name="link_3_to_link_4" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
-        <origin xyz="0.0 0.0 0.0950" rpy="0.0 0.0 0.0" />
+        <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_3" />
         <child link="link_4" />
         <!-- <limit lower="-0.523599" upper="0.523599" /> -->
     </joint>
     <joint name="link_4_to_tip" type="fixed">
-        <origin xyz="0.0 0.0 0.0950" rpy="0.0 0.0 0.0" />
+        <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_4" />
         <child link="tip" />
     </joint>
