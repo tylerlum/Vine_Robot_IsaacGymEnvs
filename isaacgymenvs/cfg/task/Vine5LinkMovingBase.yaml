@@ -64,8 +64,6 @@ env:
   RANDOM_INIT_CART_MIN_Y: ${eval:'-0.1 * ${.RAIL_SOFT_LIMIT}'}  # Set to avoid initial collision, but still want to be -ve so includes 0 in range
   RANDOM_INIT_CART_MAX_Y: ${.RAIL_SOFT_LIMIT}
   RANDOMIZE_TARGETS: True
-  DOMAIN_RANDOMIZATION_SCALING_MIN: 0.99
-  DOMAIN_RANDOMIZATION_SCALING_MAX: 1.01
 
   SUCCESS_DIST: 0.08
   MIN_TARGET_DEPTH_IN_OBSTACLE: -0.05
@@ -98,6 +96,10 @@ env:
   # Observation scaling
   SCALE_OBSERVATIONS: True
 
+  # Domain randomization
+  DOMAIN_RANDOMIZATION_SCALING_MIN: 0.999
+  DOMAIN_RANDOMIZATION_SCALING_MAX: 1.001
+
 sim:
   dt: 0.00833 # 120 Hz
   substeps: 10  # Default 2
@@ -126,22 +128,22 @@ task:
   randomization_params:
     frequency: 720   # Define how many simulation steps between generating new randomizations
     observations:
-      range: [0, .002] # range for the white noise
-      range_correlated: [0, .001 ] # range for correlated noise, refreshed with freq `frequency`
+      range: [0, .0002] # range for the white noise
+      range_correlated: [0, .0001 ] # range for correlated noise, refreshed with freq `frequency`
       operation: "additive"
       distribution: "gaussian"
       # schedule: "linear"   # "constant" is to turn on noise after `schedule_steps` num steps
       # schedule_steps: 40000
     actions:
-      range: [0., .02]
-      range_correlated: [0, .01] # range for correlated noise, refreshed with freq `frequency`
+      range: [0., .002]
+      range_correlated: [0, .001] # range for correlated noise, refreshed with freq `frequency`
       operation: "additive"
       distribution: "gaussian"
       # schedule: "linear"  # "linear" will linearly interpolate between no rand and max rand
       # schedule_steps: 40000
     sim_params:
       gravity:
-        range: [0, 0.01]
+        range: [0, 0.001]
         operation: "additive"
         distribution: "gaussian"
         # schedule: "linear"  # "linear" will linearly interpolate between no rand and max rand
@@ -151,7 +153,7 @@ task:
       vine:
         color: True
         scale:
-          range: [1.0, 1.02]
+          range: [1.0, 1.002]
           operation: "scaling"
           distribution: "uniform"
           # setup_only: True # Property will only be randomized once before simulation is started. See Domain Randomization Documentation for more info.
@@ -159,7 +161,7 @@ task:
           # schedule_steps: 30000
         dof_properties:
           damping:
-            range: [0.99, 1.01] # Tuned so that .7 swings more than real but stable, 6 still swings but more damped than real hardware
+            range: [0.999, 1.001] # Tuned so that .7 swings more than real but stable, 6 still swings but more damped than real hardware
             operation: "scaling"
             distribution: "loguniform"
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
@@ -184,7 +186,7 @@ task:
             # schedule_steps: 30000
         rigid_body_properties:
           mass:
-            range: [0.99, 1.01]
+            range: [0.999, 1.001]
             operation: "scaling"
             distribution: "uniform"
             # setup_only: True # Property will only be randomized once before simulation is started. See Domain Randomization Documentation for more info.
@@ -193,7 +195,7 @@ task:
         rigid_shape_properties:
           friction:
             num_buckets: 250
-            range: [0.99, 1.01]
+            range: [0.999, 1.001]
             operation: "scaling"
             distribution: "uniform"
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
