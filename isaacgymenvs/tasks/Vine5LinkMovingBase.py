@@ -147,8 +147,7 @@ class Vine5LinkMovingBase(VecTask):
         self.max_episode_length = self.cfg["env"]["maxEpisodeLength"]
 
         # Randomization
-        self.randomize = self.cfg["task"]["randomize"]
-        self.randomization_params = self.cfg["task"]["randomization_params"]
+        self.vine_randomize = self.cfg["task"]["vine_randomize"]
 
         # Must set this before continuing
         observation_type = ObservationType[self.cfg["env"]["OBSERVATION_TYPE"]]
@@ -344,10 +343,6 @@ class Vine5LinkMovingBase(VecTask):
         self.sim = super().create_sim(self.device_id, self.graphics_device_id, self.physics_engine, self.sim_params)
         self._create_ground_plane()
         self._create_envs(self.num_envs, self.cfg["env"]['envSpacing'], int(np.sqrt(self.num_envs)))
-
-        # If randomizing, apply once immediately on startup before the fist sim step
-        if self.randomize:
-            self.apply_randomizations(self.randomization_params)
 
     def _create_ground_plane(self):
         plane_params = gymapi.PlaneParams()
@@ -752,10 +747,6 @@ class Vine5LinkMovingBase(VecTask):
 
     ##### RESET START #####
     def reset_idx(self, env_ids):
-        # randomization can happen only at reset time, since it can reset actor positions on GPU
-        if self.randomize:
-            self.apply_randomizations(self.randomization_params)
-
         if self.cfg['env']['RANDOMIZE_DOF_INIT']:
             num_revolute_joints = len(self.revolute_dof_lowers)
             for i in range(num_revolute_joints):
@@ -916,6 +907,12 @@ class Vine5LinkMovingBase(VecTask):
 
         # Compute high level actions
         self.raw_actions = actions.clone().to(self.device)
+
+        # Add noise to actions before scaling
+        if self.vine_randomize:
+            action_noise = self.cfg["task"]["randomization_parameters"]["ACTION_NOISE_STD"] * torch.randn_like(self.raw_actions)
+            self.raw_actions += action_noise
+
         self.u_rail_velocity, self.u_fpam = self.raw_actions_to_actions(self.raw_actions)
         self.manual_intervention()
         self.smoothed_u_fpam = self.u_fpam_to_smoothed_u_fpam(self.u_fpam, self.smoothed_u_fpam)
@@ -1031,9 +1028,9 @@ class Vine5LinkMovingBase(VecTask):
             A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
             self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
 
-        if self.randomize:
-            A = self.A * torch.FloatTensor(*self.A.shape).uniform_(self.cfg['env']['DOMAIN_RANDOMIZATION_SCALING_MIN'],
-                                                                   self.cfg['env']['DOMAIN_RANDOMIZATION_SCALING_MAX']).to(self.A.device)
+        if self.vine_randomize:
+            A = self.A * torch.FloatTensor(*self.A.shape).uniform_(self.cfg['task']['randomization_parameters']['DYNAMICS_SCALING_MIN'],
+                                                                   self.cfg['task']['randomization_parameters']['DYNAMICS_SCALING_MAX']).to(self.A.device)
         else:
             A = self.A
 
@@ -1351,6 +1348,11 @@ class Vine5LinkMovingBase(VecTask):
 
         # Scale observations
         self.obs_buf = self.obs_buf / self.obs_scaling
+
+        # Add obs noise
+        if self.vine_randomize:
+            obs_noise = self.cfg["task"]["randomization_parameters"]["OBSERVATION_NOISE_STD"] * torch.randn_like(self.obs_buf)
+            self.obs_buf += obs_noise
 
         if self.cfg['env']['CREATE_HISTOGRAMS_PERIODICALLY'] or self.create_histogram_command_from_keyboard_press:
             if len(self.histogram_observation_data_list) == 0:

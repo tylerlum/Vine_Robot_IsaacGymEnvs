@@ -96,10 +96,6 @@ env:
   # Observation scaling
   SCALE_OBSERVATIONS: True
 
-  # Domain randomization
-  DOMAIN_RANDOMIZATION_SCALING_MIN: 0.9999999
-  DOMAIN_RANDOMIZATION_SCALING_MAX: 1.0000001
-
 sim:
   dt: 0.00833 # 120 Hz
   substeps: 10  # Default 2
@@ -124,79 +120,12 @@ sim:
     contact_collection: 2 # 0: CC_NEVER (don't collect contact info), 1: CC_LAST_SUBSTEP (collect only contacts on last substep), 2: CC_ALL_SUBSTEPS (default - all contacts)
 
 task:
-  randomize: ${resolve_default:True,${...randomize}}
-  randomization_params:
-    frequency: 720   # Define how many simulation steps between generating new randomizations
-    observations:
-      range: [0, .000000002] # range for the white noise
-      range_correlated: [0, .000000001 ] # range for correlated noise, refreshed with freq `frequency`
-      operation: "additive"
-      distribution: "gaussian"
-      # schedule: "linear"   # "constant" is to turn on noise after `schedule_steps` num steps
-      # schedule_steps: 40000
-    actions:
-      range: [0., .00000002]
-      range_correlated: [0, .00000001] # range for correlated noise, refreshed with freq `frequency`
-      operation: "additive"
-      distribution: "gaussian"
-      # schedule: "linear"  # "linear" will linearly interpolate between no rand and max rand
-      # schedule_steps: 40000
-    sim_params:
-      gravity:
-        range: [0, 0.00000001]
-        operation: "additive"
-        distribution: "gaussian"
-        # schedule: "linear"  # "linear" will linearly interpolate between no rand and max rand
-        # schedule_steps: 40000
-    actor_params:
-      # TODO: Consider adding randomization to the other objects
-      vine:
-        color: True
-        scale:
-          range: [1.0, 1.00000002]
-          operation: "scaling"
-          distribution: "uniform"
-          # setup_only: True # Property will only be randomized once before simulation is started. See Domain Randomization Documentation for more info.
-          # schedule: "linear"  # "linear" will scale the current random sample by ``min(current num steps, schedule_steps) / schedule_steps`
-          # schedule_steps: 30000
-        dof_properties:
-          damping:
-            range: [0.9999999, 1.00000001] # Tuned so that .7 swings more than real but stable, 6 still swings but more damped than real hardware
-            operation: "scaling"
-            distribution: "loguniform"
-            # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            # schedule_steps: 30000
-          stiffness: # unused because STIFFNESS is 0.0
-            range: [0.9999999, 1.000000001] 
-            operation: "scaling"
-            distribution: "loguniform"
-            # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            # schedule_steps: 30000
-          lower:
-            range: [0, 0.0000000001]
-            operation: "additive"
-            distribution: "gaussian"
-            # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            # schedule_steps: 30000
-          upper:
-            range: [0, 0.0000000001]
-            operation: "additive"
-            distribution: "gaussian"
-            # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            # schedule_steps: 30000
-        rigid_body_properties:
-          mass:
-            range: [0.999999, 1.000000001]
-            operation: "scaling"
-            distribution: "uniform"
-            # setup_only: True # Property will only be randomized once before simulation is started. See Domain Randomization Documentation for more info.
-            # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            # schedule_steps: 30000
-        rigid_shape_properties:
-          friction:
-            num_buckets: 250
-            range: [0.9999999, 1.000000001]
-            operation: "scaling"
-            distribution: "uniform"
-            # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            # schedule_steps: 30000
+  vine_randomize: ${resolve_default:True,${...vine_randomize}}
+
+  # Domain randomization
+  randomization_parameters:
+    DYNAMICS_SCALING_MIN: 0.9999999
+    DYNAMICS_SCALING_MAX: 1.0000001
+
+    OBSERVATION_NOISE_STD: 0.0001
+    ACTION_NOISE_STD: 0.0001

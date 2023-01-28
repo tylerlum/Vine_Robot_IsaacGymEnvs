@@ -15,7 +15,7 @@ num_envs: ''
 horizon_length: ''
 minibatch_size: ''
 control_frequency_inv: ''
-randomize: ''
+vine_randomize: ''
 
 CAPTURE_VIDEO: ''
 RAIL_VELOCITY_SCALE: ''
