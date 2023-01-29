@@ -71,6 +71,7 @@ class ObservationType(Enum):
     POS_AND_FD_VEL = "POS_AND_FD_VEL"
     POS_AND_PREV_POS = "POS_AND_PREV_POS"
     POS_AND_FD_VEL_AND_OBJ_INFO = "POS_AND_FD_VEL_AND_OBJ_INFO"
+    TIP_AND_CART_AND_OBJ_INFO = "TIP_AND_CART_AND_OBJ_INFO"
 
 
 # Rewards
@@ -155,6 +156,12 @@ class Vine5LinkMovingBase(VecTask):
             self.cfg["env"]["numObservations"] = (
                 N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ + N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
             )
+        elif observation_type == ObservationType.TIP_AND_CART_AND_OBJ_INFO:
+            self.cfg["env"]["numObservations"] = (
+                2 * (N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ) +
+                N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
+            )
+            self.cfg["env"]["numObservations"] += NUM_OBJECT_INFO
         else:
             self.cfg["env"]["numObservations"] = (
                 2 * (N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ) +
@@ -248,6 +255,19 @@ class Vine5LinkMovingBase(VecTask):
                                                 0.86,
                                                 0.0385,
                                                 0.5], dtype=torch.float, device=self.device)
+            elif observation_type == ObservationType.TIP_AND_CART_AND_OBJ_INFO:
+                self.obs_scaling[:] = to_torch([0.12, # 0.269, 0.148, 0.249, 0.148, 0.344,
+                                                0.67, # 2.22, 1.47, 1.14, 0.903, 0.716,
+                                                0.0656, 0.238, 0.0656,
+                                                0.732, 2.0, 0.732,
+                                                0.02, 0.0235, 0.02,
+                                                0.732, 2.0, 0.732,
+                                                0.845,
+                                                0.86,
+                                                0.0385,
+                                                0.5], dtype=torch.float, device=self.device)
+            else:
+                raise NotImplementedError(f"Observation scaling not implemented for {observation_type}")
 
         # Log and cache
         self.use_wandb = True
@@ -1350,6 +1370,14 @@ class Vine5LinkMovingBase(VecTask):
                                  self.target_positions, self.target_velocities,
                                  self.smoothed_u_fpam, self.prev_u_rail_velocity,
                                  self.object_info]
+        elif observation_type == ObservationType.TIP_AND_CART_AND_OBJ_INFO:
+            tensors_to_concat = [self.dof_pos[:, :1], self.finite_difference_dof_vel[:, :1], self.tip_positions, self.finite_difference_tip_velocities,
+                                 self.target_positions, self.target_velocities,
+                                 self.smoothed_u_fpam, self.prev_u_rail_velocity,
+                                 self.object_info]
+        else:
+            raise NotImplementedError(f"Observation type {observation_type} not implemented.")
+
         self.obs_buf[:] = torch.cat(tensors_to_concat, dim=-1)
 
         # Scale observations
