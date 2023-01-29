@@ -257,6 +257,7 @@ class Vine5LinkMovingBase(VecTask):
 
         # Hacky solution to contact forces
         self.shelf_contact_force_norms = []
+        self.pipe_contact_force_norms = []
 
         if len(self.cfg['env']['MAT_FILE']) > 0:
             self.mat = self.read_mat_file(self.cfg['env']['MAT_FILE'])
@@ -1215,10 +1216,15 @@ class Vine5LinkMovingBase(VecTask):
         tip_limit_hit = tip_y < self.target_positions[:, 1]
 
         # Get contact forces
-        assert (len(self.shelf_contact_force_norms) > 0)
-        contact_force_norms = torch.stack(self.shelf_contact_force_norms, dim=0)  # (control_freq_inv, num_envs)
-        contact_force_norm = torch.mean(contact_force_norms, dim=0)  # (num_envs)
-        nonzero_contact_force = contact_force_norm > 0
+        if self.cfg["env"]["CREATE_SHELF"]:
+            assert (len(self.shelf_contact_force_norms) > 0)
+            contact_force_norms = torch.stack(self.shelf_contact_force_norms, dim=0)  # (control_freq_inv, num_envs)
+            contact_force_norm = torch.mean(contact_force_norms, dim=0)  # (num_envs)
+            nonzero_contact_force = contact_force_norm > 0
+        else:
+            # No contact forces stuff for pipe for now
+            contact_force_norm = torch.zeros(self.num_envs, device=self.device)
+            nonzero_contact_force = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
         self.wandb_dict.update({
             "dist_tip_to_target": dist_tip_to_target.mean().item(),

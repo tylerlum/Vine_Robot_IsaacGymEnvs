@@ -345,9 +345,10 @@ class VecTask(Env):
                 # Update state and actuation force tensors
                 self.refresh_state_tensors()
                 self.compute_and_set_dof_actuation_force_tensor()
-                link_contact_forces = self.contact_force[:, self.shelf_link_indices, :]
-                link_contact_force_norm = torch.norm(link_contact_forces, dim=[-2, -1])
-                self.shelf_contact_force_norms.append(link_contact_force_norm)
+                if self.cfg["env"]["CREATE_SHELF"]:
+                    link_contact_forces = self.contact_force[:, self.shelf_link_indices, :]
+                    link_contact_force_norm = torch.norm(link_contact_forces, dim=[-2, -1])
+                    self.shelf_contact_force_norms.append(link_contact_force_norm)
             # TYLER ADDITION END: Manually added event
 
             if self.force_render:
