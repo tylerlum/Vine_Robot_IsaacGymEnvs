@@ -51,7 +51,6 @@ NUM_XYZ = len(XYZ_LIST)
 NUM_OBJECT_INFO = 2  # target depth, angle
 NUM_RGBA = 4
 LENGTH_RAIL = 0.8
-LENGTH_PER_LINK = 0.095
 N_REVOLUTE_DOFS = 5
 N_PRESSURE_ACTIONS = 1
 START_POS_IDX, END_POS_IDX = 0, 3
@@ -85,7 +84,6 @@ N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.0
 
-VINE_LENGTH = LENGTH_PER_LINK * N_REVOLUTE_DOFS
 # PIPE_RADIUS = 0.065 * PIPE_ADDITIONAL_SCALING
 PIPE_RADIUS = 0.07 * PIPE_ADDITIONAL_SCALING
 
@@ -884,25 +882,18 @@ class Vine5LinkMovingBase(VecTask):
         target_positions = torch.zeros(num_envs, NUM_XYZ, device=self.device)
         # TODO: move this to init for efficiency
         # IMPORTANT: Tune these angles depending the task, affects the range of target positions
-        MIN_EFFECTIVE_ANGLE = math.radians(self.cfg['env']['MIN_EFFECTIVE_ANGLE_DEG'])
-        MAX_EFFECTIVE_ANGLE = math.radians(self.cfg['env']['MAX_EFFECTIVE_ANGLE_DEG'])
 
         TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
         if USE_MOVING_BASE:
             # TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, LENGTH_RAIL/2  # Set to length of rail
             # TODO: Tune the Y limits of target position depending on task and pipe dims/orientation
-            TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = self.cfg['env']['TARGET_POS_MIN_Y_RATIO']*LENGTH_RAIL,  self.cfg['env']['TARGET_POS_MAX_Y_RATIO']*LENGTH_RAIL  # Left side of rail
+            TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = self.cfg['env']['MIN_TARGET_Y'], self.cfg['env']['MAX_TARGET_Y']
         else:
-            TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = (-math.sin(MIN_EFFECTIVE_ANGLE)*VINE_LENGTH,
-                                                math.sin(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH)
-        TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = INIT_Z - \
-            math.cos(MAX_EFFECTIVE_ANGLE) * VINE_LENGTH, INIT_Z - math.cos(MIN_EFFECTIVE_ANGLE) * VINE_LENGTH
+            raise NotImplementedError("Not implemented for non-moving base")
+        TARGET_POS_MIN_Z, TARGET_POS_MAX_Z = self.cfg['env']['MIN_TARGET_Z'], self.cfg['env']['MAX_TARGET_Z']
 
         if self.cfg['env']['RANDOMIZE_TARGETS']:
             # TODO Find the best way to set targets
-            # angles = torch.FloatTensor(num_envs).uniform_(MIN_EFFECTIVE_ANGLE, MAX_EFFECTIVE_ANGLE).to(self.device)
-            # target_positions[:, 1] = torch.sin(angles) * VINE_LENGTH
-            # target_positions[:, 2] = INIT_Z - torch.cos(angles) * VINE_LENGTH
 
             target_positions[:, 0] = torch.FloatTensor(num_envs).uniform_(
                 TARGET_POS_MIN_X, TARGET_POS_MAX_X).to(self.device)
@@ -1022,7 +1013,7 @@ class Vine5LinkMovingBase(VecTask):
         if self.cfg['env']['FORCE_U_FPAM']:
             self.u_fpam[:] = 0.0
         if self.cfg['env']['FORCE_U_RAIL_VELOCITY']:
-            self.u_rail_velocity[:] = self.cfg['env']['RAIL_VELOCITY_SCALE']
+            self.u_rail_velocity[:] = 0.0
 
     def compute_and_set_dof_actuation_force_tensor(self):
         dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
@@ -1408,6 +1399,17 @@ class Vine5LinkMovingBase(VecTask):
             if len(self.histogram_observation_data_list) == 100 * len(new_data):
                 self.logger.info("-" * 100)
                 self.logger.info(f"Creating histogram at self.num_steps {self.num_steps}...")
+
+                # Save histogram data to file
+                SAVE_HISTOGRAM_DATA_TO_FILE_AND_EXIT = False
+                if SAVE_HISTOGRAM_DATA_TO_FILE_AND_EXIT:
+                    import pickle
+                    filename = f"{self.time_str}_histogram_data_{self.num_steps}.pkl"
+                    print(f"Saving to {filename}")
+                    with open(filename, "wb") as f:
+                        pickle.dump(self.histogram_observation_data_list, f)
+                    print(f"Done saving to {filename}")
+                    exit()
 
                 # BRITTLE: Depends on observations above
                 observation_names = [*[f"joint_pos_{i}" for i in range(self.num_dof)],
