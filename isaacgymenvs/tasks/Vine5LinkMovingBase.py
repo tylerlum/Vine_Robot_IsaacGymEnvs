@@ -290,6 +290,10 @@ class Vine5LinkMovingBase(VecTask):
         first_u_fpam = torch.zeros(self.num_envs, N_PRESSURE_ACTIONS, device=self.device)
         self.actions_history = [(first_u_rail_velocity, first_u_fpam) for _ in range(self.cfg["env"]["ACTION_DELAY"])]
 
+        # HACK FORCE
+        self.FORCED_ACTIONS = self.read_mat_file('/home/tylerlum/Downloads/2023-01-29_19-07-14_2023-01-29_18-23-09_ep_350_rew_948.15234_action-delay1.mat')['smoothed_RL_commands']
+        self.STEP_IDX = 0
+
     def read_mat_file(self, filename):
         # TODO: Unused right now
         import scipy.io
@@ -932,7 +936,16 @@ class Vine5LinkMovingBase(VecTask):
             self.raw_actions += action_noise
 
         # Store newest action, use oldest action
-        newest_u_rail_velocity, newest_u_fpam = self.raw_actions_to_actions(self.raw_actions)
+        # newest_u_rail_velocity, newest_u_fpam = self.raw_actions_to_actions(self.raw_actions)
+        forced_action = self.FORCED_ACTIONS[:, self.STEP_IDX]  # (2,)
+        forced_action = torch.from_numpy(forced_action[None, ...]).to(self.device).float().repeat_interleave(self.num_envs, dim=0)  # (num_envs, 2)
+        self.STEP_IDX += 1
+        newest_u_rail_velocity, newest_u_fpam = forced_action[:, 0:1], forced_action[:, 1:2]  # (num_envs, 1), (num_envs, 1)
+        print(f"step idx: {self.STEP_IDX}, newest_u_rail_velocity {newest_u_rail_velocity}, newest_u_fpam {newest_u_fpam}")
+        if self.STEP_IDX >= 70:
+            print("DONE")
+            exit()
+
         self.actions_history.append((newest_u_rail_velocity, newest_u_fpam))
         self.u_rail_velocity, self.u_fpam = self.actions_history.pop(0)
 
