@@ -80,20 +80,20 @@
     (others 0)-->
     <link name="link_0">
         <inertial>
-            <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
+            <origin xyz="0.0 0.0 0.0500" rpy="0.0 0.0 0.0" />
             <mass value="0.005" />
             <inertia ixx="0.00000689246" ixy="0.0" ixz="0.0" iyy="0.00000689246" iyz="0.0"
                 izz="0.00000725805" />
         </inertial>
         <visual>
-            <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
+            <origin xyz="0.0 0.0 0.0500" rpy="0.0 0.0 0.0" />
             <geometry>
                 <cylinder radius="0.0381" length="0.1" />
             </geometry>
             <material name="blue" />
         </visual>
         <collision>
-            <origin xyz="0.0 0.0 0.04425" rpy="0.0 0.0 0.0" />
+            <origin xyz="0.0 0.0 0.0500" rpy="0.0 0.0 0.0" />
             <geometry>
                 <cylinder radius="0.0381" length="0.1" />
             </geometry>
@@ -101,14 +101,14 @@
 
         <!-- FPAM -->
         <visual>
-            <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
+            <origin xyz="0.0 0.055 0.0500" rpy="0.0 0.0 0.0" />
             <geometry>
                 <cylinder radius="0.0169" length="0.1" />
             </geometry>
             <material name="blue" />
         </visual>
         <collision>
-            <origin xyz="0.0 0.055 0.04425" rpy="0.0 0.0 0.0" />
+            <origin xyz="0.0 0.055 0.0500" rpy="0.0 0.0 0.0" />
             <geometry>
                 <cylinder radius="0.0169" length="0.1" />
             </geometry>
@@ -293,7 +293,7 @@
     </joint>
     <joint name="link_0_to_link_1" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
-        <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
+        <origin xyz="0.0 0.0 0.1000" rpy="0.0 0.0 0.0" />
         <parent link="link_0" />
         <child link="link_1" />
         <!-- <limit lower="-0.523599" upper="0.523599" /> -->
