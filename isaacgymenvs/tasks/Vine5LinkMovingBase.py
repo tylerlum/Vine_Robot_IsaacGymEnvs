@@ -285,6 +285,11 @@ class Vine5LinkMovingBase(VecTask):
 
         self.start_time = time.time()
 
+        # Action history for delay
+        first_u_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device)
+        first_u_fpam = torch.zeros(self.num_envs, N_PRESSURE_ACTIONS, device=self.device)
+        self.actions_history = [(first_u_rail_velocity, first_u_fpam)]
+
     def read_mat_file(self, filename):
         # TODO: Unused right now
         import scipy.io
@@ -926,7 +931,11 @@ class Vine5LinkMovingBase(VecTask):
             action_noise = self.cfg["task"]["randomization_parameters"]["ACTION_NOISE_STD"] * torch.randn_like(self.raw_actions)
             self.raw_actions += action_noise
 
-        self.u_rail_velocity, self.u_fpam = self.raw_actions_to_actions(self.raw_actions)
+        # Store newest action, use oldest action
+        newest_u_rail_velocity, newest_u_fpam = self.raw_actions_to_actions(self.raw_actions)
+        self.actions_history.append((newest_u_rail_velocity, newest_u_fpam))
+        self.u_rail_velocity, self.u_fpam = self.actions_history.pop(0)
+
         self.manual_intervention()
         self.smoothed_u_fpam = self.u_fpam_to_smoothed_u_fpam(self.u_fpam, self.smoothed_u_fpam)
 
