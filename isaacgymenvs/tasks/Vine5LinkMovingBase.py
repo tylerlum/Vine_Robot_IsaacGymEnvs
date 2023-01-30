@@ -288,7 +288,7 @@ class Vine5LinkMovingBase(VecTask):
         # Action history for delay
         first_u_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device)
         first_u_fpam = torch.zeros(self.num_envs, N_PRESSURE_ACTIONS, device=self.device)
-        self.actions_history = [(first_u_rail_velocity, first_u_fpam)]
+        self.actions_history = [(first_u_rail_velocity, first_u_fpam) for _ in range(self.cfg["env"]["ACTION_DELAY"])]
 
     def read_mat_file(self, filename):
         # TODO: Unused right now

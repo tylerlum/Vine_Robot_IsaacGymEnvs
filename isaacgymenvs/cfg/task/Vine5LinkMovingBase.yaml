@@ -96,6 +96,9 @@ env:
   # Observation scaling
   SCALE_OBSERVATIONS: True
 
+  # Action delay number of timesteps
+  ACTION_DELAY: 1
+
 sim:
   dt: 0.00833 # 120 Hz
   substeps: 10  # Default 2
