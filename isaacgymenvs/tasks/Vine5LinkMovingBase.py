@@ -828,6 +828,11 @@ class Vine5LinkMovingBase(VecTask):
             shelf_pos_offset[:, 2] -= shelf_thickness
             shelf_pos = self.target_positions[env_ids, :] + shelf_pos_offset
 
+            # Add error term to the shelf position
+            shelf_error_max = self.cfg['task']['randomization_parameters']['SHELF_ERROR_MAX']
+            shelf_pos[:, 1] += torch.FloatTensor(len(env_ids)).uniform_(-shelf_error_max, shelf_error_max).to(self.device)
+            shelf_pos[:, 2] += torch.FloatTensor(len(env_ids)).uniform_(-shelf_error_max, shelf_error_max).to(self.device)
+
             self.root_state[self.shelf_indices[env_ids], START_POS_IDX:END_POS_IDX] = shelf_pos
             self.root_state[self.shelf_indices[env_ids], START_LIN_VEL_IDX:END_LIN_VEL_IDX] = 0
             self.root_state[self.shelf_indices[env_ids], START_ANG_VEL_IDX:END_ANG_VEL_IDX] = 0
