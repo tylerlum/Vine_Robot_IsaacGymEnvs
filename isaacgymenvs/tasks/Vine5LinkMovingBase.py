@@ -271,6 +271,7 @@ class Vine5LinkMovingBase(VecTask):
         self.use_wandb = True
         self.wandb_dict = {}
         self.histogram_observation_data_list = []
+        self.histogram_actions_list = []
         self.A = None  # Cache this matrix
 
         # Hacky solution to contact forces
@@ -1395,6 +1396,7 @@ class Vine5LinkMovingBase(VecTask):
 
             # self.histogram_observation_data_list is a list of lists (outer list has length num_rows)
             self.histogram_observation_data_list += new_data
+            self.histogram_actions_list += [self.raw_actions[self.index_to_view, :].cpu().numpy().tolist()]  # HACK
 
             if len(self.histogram_observation_data_list) == 100 * len(new_data):
                 self.logger.info("-" * 100)
@@ -1408,6 +1410,11 @@ class Vine5LinkMovingBase(VecTask):
                     print(f"Saving to {filename}")
                     with open(filename, "wb") as f:
                         pickle.dump(self.histogram_observation_data_list, f)
+                    print(f"Done saving to {filename}")
+                    filename = f"{self.time_str}_action_data_{self.num_steps}.pkl"
+                    print(f"Saving to {filename}")
+                    with open(filename, "wb") as f:
+                        pickle.dump(self.histogram_actions_list, f)
                     print(f"Done saving to {filename}")
                     exit()
 
