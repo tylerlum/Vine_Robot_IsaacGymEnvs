@@ -831,7 +831,7 @@ class Vine5LinkMovingBase(VecTask):
             # Add error term to the shelf position
             shelf_error_max = self.cfg['task']['randomization_parameters']['SHELF_ERROR_MAX']
             shelf_pos[:, 1] += torch.FloatTensor(len(env_ids)).uniform_(-shelf_error_max, shelf_error_max).to(self.device)
-            shelf_pos[:, 2] += torch.FloatTensor(len(env_ids)).uniform_(-shelf_error_max, shelf_error_max).to(self.device)
+            shelf_pos[:, 2] += torch.FloatTensor(len(env_ids)).uniform_(-0.5*shelf_error_max, 0.5*shelf_error_max).to(self.device)
 
             self.root_state[self.shelf_indices[env_ids], START_POS_IDX:END_POS_IDX] = shelf_pos
             self.root_state[self.shelf_indices[env_ids], START_LIN_VEL_IDX:END_LIN_VEL_IDX] = 0
