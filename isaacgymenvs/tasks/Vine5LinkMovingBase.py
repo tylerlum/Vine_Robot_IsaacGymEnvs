@@ -71,6 +71,7 @@ class ObservationType(Enum):
     POS_AND_PREV_POS = "POS_AND_PREV_POS"
     POS_AND_FD_VEL_AND_OBJ_INFO = "POS_AND_FD_VEL_AND_OBJ_INFO"
     TIP_AND_CART_AND_OBJ_INFO = "TIP_AND_CART_AND_OBJ_INFO"
+    NO_FD_TIP_AND_CART_AND_OBJ_INFO = "NO_FD_TIP_AND_CART_AND_OBJ_INFO"
 
 
 # Rewards
@@ -86,6 +87,7 @@ INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.0
 
 # PIPE_RADIUS = 0.065 * PIPE_ADDITIONAL_SCALING
 PIPE_RADIUS = 0.07 * PIPE_ADDITIONAL_SCALING
+
 
 class Vine5LinkMovingBase(VecTask):
     """
@@ -154,7 +156,7 @@ class Vine5LinkMovingBase(VecTask):
             self.cfg["env"]["numObservations"] = (
                 N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ + N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
             )
-        elif observation_type == ObservationType.TIP_AND_CART_AND_OBJ_INFO:
+        elif observation_type in [ObservationType.TIP_AND_CART_AND_OBJ_INFO, ObservationType.NO_FD_TIP_AND_CART_AND_OBJ_INFO]:
             self.cfg["env"]["numObservations"] = (
                 2 * (N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ) +
                 N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
@@ -253,9 +255,9 @@ class Vine5LinkMovingBase(VecTask):
                                                 0.86,
                                                 0.0385,
                                                 0.5], dtype=torch.float, device=self.device)
-            elif observation_type == ObservationType.TIP_AND_CART_AND_OBJ_INFO:
-                self.obs_scaling[:] = to_torch([0.12, # 0.269, 0.148, 0.249, 0.148, 0.344,
-                                                0.67, # 2.22, 1.47, 1.14, 0.903, 0.716,
+            elif observation_type in [ObservationType.TIP_AND_CART_AND_OBJ_INFO, ObservationType.NO_FD_TIP_AND_CART_AND_OBJ_INFO]:
+                self.obs_scaling[:] = to_torch([0.12,  # 0.269, 0.148, 0.249, 0.148, 0.344,
+                                                0.67,  # 2.22, 1.47, 1.14, 0.903, 0.716,
                                                 0.0656, 0.238, 0.0656,
                                                 0.732, 2.0, 0.732,
                                                 0.02, 0.0235, 0.02,
@@ -928,7 +930,8 @@ class Vine5LinkMovingBase(VecTask):
 
         # Add noise to actions before scaling
         if self.vine_randomize:
-            action_noise = self.cfg["task"]["randomization_parameters"]["ACTION_NOISE_STD"] * torch.randn_like(self.raw_actions)
+            action_noise = self.cfg["task"]["randomization_parameters"]["ACTION_NOISE_STD"] * \
+                torch.randn_like(self.raw_actions)
             self.raw_actions += action_noise
 
         # Store newest action, use oldest action
@@ -1072,19 +1075,22 @@ class Vine5LinkMovingBase(VecTask):
         # compute force for acceleration tracking to be used when velocity error is large
         # baseline force is bang-bang control
         RAIL_ACCELERATION = self.cfg['env']['RAIL_ACCELERATION']
-        RAIL_FORCE_MAX = RAIL_ACCELERATION/2.0
+        APPROX_MASS = 0.5
+        RAIL_FORCE_MAX = RAIL_ACCELERATION * APPROX_MASS
         rail_force_minmax = torch.where(cart_vel_error > 0, torch.tensor(
             RAIL_FORCE_MAX, device=self.device), torch.tensor(-RAIL_FORCE_MAX, device=self.device))
+
         # fine tune with P control on acceleration
-        accel = (cart_vel_y - self.prev_cart_vel) / self.dt
+        if self.cfg['env']['USE_CART_ACCEL_TRACKING']:
+            accel = (cart_vel_y - self.prev_cart_vel) / self.dt
 
-        accel_target = torch.where(cart_vel_error > 0, torch.tensor(
-            RAIL_ACCELERATION, device=self.device), torch.tensor(-RAIL_ACCELERATION, device=self.device))
-        COURSE_P_GAIN = .30
-        COURSE_D_GAIN = .01
-        adjustment = COURSE_P_GAIN * (accel_target - accel)
+            accel_target = torch.where(cart_vel_error > 0, torch.tensor(
+                RAIL_ACCELERATION, device=self.device), torch.tensor(-RAIL_ACCELERATION, device=self.device))
+            COURSE_P_GAIN = .30
+            COURSE_D_GAIN = .01
+            adjustment = COURSE_P_GAIN * (accel_target - accel)
 
-        rail_force_minmax += adjustment
+            rail_force_minmax += adjustment
 
         # compute force for velocity tracking to be used when velocity error is small
         rail_force_pid = self.cfg['env']['RAIL_P_GAIN'] * cart_vel_error + \
@@ -1376,6 +1382,11 @@ class Vine5LinkMovingBase(VecTask):
                                  self.target_positions, self.target_velocities,
                                  self.smoothed_u_fpam, self.prev_u_rail_velocity,
                                  self.object_info]
+        elif observation_type == ObservationType.NO_FD_TIP_AND_CART_AND_OBJ_INFO:
+            tensors_to_concat = [self.dof_pos[:, :1], self.dof_vel[:, :1], self.tip_positions, self.tip_velocities,
+                                 self.target_positions, self.target_velocities,
+                                 self.smoothed_u_fpam, self.prev_u_rail_velocity,
+                                 self.object_info]
         else:
             raise NotImplementedError(f"Observation type {observation_type} not implemented.")
 
@@ -1386,7 +1397,8 @@ class Vine5LinkMovingBase(VecTask):
 
         # Add obs noise
         if self.vine_randomize:
-            obs_noise = self.cfg["task"]["randomization_parameters"]["OBSERVATION_NOISE_STD"] * torch.randn_like(self.obs_buf)
+            obs_noise = self.cfg["task"]["randomization_parameters"]["OBSERVATION_NOISE_STD"] * \
+                torch.randn_like(self.obs_buf)
             self.obs_buf += obs_noise
 
         if self.cfg['env']['CREATE_HISTOGRAMS_PERIODICALLY'] or self.create_histogram_command_from_keyboard_press:
