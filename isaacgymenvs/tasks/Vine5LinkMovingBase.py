@@ -291,6 +291,22 @@ class Vine5LinkMovingBase(VecTask):
         first_u_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device)
         first_u_fpam = torch.zeros(self.num_envs, N_PRESSURE_ACTIONS, device=self.device)
         self.actions_history = [(first_u_rail_velocity, first_u_fpam) for _ in range(self.cfg["env"]["ACTION_DELAY"])]
+        if len(self.cfg['env']['U_TRAJ_MAT_FILE']) > 0:
+            print("WARNING - turning off randomize dof init and appending to actions history")
+            print(f"USING MAT FILE {self.cfg['env']['U_TRAJ_MAT_FILE']}")
+            self.cfg['env']['RANDOMIZE_DOF_INIT'] = False
+
+            # load traj from mat file
+            mat = self.read_mat_file(self.cfg['env']['U_TRAJ_MAT_FILE'])
+            U_traj = mat['raw_RL_commands']
+            n_actions, n_timesteps = U_traj.shape
+            assert (n_actions == 2)
+
+            # append onto actions history
+            for i in range(n_timesteps):
+                u_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device) + U_traj[0, i]
+                u_fpam = torch.zeros(self.num_envs, N_PRESSURE_ACTIONS, device=self.device) + U_traj[1, i]
+                self.actions_history.append((u_rail_velocity, u_fpam))
 
     def read_mat_file(self, filename):
         # TODO: Unused right now
@@ -1082,6 +1098,7 @@ class Vine5LinkMovingBase(VecTask):
 
         # fine tune with P control on acceleration
         if self.cfg['env']['USE_CART_ACCEL_TRACKING']:
+            # print("Using cart accel tracking")
             accel = (cart_vel_y - self.prev_cart_vel) / self.dt
 
             accel_target = torch.where(cart_vel_error > 0, torch.tensor(
@@ -1092,6 +1109,8 @@ class Vine5LinkMovingBase(VecTask):
 
             rail_force_minmax += adjustment
 
+            # print(f"accel: {accel[0,0]}\cart_vel_error: {cart_vel_error[0,0]}\tadjustment: {adjustment[0,0]}")
+
         # compute force for velocity tracking to be used when velocity error is small
         rail_force_pid = self.cfg['env']['RAIL_P_GAIN'] * cart_vel_error + \
             self.cfg['env']['RAIL_D_GAIN'] * (cart_vel_error - self.prev_cart_vel_error)
@@ -1099,7 +1118,6 @@ class Vine5LinkMovingBase(VecTask):
         # choose between velocity and acceleration tracking for each environment
         self.rail_force = torch.where(torch.abs(cart_vel_error) > 0.1, rail_force_minmax, rail_force_pid)
 
-        # print(f"accel: {accel[0,0]}\cart_vel_error: {cart_vel_error[0,0]}\tadjustment: {adjustment[0,0]}")
         self.prev_cart_vel_error = cart_vel_error.detach().clone()
         self.prev_cart_vel = cart_vel_y.detach().clone()
 
