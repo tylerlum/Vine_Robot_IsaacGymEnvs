@@ -1552,7 +1552,8 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities,
         elif reward_name == "Rail Limit":
             reward_matrix[:, i] += torch.where(limit_hit, RAIL_LIMIT_PUNISHMENT, 0.0)
         elif reward_name == "Cart Y":
-            reward_matrix[:, i] -= torch.abs(cart_y)
+            # reward_matrix[:, i] -= torch.abs(cart_y)
+            reward_matrix[:, i] += torch.where(torch.abs(cart_y) > 0.2, RAIL_LIMIT_PUNISHMENT/10, 0.0)  # TODO Generalize this if we keep
         elif reward_name == "Tip Y":
             reward_matrix[:, i] += torch.where(tip_limit_hit, TIP_LIMIT_PUNISHMENT, 0.0)
         elif reward_name == "Contact Force":
