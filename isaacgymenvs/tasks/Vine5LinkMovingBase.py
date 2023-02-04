@@ -832,6 +832,12 @@ class Vine5LinkMovingBase(VecTask):
         self.target_positions[env_ids, :] = self.sample_target_positions(len(env_ids))
         self.target_velocities[env_ids, :] = self.sample_target_velocities(len(env_ids))
 
+        # Reset action history
+        for i in range(self.cfg["env"]["ACTION_DELAY"]):
+            history_u_rail_velocity, history_u_fpam = self.actions_history[i]
+            history_u_rail_velocity[env_ids, :] = 0
+            history_u_fpam[env_ids, :] = 0
+
         if self.cfg['env']['CREATE_SHELF']:
             # Shelf dimensions
             half_shelf_length_y = 0.4 / 2
