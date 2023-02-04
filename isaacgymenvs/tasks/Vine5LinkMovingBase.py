@@ -1110,6 +1110,13 @@ class Vine5LinkMovingBase(VecTask):
 
             accel_target = torch.where(cart_vel_error > 0, torch.tensor(
                 RAIL_ACCELERATION, device=self.device), torch.tensor(-RAIL_ACCELERATION, device=self.device))
+
+            # Add noise to the rail acceleration target
+            if self.vine_randomize:
+                accel_target *= (
+                    torch.FloatTensor(*accel_target.shape).uniform_(self.cfg['task']['randomization_parameters']['ACCEL_TARGET_SCALING_MIN'],
+                                                                    self.cfg['task']['randomization_parameters']['ACCEL_TARGET_SCALING_MAX']).to(accel_target.device)
+                )
             COURSE_P_GAIN = .30
             COURSE_D_GAIN = .01
             adjustment = COURSE_P_GAIN * (accel_target - accel)
@@ -1560,7 +1567,8 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities,
             reward_matrix[:, i] += torch.where(limit_hit, RAIL_LIMIT_PUNISHMENT, 0.0)
         elif reward_name == "Cart Y":
             # reward_matrix[:, i] -= torch.abs(cart_y)
-            reward_matrix[:, i] += torch.where(torch.abs(cart_y) > 0.2, RAIL_LIMIT_PUNISHMENT/10, 0.0)  # TODO Generalize this if we keep
+            # TODO Generalize this if we keep
+            reward_matrix[:, i] += torch.where(torch.abs(cart_y) > 0.2, RAIL_LIMIT_PUNISHMENT/10, 0.0)
         elif reward_name == "Tip Y":
             reward_matrix[:, i] += torch.where(tip_limit_hit, TIP_LIMIT_PUNISHMENT, 0.0)
         elif reward_name == "Contact Force":
