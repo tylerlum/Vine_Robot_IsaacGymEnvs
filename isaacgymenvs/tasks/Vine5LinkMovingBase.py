@@ -303,6 +303,7 @@ class Vine5LinkMovingBase(VecTask):
             assert (n_actions == 2)
 
             # append onto actions history
+            print(f"WARNING: Actions history will use {n_timesteps} timesteps")
             for i in range(n_timesteps):
                 u_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device) + U_traj[0, i]
                 u_fpam = torch.zeros(self.num_envs, N_PRESSURE_ACTIONS, device=self.device) + U_traj[1, i]
