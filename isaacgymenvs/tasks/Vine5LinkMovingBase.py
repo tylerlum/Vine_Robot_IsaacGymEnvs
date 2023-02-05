@@ -213,8 +213,12 @@ class Vine5LinkMovingBase(VecTask):
 
         # Setup camera for taking pictures
         self.camera_properties = gymapi.CameraProperties()
-        self.camera_properties.width = self.camera_properties.width // 4  # Save storage space
-        self.camera_properties.height = self.camera_properties.height // 4  # Save storage space
+        if self.cfg['env']['USE_NICE_VISUALS']:
+            self.camera_properties.width = self.camera_properties.width  # Save storage space
+            self.camera_properties.height = self.camera_properties.height  # Save storage space
+        else:
+            self.camera_properties.width = self.camera_properties.width // 4  # Save storage space
+            self.camera_properties.height = self.camera_properties.height // 4  # Save storage space
         self.camera_handle = self.gym.create_camera_sensor(self.envs[self.index_to_view], self.camera_properties)
         self.video_frames = []
         self.num_video_frames = 100
@@ -1161,8 +1165,14 @@ class Vine5LinkMovingBase(VecTask):
         if self.viewer and self.enable_viewer_sync:
             # Create spheres
             visualization_sphere_radius = self.cfg['env']['SUCCESS_DIST']
+
+            if self.cfg['env']['USE_NICE_VISUALS']:
+                num_lats, num_lons = 100, 100
+            else:
+                num_lats, num_lons = 3, 3
+
             visualization_sphere_green = gymutil.WireframeSphereGeometry(
-                radius=visualization_sphere_radius, num_lats=3, num_lons=3, color=(0, 1, 0))
+                radius=visualization_sphere_radius, num_lats=num_lats, num_lons=num_lons, color=(0, 1, 0))
 
             self.gym.clear_lines(self.viewer)
             # Draw target
@@ -1174,6 +1184,9 @@ class Vine5LinkMovingBase(VecTask):
 
             # Draw episode progress
             for i in range(self.num_envs):
+                if self.cfg['env']['USE_NICE_VISUALS']:
+                    break
+
                 # For now, draw only one env to save time
                 if i != self.index_to_view:
                     continue
@@ -1189,6 +1202,9 @@ class Vine5LinkMovingBase(VecTask):
 
             # Draw rail soft limits
             for i in range(self.num_envs):
+                if self.cfg['env']['USE_NICE_VISUALS']:
+                    break
+
                 # For now, draw only one env to save time
                 if i != self.index_to_view:
                     continue
