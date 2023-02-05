@@ -14,7 +14,7 @@
         <color rgba="0.0 1.0 0.0 0.0" />
     </material>
     <material name="blue">
-        <color rgba="0.0 0.0 1.0 0.0" />
+        <color rgba="0.10196078 0.10588235 0.22352941 0.0" />
     </material>
     <material name="magenta">
         <color rgba="1.0 0.0 1.0 0.0" />
@@ -26,7 +26,10 @@
         <color rgba="1.0 1.0 0.0 0.0" />
     </material>
     <material name="iron">
-        <color rgba="0.56 0.57 0.58 0.0" />
+        <color rgba="0.46 0.47 0.48 0.0" />
+    </material>
+    <material name="iron_lighter">
+        <color rgba="0.56 0.57 0.78 0.0" />
     </material>
 
     <!-- LINKS -->
@@ -58,7 +61,7 @@
             <geometry>
                 <box size="0.07 0.1 0.02" />
             </geometry>
-            <material name="black" />
+            <material name="iron_lighter" />
         </visual>
         <collision>
             <geometry>
@@ -67,6 +70,24 @@
         </collision>
         <inertial>
             <mass value="0.4" />
+        </inertial>
+    </link>
+
+    <!-- 3D Printed Connector -->
+    <link name="connector">
+        <visual>
+            <geometry>
+                <box size="0.08 0.08 0.09" />
+            </geometry>
+            <material name="black" />
+        </visual>
+        <collision>
+            <geometry>
+                <box size="0.08 0.08 0.09" />
+            </geometry>
+        </collision>
+        <inertial>
+            <mass value="0.0" />
         </inertial>
     </link>
 
@@ -278,16 +299,23 @@
         <!-- <limit lower="-0.35" upper="0.35" effort="1" velocity="0.5" /> -->
     </joint>
 
+    <joint name="cart_to_connector" type="fixed">
+        <origin xyz="0.0 0.0 -0.055" rpy="0.0 0.0 0.0" />
+        <parent link="cart" />
+        <child link="connector" />
+    </joint>
+
+
     <!-- REVOLUTE -->
     <!-- Do not need to enforce limits because the model SHOULD handle it, in fact adding 30 deg
     limit caused some instabilities -->
-    <joint name="cart_to_link_0" type="revolute">
+    <joint name="connector_to_link_0" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
 
         <!-- Change z to set relative position of link wrt cart (half cart height) -->
-        <origin xyz="0.0 0.0 -0.01" rpy="3.1415 0.0 0.0" />
+        <origin xyz="0.0 0.0 -0.045" rpy="3.1415 0.0 0.0" />
 
-        <parent link="cart" />
+        <parent link="connector" />
         <child link="link_0" />
         <!-- <limit lower="-0.523599" upper="0.523599" /> -->
     </joint>

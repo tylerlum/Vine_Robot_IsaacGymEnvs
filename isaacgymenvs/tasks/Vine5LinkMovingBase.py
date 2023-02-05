@@ -1172,7 +1172,7 @@ class Vine5LinkMovingBase(VecTask):
                 num_lats, num_lons = 3, 3
 
             visualization_sphere_green = gymutil.WireframeSphereGeometry(
-                radius=visualization_sphere_radius, num_lats=num_lats, num_lons=num_lons, color=(0, 1, 0))
+                radius=visualization_sphere_radius, num_lats=num_lats, num_lons=num_lons, color=(0.25098039, 0.8, 0.17254902))
 
             self.gym.clear_lines(self.viewer)
             # Draw target
