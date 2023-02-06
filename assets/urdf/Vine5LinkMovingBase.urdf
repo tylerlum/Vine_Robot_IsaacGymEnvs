@@ -91,6 +91,76 @@
         </inertial>
     </link>
 
+    <link name="mocap_square_0">
+        <visual>
+            <geometry>
+                <box size="0.0005 0.045 0.045" />
+            </geometry>
+            <material name="white" />
+        </visual>
+        <collision>
+            <geometry>
+                <box size="0.0005 0.045 0.045" />
+            </geometry>
+        </collision>
+    </link>
+
+    <link name="mocap_square_1">
+        <visual>
+            <geometry>
+                <box size="0.0005 0.045 0.045" />
+            </geometry>
+            <material name="white" />
+        </visual>
+        <collision>
+            <geometry>
+                <box size="0.0005 0.045 0.045" />
+            </geometry>
+        </collision>
+    </link>
+
+    <link name="mocap_square_2">
+        <visual>
+            <geometry>
+                <box size="0.0005 0.045 0.045" />
+            </geometry>
+            <material name="white" />
+        </visual>
+        <collision>
+            <geometry>
+                <box size="0.0005 0.045 0.045" />
+            </geometry>
+        </collision>
+    </link>
+
+    <link name="mocap_square_3">
+        <visual>
+            <geometry>
+                <box size="0.0005 0.045 0.045" />
+            </geometry>
+            <material name="white" />
+        </visual>
+        <collision>
+            <geometry>
+                <box size="0.0005 0.045 0.045" />
+            </geometry>
+        </collision>
+    </link>
+
+    <link name="mocap_square_4">
+        <visual>
+            <geometry>
+                <box size="0.0005 0.045 0.045" />
+            </geometry>
+            <material name="white" />
+        </visual>
+        <collision>
+            <geometry>
+                <box size="0.0005 0.045 0.045" />
+            </geometry>
+        </collision>
+    </link>
+
     <!-- CYLINDERS -->
     <!-- Each link has radius = 0.0381 m  length = 0.0885 m, except first has length 0.1 m-->
     <!-- First 4 are "shells" with mass 0.005 -->
@@ -353,4 +423,31 @@
         <child link="tip" />
     </joint>
 
+    <joint name="link_0_to_mocap_square_0" type="fixed">
+        <origin xyz="0.0381 0.0 0.04425" rpy="0.0 0.0 0.0" />
+        <parent link="link_0" />
+        <child link="mocap_square_0" />
+    </joint>
+
+    <joint name="link_1_to_mocap_square_1" type="fixed">
+        <origin xyz="0.0381 0.0 0.04425" rpy="0.0 0.0 0.0" />
+        <parent link="link_1" />
+        <child link="mocap_square_1" />
+    </joint>
+
+    <joint name="link_2_to_mocap_square_2" type="fixed">
+        <origin xyz="0.0381 0.0 0.04425" rpy="0.0 0.0 0.0" />
+        <parent link="link_2" />
+        <child link="mocap_square_2" />
+    </joint>
+    <joint name="link_3_to_mocap_square_3" type="fixed">
+        <origin xyz="0.0381 0.0 0.04425" rpy="0.0 0.0 0.0" />
+        <parent link="link_3" />
+        <child link="mocap_square_3" />
+    </joint>
+    <joint name="link_4_to_mocap_square_4" type="fixed">
+        <origin xyz="0.0381 0.0 0.04425" rpy="0.0 0.0 0.0" />
+        <parent link="link_4" />
+        <child link="mocap_square_4" />
+    </joint>
 </robot>
