@@ -98,11 +98,6 @@
             </geometry>
             <material name="white" />
         </visual>
-        <collision>
-            <geometry>
-                <box size="0.0005 0.045 0.045" />
-            </geometry>
-        </collision>
     </link>
 
     <link name="mocap_square_1">
@@ -112,11 +107,6 @@
             </geometry>
             <material name="white" />
         </visual>
-        <collision>
-            <geometry>
-                <box size="0.0005 0.045 0.045" />
-            </geometry>
-        </collision>
     </link>
 
     <link name="mocap_square_2">
@@ -126,11 +116,6 @@
             </geometry>
             <material name="white" />
         </visual>
-        <collision>
-            <geometry>
-                <box size="0.0005 0.045 0.045" />
-            </geometry>
-        </collision>
     </link>
 
     <link name="mocap_square_3">
@@ -140,11 +125,6 @@
             </geometry>
             <material name="white" />
         </visual>
-        <collision>
-            <geometry>
-                <box size="0.0005 0.045 0.045" />
-            </geometry>
-        </collision>
     </link>
 
     <link name="mocap_square_4">
@@ -154,11 +134,6 @@
             </geometry>
             <material name="white" />
         </visual>
-        <collision>
-            <geometry>
-                <box size="0.0005 0.045 0.045" />
-            </geometry>
-        </collision>
     </link>
 
     <!-- CYLINDERS -->
