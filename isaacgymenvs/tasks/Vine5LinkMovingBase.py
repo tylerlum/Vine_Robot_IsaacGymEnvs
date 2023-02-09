@@ -207,7 +207,7 @@ class Vine5LinkMovingBase(VecTask):
         # Setup viewer camera
         self.index_to_view = int(0.1 * self.num_envs)
         tip_pos = self.tip_positions[self.index_to_view]
-        cam_target = gymapi.Vec3(tip_pos[0], tip_pos[1], INIT_Z + 0.09)
+        cam_target = gymapi.Vec3(tip_pos[0], tip_pos[1], INIT_Z)
         cam_pos = cam_target + gymapi.Vec3(1.0, 0.0, 0.0)
         self.gym.viewer_camera_look_at(self.viewer, self.envs[self.index_to_view], cam_pos, cam_target)
 
@@ -464,7 +464,7 @@ class Vine5LinkMovingBase(VecTask):
         assert (self.up_axis == 'z')
         vine_init_pose.p.x = INIT_X
         vine_init_pose.p.y = INIT_Y
-        vine_init_pose.p.z = INIT_Z + 0.09
+        vine_init_pose.p.z = INIT_Z + 0.11
         vine_init_pose.r = INIT_QUAT
 
         self.envs = []
