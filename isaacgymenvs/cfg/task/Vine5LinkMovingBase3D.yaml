@@ -1,0 +1,144 @@
+# used to create the object
+name: Vine5LinkMovingBase
+
+physics_engine: ${..physics_engine}
+
+# if given, will override the device setting in gym.
+env:
+  numEnvs: ${resolve_default:4096,${...num_envs}}
+  envSpacing: 6.0
+
+  clipObservations: 5.0
+  clipActions: 1.0
+
+  maxEpisodeLength: 500
+  controlFrequencyInv: ${resolve_default:4,${...control_frequency_inv}}
+
+  # set to True if you use camera sensors in the environment
+  enableCameraSensors: False
+
+  # TODO: Vine specific parameters
+  # PARAMETERS (OFTEN CHANGE)
+  USE_MOVING_BASE: True
+  USE_SMOOTHED_FPAM: True
+
+  # Forcing
+  FORCE_U_FPAM: False
+  FORCE_U_RAIL_VELOCITY: False
+
+  # Smoothing
+  SMOOTHING_ALPHA_INFLATE: 0.81
+  SMOOTHING_ALPHA_DEFLATE: 0.86
+
+  CAPTURE_VIDEO: ${resolve_default:True,${...CAPTURE_VIDEO}}
+  CREATE_SHELF: False
+  CREATE_PIPE: True
+  CREATE_HISTOGRAMS_PERIODICALLY: False
+
+  # Visualize mat file
+  # MAT_FILE: "/home/tylerlum/Downloads/2022-12-11_17-34-05_1sx04cnm_Vine5LinkMovingBase_smoothanglevel.mat"
+  # MAT_FILE: "/home/tylerlum/Downloads/2022-12-11_17-24-00_1sx04cnm_Vine5LinkMovingBase.mat"
+  # MAT_FILE: "/home/tylerlum/Downloads/2022-12-11_17-22-44_1sx04cnm_Vine5LinkMovingBase.mat"
+  MAT_FILE: ""
+  U_TRAJ_MAT_FILE: ""
+
+  # Action space
+  FPAM_MIN: -0.1
+  FPAM_MAX: 3.0
+  RAIL_VELOCITY_SCALE: ${resolve_default:1.0,${...RAIL_VELOCITY_SCALE}}
+
+  DAMPING: 2e-2
+  STIFFNESS: 0.0
+
+  # Rail
+  RAIL_SOFT_LIMIT: ${resolve_default:0.3,${...RAIL_SOFT_LIMIT}}
+  # Want max accel of 2m/s^2, if max v_error = 2m/s, then F = m*a = k*v_error, so k = m*a/v_error = 0.52 * 2 / 2 = 0.52
+  # But that doesn't account for the vine robot swinging, so make it bigger
+  RAIL_P_GAIN: ${resolve_default:10.0,${...RAIL_P_GAIN}}
+  RAIL_D_GAIN: 0.0
+  RAIL_ACCELERATION: ${resolve_default:8.0,${...RAIL_ACCELERATION}}
+
+  OBSERVATION_TYPE: ${resolve_default:POS_AND_FD_VEL_AND_OBJ_INFO,${...OBSERVATION_TYPE}}
+
+  # Randomization
+  RANDOMIZE_DOF_INIT: True
+  RANDOM_INIT_CART_MIN_Y: ${eval:'-0.1 * ${.RAIL_SOFT_LIMIT}'}  # Set to avoid initial collision, but still want to be -ve so includes 0 in range
+  RANDOM_INIT_CART_MAX_Y: ${.RAIL_SOFT_LIMIT}
+  RANDOMIZE_TARGETS: True
+
+  SUCCESS_DIST: 0.08
+  MIN_TARGET_DEPTH_IN_OBSTACLE: -0.05
+  MAX_TARGET_DEPTH_IN_OBSTACLE: 0.2
+  MIN_TARGET_Y: -0.48
+  MAX_TARGET_Y: -0.4
+  MIN_TARGET_Z: 0.58
+  MAX_TARGET_Z: 0.67
+
+  # Rewards
+  POSITION_REWARD_WEIGHT: 0.0
+  CONST_NEGATIVE_REWARD_WEIGHT: 0.0
+  POSITION_SUCCESS_REWARD_WEIGHT: 1.0
+  VELOCITY_SUCCESS_REWARD_WEIGHT: 0
+  VELOCITY_REWARD_WEIGHT: 0.1
+  U_RAIL_VELOCITY_CONTROL_REWARD_WEIGHT: 0.0
+  U_FPAM_CONTROL_REWARD_WEIGHT: 0.0
+  RAIL_VELOCITY_CHANGE_REWARD_WEIGHT: 0.0
+  U_FPAM_CHANGE_REWARD_WEIGHT: 0.0
+  RAIL_LIMIT_REWARD_WEIGHT: 1.0
+  CART_Y_REWARD_WEIGHT: 0.0
+  TIP_Y_REWARD_WEIGHT: 0.0
+  CONTACT_FORCE_REWARD_WEIGHT: 0.10
+
+  # Reset
+  USE_TARGET_REACHED_RESET: True
+  USE_TIP_LIMIT_HIT_RESET: False
+  USE_NONZERO_CONTACT_FORCE_RESET: False # TODO reverse
+
+  # Observation scaling
+  SCALE_OBSERVATIONS: True
+
+  # Action delay number of timesteps
+  ACTION_DELAY: 1
+
+  # Cart accel tracking
+  USE_CART_ACCEL_TRACKING: True
+
+  # Nice visuals
+  USE_NICE_VISUALS: False
+
+sim:
+  dt: 0.00833 # 120 Hz
+  substeps: 10  # Default 2
+  up_axis: "z"
+  use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
+  gravity: [0.0, 0.0, -9.81]
+  enable_viewer_sync_at_start: ${resolve_default:True,${...enable_viewer_sync_at_start}}
+
+  physx:
+    num_threads: ${....num_threads}
+    solver_type: ${....solver_type}
+    use_gpu: ${contains:"cuda",${....sim_device}} # set to False to run on CPU
+    num_position_iterations: 8  # Original: 4
+    num_velocity_iterations: 4  # Original: 0
+    contact_offset: 0.02
+    rest_offset: 0.001
+    bounce_threshold_velocity: 0.2
+    max_depenetration_velocity: 100.0
+    default_buffer_size_multiplier: 2.0
+    max_gpu_contact_pairs: 1048576 # 1024*1024
+    num_subscenes: ${....num_subscenes}
+    contact_collection: 0 # 0: CC_NEVER (don't collect contact info), 1: CC_LAST_SUBSTEP (collect only contacts on last substep), 2: CC_ALL_SUBSTEPS (default - all contacts)
+
+task:
+  vine_randomize: ${resolve_default:True,${...vine_randomize}}
+
+  # Domain randomization
+  randomization_parameters:
+    DYNAMICS_SCALING_MIN: 0.999
+    DYNAMICS_SCALING_MAX: 1.001
+
+    OBSERVATION_NOISE_STD: 0.0
+    ACTION_NOISE_STD: 0.0
+
+    ACCEL_TARGET_SCALING_MIN: 0.99999
+    ACCEL_TARGET_SCALING_MAX: 1.00001
