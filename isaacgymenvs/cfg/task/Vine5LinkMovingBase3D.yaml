@@ -1,5 +1,5 @@
 # used to create the object
-name: Vine5LinkMovingBase
+name: Vine5LinkMovingBase3D
 
 physics_engine: ${..physics_engine}
 
