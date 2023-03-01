@@ -262,11 +262,6 @@
     </link>
 
     <link name="tip" />
-    <link name="fake_link_0" />
-    <link name="fake_link_1" />
-    <link name="fake_link_2" />
-    <link name="fake_link_3" />
-    <link name="fake_link_4" />
 
     <!-- PRISMATIC -->
     <!-- conservative values: effort=1N, velocity=0.5m/s  -->
@@ -286,73 +281,43 @@
     <!-- REVOLUTE -->
     <!-- Do not need to enforce limits because the model SHOULD handle it, in fact adding 30 deg
     limit caused some instabilities -->
-    
-    <joint name="cart_to_fake_link_0" type="revolute">
+    <joint name="cart_to_link_0" type="spherical">
         <axis xyz="1.0 0.0 0.0" />
 
         <!-- Change z to set relative position of link wrt cart (half cart height) -->
         <origin xyz="0.0 0.0 -0.01" rpy="3.1415 0.0 0.0" />
 
         <parent link="cart" />
-        <child link="fake_link_0" />
-    </joint>
-    <joint name="fake_link_0_to_link_0" type="revolute">
-        <axis xyz="0.0 1.0 0.0" />
-        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
-        <parent link="fake_link_0" />
         <child link="link_0" />
+        <!-- <limit lower="-0.523599" upper="0.523599" /> -->
     </joint>
-    <joint name="link_0_to_fake_link_1" type="revolute">
+    <joint name="link_0_to_link_1" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
         <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_0" />
-        <child link="fake_link_1" />
+        <child link="link_1" />
         <!-- <limit lower="-0.523599" upper="0.523599" /> -->
     </joint>
-    <joint name="fake_link_1_to_link_1" type="revolute">
-        <axis xyz="0.0 1.0 0.0" />
-        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
-        <parent link="fake_link_1" />
-        <child link="link_1" />
-    </joint>
-    <joint name="link_1_to_fake_link_2" type="revolute">
+    <joint name="link_1_to_link_2" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
         <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_1" />
-        <child link="fake_link_2" />
+        <child link="link_2" />
         <!-- <limit lower="-0.523599" upper="0.523599" /> -->
     </joint>
-    <joint name="fake_link_2_to_link_2" type="revolute">
-        <axis xyz="0.0 1.0 0.0" />
-        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
-        <parent link="fake_link_2" />
-        <child link="link_2" />
-    </joint>
-    <joint name="link_2_to_fake_link_3" type="revolute">
+    <joint name="link_2_to_link_3" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
         <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_2" />
-        <child link="fake_link_3" />
+        <child link="link_3" />
         <!-- <limit lower="-0.523599" upper="0.523599" /> -->
     </joint>
-    <joint name="fake_link_3_to_link_3" type="revolute">
-        <axis xyz="0.0 1.0 0.0" />
-        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
-        <parent link="fake_link_3" />
-        <child link="link_3" />
-    </joint>
-    <joint name="link_3_to_fake_link_4" type="revolute">
+    <joint name="link_3_to_link_4" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
         <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />
         <parent link="link_3" />
-        <child link="fake_link_4" />
-        <!-- <limit lower="-0.523599" upper="0.523599" /> -->
-    </joint>
-    <joint name="fake_link_4_to_link_4" type="revolute">
-        <axis xyz="0.0 1.0 0.0" />
-        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
-        <parent link="fake_link_4" />
         <child link="link_4" />
+        <!-- <limit lower="-0.523599" upper="0.523599" /> -->
     </joint>
     <joint name="link_4_to_tip" type="fixed">
         <origin xyz="0.0 0.0 0.0885" rpy="0.0 0.0 0.0" />

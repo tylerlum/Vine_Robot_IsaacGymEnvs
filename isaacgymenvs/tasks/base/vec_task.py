@@ -325,7 +325,7 @@ class VecTask(Env):
             Observations, rewards, resets, info
             Observations are dict of observations (currently only one member called 'obs')
         """
-
+        
         # randomize actions
         if self.dr_randomizations.get('actions', None):
             actions = self.dr_randomizations['actions']['noise_lambda'](actions)
@@ -338,7 +338,7 @@ class VecTask(Env):
         for i in range(self.control_freq_inv):
             
             # TYLER ADDITION START: Manually added event
-            IS_VINE = hasattr(self, "cfg") and "name" in self.cfg.keys() and self.cfg["name"] == "Vine5LinkMovingBase"
+            IS_VINE = hasattr(self, "cfg") and "name" in self.cfg.keys() and self.cfg["name"] in ["Vine5LinkMovingBase", "Vine5LinkMovingBase3D"]
             if IS_VINE:
                 if i == 0:
                     self.shelf_contact_force_norms = []

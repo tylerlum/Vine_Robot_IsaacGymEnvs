@@ -51,7 +51,7 @@ NUM_XYZ = len(XYZ_LIST)
 NUM_OBJECT_INFO = 2  # target depth, angle
 NUM_RGBA = 4
 LENGTH_RAIL = 0.8
-N_REVOLUTE_DOFS = 5
+N_REVOLUTE_DOFS = 7
 N_PRESSURE_ACTIONS = 1
 START_POS_IDX, END_POS_IDX = 0, 3
 START_QUAT_IDX, END_QUAT_IDX = 3, 7
@@ -443,7 +443,8 @@ class Vine5LinkMovingBase3D(VecTask):
         # Sanity check ordering of indices
         if N_PRISMATIC_DOFS == 1:
             assert (self.prismatic_dof_indices == [0])
-            assert (self.revolute_dof_indices == [i+1 for i in range(N_REVOLUTE_DOFS)])
+            # TODO make new assertion
+            # assert (self.revolute_dof_indices == [i+1 for i in range(N_REVOLUTE_DOFS)])
         elif N_PRISMATIC_DOFS == 0:
             assert (self.prismatic_dof_indices == [])
             assert (self.revolute_dof_indices == [i for i in range(N_REVOLUTE_DOFS)])
@@ -1072,10 +1073,10 @@ class Vine5LinkMovingBase3D(VecTask):
             # torque = - Kq - Cqd - b - Bu;
             #        = - [K C diag(b) diag(B)] @ [q; qd; ones(5), u_fpam*ones(5)]
             #        = - A @ x
-            K = torch.diag(torch.tensor([0.8385, 1.5400, 1.5109, 1.2887, 0.4347], device=self.device))
-            C = torch.diag(torch.tensor([0.0178, 0.0304, 0.0528, 0.0367, 0.0223], device=self.device))
-            b = torch.tensor([0.0007, 0.0062, 0.0402, 0.0160, 0.0133], device=self.device)
-            B = torch.tensor([0.0247, 0.0616, 0.0779, 0.0498, 0.0268], device=self.device)
+            K = torch.diag(torch.tensor([0.8385, 0.8385, 0.8385, 1.5400, 1.5109, 1.2887, 0.4347], device=self.device))
+            C = torch.diag(torch.tensor([0.0178, 0.0178, 0.0178, 0.0304, 0.0528, 0.0367, 0.0223], device=self.device))
+            b = torch.tensor([0.0007, 0, 0, 0.0062, 0.0402, 0.0160, 0.0133], device=self.device)
+            B = torch.tensor([0.0247, 0, 0, 0.0616, 0.0779, 0.0498, 0.0268], device=self.device)
 
             A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
             self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
