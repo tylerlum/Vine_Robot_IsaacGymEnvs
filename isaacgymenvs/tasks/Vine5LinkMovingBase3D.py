@@ -1142,6 +1142,19 @@ class Vine5LinkMovingBase3D(VecTask):
         self.prev_cart_vel_error = cart_vel_error.detach().clone()
         self.prev_cart_vel = cart_vel_y.detach().clone()
 
+        # TEST GROWTH CONTROL
+        growth_rate_des = 0.0
+        growth_pos_des = 0.0
+
+        # breakpoint()
+        growth_rate_cur = qd[:, 0]
+        growth_pos_cur = q[:, 0]
+        growth_rate_P_gain = 10.0
+        growth_pos_P_gain = 50.0
+        VINE_MASS = .005*4 + .01
+        NOMINAL_FORCE = -9.81 * VINE_MASS
+        torques[0] = NOMINAL_FORCE + growth_pos_P_gain * (growth_pos_des - growth_pos_cur) + growth_rate_P_gain * (growth_rate_des - growth_rate_cur)
+
         # Set efforts
         if USE_MOVING_BASE:
             dof_efforts[:, 0:1] = self.rail_force
