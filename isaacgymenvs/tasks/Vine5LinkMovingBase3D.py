@@ -81,7 +81,7 @@ REWARD_NAMES = ["Position", "Const Negative", "Position Success",
                 "FPAM Control", "Rail Velocity Change", "FPAM Change", "Rail Limit",
                 "Cart Y", "Tip Y", "Contact Force"]
 
-N_PRISMATIC_DOFS = 1 if USE_MOVING_BASE else 0
+N_PRISMATIC_DOFS = 2 if USE_MOVING_BASE else 0
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.0
 
@@ -154,23 +154,23 @@ class Vine5LinkMovingBase3D(VecTask):
         observation_type = ObservationType[self.cfg["env"]["OBSERVATION_TYPE"]]
         if observation_type == ObservationType.POS_ONLY:
             self.cfg["env"]["numObservations"] = (
-                N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ + N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
+                N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ + N_PRESSURE_ACTIONS + (1 if USE_MOVING_BASE else 0)
             )
         elif observation_type in [ObservationType.TIP_AND_CART_AND_OBJ_INFO, ObservationType.NO_FD_TIP_AND_CART_AND_OBJ_INFO]:
             self.cfg["env"]["numObservations"] = (
-                2 * (N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ) +
-                N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
+                2 * ((1 if USE_MOVING_BASE else 0) + NUM_XYZ + NUM_XYZ) +
+                N_PRESSURE_ACTIONS + (1 if USE_MOVING_BASE else 0)
             )
             self.cfg["env"]["numObservations"] += NUM_OBJECT_INFO
         else:
             self.cfg["env"]["numObservations"] = (
                 2 * (N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ) +
-                N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
+                N_PRESSURE_ACTIONS + (1 if USE_MOVING_BASE else 0)
             )
             if observation_type == ObservationType.POS_AND_FD_VEL_AND_OBJ_INFO:
                 # Add more observations for object info
                 self.cfg["env"]["numObservations"] += NUM_OBJECT_INFO
-        self.cfg["env"]["numActions"] = N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
+        self.cfg["env"]["numActions"] = N_PRESSURE_ACTIONS + (1 if USE_MOVING_BASE else 0)
 
         self.subscribe_to_keyboard_events()
 
@@ -236,7 +236,7 @@ class Vine5LinkMovingBase3D(VecTask):
         # Keep track of prevs
         self.prev_dof_pos = self.dof_pos.clone()
         self.prev_tip_positions = self.tip_positions.clone()
-        self.prev_u_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device)
+        self.prev_u_rail_velocity = torch.zeros(self.num_envs, 1 if USE_MOVING_BASE else 0, device=self.device)
         self.prev_cart_vel_error = torch.zeros(self.num_envs, 1, device=self.device)
         self.prev_cart_vel = torch.zeros(self.num_envs, 1, device=self.device)
 
@@ -292,7 +292,7 @@ class Vine5LinkMovingBase3D(VecTask):
         self.start_time = time.time()
 
         # Action history for delay
-        first_u_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device)
+        first_u_rail_velocity = torch.zeros(self.num_envs, 1 if USE_MOVING_BASE else 0, device=self.device)
         first_u_fpam = torch.zeros(self.num_envs, N_PRESSURE_ACTIONS, device=self.device)
         self.actions_history = [(first_u_rail_velocity, first_u_fpam) for _ in range(self.cfg["env"]["ACTION_DELAY"])]
         if len(self.cfg['env']['U_TRAJ_MAT_FILE']) > 0:
@@ -309,7 +309,7 @@ class Vine5LinkMovingBase3D(VecTask):
             # append onto actions history
             print(f"WARNING: Actions history will use {n_timesteps} timesteps")
             for i in range(n_timesteps):
-                u_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device) + U_traj[0, i]
+                u_rail_velocity = torch.zeros(self.num_envs, 1 if USE_MOVING_BASE else 0, device=self.device) + U_traj[0, i]
                 u_fpam = torch.zeros(self.num_envs, N_PRESSURE_ACTIONS, device=self.device) + U_traj[1, i]
                 self.actions_history.append((u_rail_velocity, u_fpam))
 
@@ -441,10 +441,12 @@ class Vine5LinkMovingBase3D(VecTask):
         self.prismatic_dof_indices = sorted([dof_dict[name] for name in prismatic_dof_names])
 
         # Sanity check ordering of indices
-        if N_PRISMATIC_DOFS == 1:
+        if N_PRISMATIC_DOFS == 2:
+            assert (self.prismatic_dof_indices == [0, 1])
+            assert (self.revolute_dof_indices == [i+2 for i in range(N_REVOLUTE_DOFS)])
+        elif N_PRISMATIC_DOFS == 1:
             assert (self.prismatic_dof_indices == [0])
-            # TODO make new assertion
-            # assert (self.revolute_dof_indices == [i+1 for i in range(N_REVOLUTE_DOFS)])
+            assert (self.revolute_dof_indices == [i+1 for i in range(N_REVOLUTE_DOFS)])
         elif N_PRISMATIC_DOFS == 0:
             assert (self.prismatic_dof_indices == [])
             assert (self.revolute_dof_indices == [i for i in range(N_REVOLUTE_DOFS)])
@@ -823,7 +825,7 @@ class Vine5LinkMovingBase3D(VecTask):
 
         # TODO: Need to reset prev_tip_positions as well? Need to do forward kinematics
         self.prev_tip_positions[env_ids] = self.tip_positions[env_ids].clone()
-        self.prev_u_rail_velocity[env_ids] = torch.zeros(len(env_ids), N_PRISMATIC_DOFS, device=self.device)
+        self.prev_u_rail_velocity[env_ids] = torch.zeros(len(env_ids), 1 if USE_MOVING_BASE else 0, device=self.device)
         self.prev_cart_vel_error[env_ids] = torch.zeros(len(env_ids), 1, device=self.device)
 
         # Update dofs
@@ -1018,17 +1020,15 @@ class Vine5LinkMovingBase3D(VecTask):
 
     def raw_actions_to_actions(self, raw_actions):
         # Break apart actions and states
-        if N_PRISMATIC_DOFS == 1:
+        if USE_MOVING_BASE:
             u_rail_velocity = rescale_to_u_rail_velocity(
                 raw_actions[:, 0:1], self.cfg['env']['RAIL_VELOCITY_SCALE'])  # (num_envs, 1)
             u_fpam = rescale_to_u(raw_actions[:, 1:2], self.cfg['env']['FPAM_MIN'],
                                   self.cfg['env']['FPAM_MAX'])  # (num_envs, 1)
-        elif N_PRISMATIC_DOFS == 0:
+        else:
             u_rail_velocity = torch.zeros_like(raw_actions[:, 0:1], device=raw_actions.device)  # (num_envs, 1)
             u_fpam = rescale_to_u(raw_actions, self.cfg['env']['FPAM_MIN'])  # (num_envs, 1)
-        else:
-            raise ValueError(f"Can't have N_PRISMATIC_DOFS = {N_PRISMATIC_DOFS}")
-
+        
         return u_rail_velocity, u_fpam
 
     def u_fpam_to_smoothed_u_fpam(self, u_fpam, smoothed_u_fpam):
@@ -1063,24 +1063,22 @@ class Vine5LinkMovingBase3D(VecTask):
     def compute_and_set_dof_actuation_force_tensor(self):
         dof_efforts = torch.zeros(self.num_envs, self.num_dof, device=self.device)
 
-        if N_PRISMATIC_DOFS == 1:
-            q = self.dof_pos[:, 1:]  # (num_envs, 5)
-            qd = self.dof_vel[:, 1:]  # (num_envs, 5)
-        elif N_PRISMATIC_DOFS == 0:
-            q = self.dof_pos[:]  # (num_envs, 5)
-            qd = self.dof_vel[:]  # (num_envs, 5)
+        if USE_MOVING_BASE:
+            q = self.dof_pos[:, 1:]  # (num_envs, 7)
+            qd = self.dof_vel[:, 1:]  # (num_envs, 7)
         else:
-            raise ValueError(f"Can't have N_PRISMATIC_DOFS = {N_PRISMATIC_DOFS}")
+            q = self.dof_pos[:]  # (num_envs, 7)
+            qd = self.dof_vel[:]  # (num_envs, 7)
 
         # Compute torques
         if self.A is None:
             # torque = - Kq - Cqd - b - Bu;
             #        = - [K C diag(b) diag(B)] @ [q; qd; ones(5), u_fpam*ones(5)]
             #        = - A @ x
-            K = torch.diag(torch.tensor([0.8385, 0.8385, 1.5400, 1.5109, 1.2887, 0.4347], device=self.device))
-            C = torch.diag(torch.tensor([0.0178, 0.0178, 0.0304, 0.0528, 0.0367, 0.0223], device=self.device))
-            b = torch.tensor([0.0007, 0.01, 0.0062, 0.0402, 0.0160, 0.0133], device=self.device)
-            B = torch.tensor([0.0247, 0.01, 0.0616, 0.0779, 0.0498, 0.0268], device=self.device)
+            K = torch.diag(torch.tensor([0.8385, 0.8385, 0.8385, 1.5400, 1.5109, 1.2887, 0.4347], device=self.device))
+            C = torch.diag(torch.tensor([0.0178, 0.0178, 0.0178, 0.0304, 0.0528, 0.0367, 0.0223], device=self.device))
+            b = torch.tensor([0.0, 0.0007, 0.01, 0.0062, 0.0402, 0.0160, 0.0133], device=self.device)
+            B = torch.tensor([0.0, 0.0247, 0.01, 0.0616, 0.0779, 0.0498, 0.0268], device=self.device)
 
             A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
             self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
@@ -1092,8 +1090,8 @@ class Vine5LinkMovingBase3D(VecTask):
             A = self.A
 
         u_fpam_to_use = self.smoothed_u_fpam if self.cfg['env']['USE_SMOOTHED_FPAM'] else self.u_fpam
-        x = torch.cat([q, qd, torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device), u_fpam_to_use *
-                       torch.ones(self.num_envs, N_REVOLUTE_DOFS, device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
+        x = torch.cat([q, qd, torch.ones(self.num_envs, N_PRISMATIC_DOFS + N_REVOLUTE_DOFS - (1 if USE_MOVING_BASE else 0), device=self.device), u_fpam_to_use *
+                       torch.ones(self.num_envs, N_PRISMATIC_DOFS + N_REVOLUTE_DOFS - (1 if USE_MOVING_BASE else 0), device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
         torques = -torch.matmul(A, x).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
 
         # Compute rail force
@@ -1145,10 +1143,10 @@ class Vine5LinkMovingBase3D(VecTask):
         self.prev_cart_vel = cart_vel_y.detach().clone()
 
         # Set efforts
-        if N_PRISMATIC_DOFS == 1:
+        if USE_MOVING_BASE:
             dof_efforts[:, 0:1] = self.rail_force
             dof_efforts[:, 1:] = torques
-        elif N_PRISMATIC_DOFS == 0:
+        else:
             dof_efforts[:, :] = torques
         self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
     ##### PRE PHYSICS STEP END #####
