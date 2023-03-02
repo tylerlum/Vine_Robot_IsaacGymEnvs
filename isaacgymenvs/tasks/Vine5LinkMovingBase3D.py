@@ -521,7 +521,7 @@ class Vine5LinkMovingBase3D(VecTask):
 
             # Create vine robots
             vine_handle = self.gym.create_actor(env_ptr, self.vine_asset, vine_init_pose, "vine",
-                                                group=collision_group, filter=collision_filter, segmentationId=segmentation_id)
+                                                group=collision_group, filter=1, segmentationId=segmentation_id)
             self.vine_indices.append(self.gym.get_actor_index(env_ptr, vine_handle, gymapi.DOMAIN_SIM))
             self.vine_handles.append(vine_handle)
             self.set_friction(env_ptr=env_ptr, object_handle=vine_handle, friction_coefficient=0.0)
@@ -1077,10 +1077,10 @@ class Vine5LinkMovingBase3D(VecTask):
             # torque = - Kq - Cqd - b - Bu;
             #        = - [K C diag(b) diag(B)] @ [q; qd; ones(5), u_fpam*ones(5)]
             #        = - A @ x
-            K = 0*torch.diag(torch.tensor([0.8385, 0.8385, 1.5400, 1.5109, 1.2887, 0.4347], device=self.device))
-            C = 0*torch.diag(torch.tensor([0.0178, 0.0178, 0.0304, 0.0528, 0.0367, 0.0223], device=self.device))
-            b = 0*torch.tensor([0.0007, 0, 0.0062, 0.0402, 0.0160, 0.0133], device=self.device)
-            B = 0*torch.tensor([0.0247, 0, 0.0616, 0.0779, 0.0498, 0.0268], device=self.device)
+            K = torch.diag(torch.tensor([0.8385, 0.8385, 1.5400, 1.5109, 1.2887, 0.4347], device=self.device))
+            C = torch.diag(torch.tensor([0.0178, 0.0178, 0.0304, 0.0528, 0.0367, 0.0223], device=self.device))
+            b = torch.tensor([0.0007, 0.01, 0.0062, 0.0402, 0.0160, 0.0133], device=self.device)
+            B = torch.tensor([0.0247, 0.01, 0.0616, 0.0779, 0.0498, 0.0268], device=self.device)
 
             A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
             self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
