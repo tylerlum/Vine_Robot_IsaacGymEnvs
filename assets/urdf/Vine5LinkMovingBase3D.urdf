@@ -262,6 +262,7 @@
     </link>
 
     <link name="tip" />
+    <link name="rotation_y" />
 
     <!-- PRISMATIC -->
     <!-- conservative values: effort=1N, velocity=0.5m/s  -->
@@ -281,13 +282,20 @@
     <!-- REVOLUTE -->
     <!-- Do not need to enforce limits because the model SHOULD handle it, in fact adding 30 deg
     limit caused some instabilities -->
-    <joint name="cart_to_link_0" type="spherical">
+    <joint name="cart_to_rotation_y" type="revolute">
         <axis xyz="1.0 0.0 0.0" />
 
         <!-- Change z to set relative position of link wrt cart (half cart height) -->
         <origin xyz="0.0 0.0 -0.01" rpy="3.1415 0.0 0.0" />
 
         <parent link="cart" />
+        <child link="rotation_y" />
+        <!-- <limit lower="-0.523599" upper="0.523599" /> -->
+    </joint>
+    <joint name="rotation_y_to_link_0" type="revolute">
+        <axis xyz="0.0 1.0 0.0" />
+        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+        <parent link="rotation_y" />
         <child link="link_0" />
         <!-- <limit lower="-0.523599" upper="0.523599" /> -->
     </joint>
