@@ -81,7 +81,7 @@ REWARD_NAMES = ["Position", "Const Negative", "Position Success",
                 "FPAM Control", "Rail Velocity Change", "FPAM Change", "Rail Limit",
                 "Cart Y", "Tip Y", "Contact Force"]
 
-N_PRISMATIC_DOFS = 2 if USE_MOVING_BASE else 0
+N_PRISMATIC_DOFS = 2 if USE_MOVING_BASE else 1
 INIT_QUAT = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.0
 
@@ -128,6 +128,7 @@ class Vine5LinkMovingBase3D(VecTask):
     Action:
       * 1 for u_rail_velocity prismatic joint
       * 1 for u_fpam pressure
+      * 1 for growth
     Reward:
       * Weighted sum of many rewards
     Environment:
@@ -170,7 +171,7 @@ class Vine5LinkMovingBase3D(VecTask):
             if observation_type == ObservationType.POS_AND_FD_VEL_AND_OBJ_INFO:
                 # Add more observations for object info
                 self.cfg["env"]["numObservations"] += NUM_OBJECT_INFO
-        self.cfg["env"]["numActions"] = N_PRESSURE_ACTIONS + (1 if USE_MOVING_BASE else 0)
+        self.cfg["env"]["numActions"] = N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS  # u_fpam, u_rail_velocity, growth
 
         self.subscribe_to_keyboard_events()
 
@@ -294,7 +295,8 @@ class Vine5LinkMovingBase3D(VecTask):
         # Action history for delay
         first_u_rail_velocity = torch.zeros(self.num_envs, 1 if USE_MOVING_BASE else 0, device=self.device)
         first_u_fpam = torch.zeros(self.num_envs, N_PRESSURE_ACTIONS, device=self.device)
-        self.actions_history = [(first_u_rail_velocity, first_u_fpam) for _ in range(self.cfg["env"]["ACTION_DELAY"])]
+        first_u_growth = torch.zeros(self.num_envs, 1, device=self.device)
+        self.actions_history = [(first_u_rail_velocity, first_u_fpam, first_u_growth) for _ in range(self.cfg["env"]["ACTION_DELAY"])]
         if len(self.cfg['env']['U_TRAJ_MAT_FILE']) > 0:
             print("WARNING - turning off randomize dof init and appending to actions history")
             print(f"USING MAT FILE {self.cfg['env']['U_TRAJ_MAT_FILE']}")
@@ -845,9 +847,10 @@ class Vine5LinkMovingBase3D(VecTask):
 
         # Reset action history
         for i in range(self.cfg["env"]["ACTION_DELAY"]):
-            history_u_rail_velocity, history_u_fpam = self.actions_history[i]
+            history_u_rail_velocity, history_u_fpam, history_u_growth = self.actions_history[i]
             history_u_rail_velocity[env_ids, :] = 0
             history_u_fpam[env_ids, :] = 0
+            history_u_growth[env_ids, :] = 0
 
         if self.cfg['env']['CREATE_SHELF']:
             # Shelf dimensions
@@ -969,9 +972,9 @@ class Vine5LinkMovingBase3D(VecTask):
             self.raw_actions += action_noise
 
         # Store newest action, use oldest action
-        newest_u_rail_velocity, newest_u_fpam = self.raw_actions_to_actions(self.raw_actions)
-        self.actions_history.append((newest_u_rail_velocity, newest_u_fpam))
-        self.u_rail_velocity, self.u_fpam = self.actions_history.pop(0)
+        newest_u_rail_velocity, newest_u_fpam, newest_u_growth = self.raw_actions_to_actions(self.raw_actions)
+        self.actions_history.append((newest_u_rail_velocity, newest_u_fpam, newest_u_growth))
+        self.u_rail_velocity, self.u_fpam, self.u_growth = self.actions_history.pop(0)
 
         self.manual_intervention()
         self.smoothed_u_fpam = self.u_fpam_to_smoothed_u_fpam(self.u_fpam, self.smoothed_u_fpam)
@@ -1029,7 +1032,8 @@ class Vine5LinkMovingBase3D(VecTask):
             u_rail_velocity = torch.zeros_like(raw_actions[:, 0:1], device=raw_actions.device)  # (num_envs, 1)
             u_fpam = rescale_to_u(raw_actions, self.cfg['env']['FPAM_MIN'])  # (num_envs, 1)
         
-        return u_rail_velocity, u_fpam
+        u_growth = rescale_to_u_growth(raw_actions[:, 2:3], 1) # TODO: make this a config
+        return u_rail_velocity, u_fpam, u_growth
 
     def u_fpam_to_smoothed_u_fpam(self, u_fpam, smoothed_u_fpam):
         # Compute smoothed u_fpam
@@ -1143,8 +1147,11 @@ class Vine5LinkMovingBase3D(VecTask):
         self.prev_cart_vel = cart_vel_y.detach().clone()
 
         # TEST GROWTH CONTROL
-        growth_rate_des = 0.0
-        growth_pos_des = 0.0
+        # TODO: fix override
+        growth_rate_des = 0.05 + 0.0*self.u_growth
+        growth_pos_des = 0.2 + 0.0*self.u_growth 
+        # print(f"u_growth: {self.u_growth[0,0]}")
+        
 
         # breakpoint()
         growth_rate_cur = qd[:, 0]
@@ -1152,8 +1159,9 @@ class Vine5LinkMovingBase3D(VecTask):
         growth_rate_P_gain = 10.0
         growth_pos_P_gain = 50.0
         VINE_MASS = .005*4 + .01
-        NOMINAL_FORCE = -9.81 * VINE_MASS
-        torques[0] = NOMINAL_FORCE + growth_pos_P_gain * (growth_pos_des - growth_pos_cur) + growth_rate_P_gain * (growth_rate_des - growth_rate_cur)
+        NOMINAL_FORCE = 0*-9.81 * VINE_MASS
+        print(qd[0, 0],NOMINAL_FORCE, growth_rate_P_gain * (growth_rate_des - growth_rate_cur))
+        torques[0] = NOMINAL_FORCE + 0*growth_pos_P_gain * (growth_pos_des - growth_pos_cur) + growth_rate_P_gain * (growth_rate_des - growth_rate_cur)
 
         # Set efforts
         if USE_MOVING_BASE:
@@ -1538,6 +1546,8 @@ def rescale_to_u(u_fpam, min, max):
 def rescale_to_u_rail_velocity(u_rail_velocity, scale):
     return u_rail_velocity * scale
 
+def rescale_to_u_growth(u_rail_velocity, scale):
+    return u_rail_velocity * scale
 #######################################################################
 ### =========================jit functions========================= ###
 #######################################################################
