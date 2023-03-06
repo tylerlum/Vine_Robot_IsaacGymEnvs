@@ -1032,7 +1032,7 @@ class Vine5LinkMovingBase3D(VecTask):
             u_rail_velocity = torch.zeros_like(raw_actions[:, 0:1], device=raw_actions.device)  # (num_envs, 1)
             u_fpam = rescale_to_u(raw_actions, self.cfg['env']['FPAM_MIN'])  # (num_envs, 1)
         
-        u_growth = rescale_to_u_growth(raw_actions[:, 2:3], 1) # TODO: make this a config
+        u_growth = rescale_to_u_growth(raw_actions[:, 2:3], self.cfg['env']['GROWTH_MIN'], self.cfg['env']['GROWTH_MAX'])
         return u_rail_velocity, u_fpam, u_growth
 
     def u_fpam_to_smoothed_u_fpam(self, u_fpam, smoothed_u_fpam):
@@ -1147,21 +1147,16 @@ class Vine5LinkMovingBase3D(VecTask):
         self.prev_cart_vel = cart_vel_y.detach().clone()
 
         # TEST GROWTH CONTROL
-        # TODO: fix override
-        growth_rate_des = 0.05 + 0.0*self.u_growth
-        growth_pos_des = 0.2 + 0.0*self.u_growth 
-        # print(f"u_growth: {self.u_growth[0,0]}")
-        
+        growth_rate_des = 0.0
+        growth_pos_des = self.u_growth
 
         # breakpoint()
         growth_rate_cur = qd[:, 0]
         growth_pos_cur = q[:, 0]
-        growth_rate_P_gain = 10.0
+        growth_rate_P_gain = 0.0
         growth_pos_P_gain = 50.0
-        VINE_MASS = .005*4 + .01
-        NOMINAL_FORCE = 0*-9.81 * VINE_MASS
-        print(qd[0, 0],NOMINAL_FORCE, growth_rate_P_gain * (growth_rate_des - growth_rate_cur))
-        torques[0] = NOMINAL_FORCE + 0*growth_pos_P_gain * (growth_pos_des - growth_pos_cur) + growth_rate_P_gain * (growth_rate_des - growth_rate_cur)
+        print(f"{qd[0, 0]},\t{growth_pos_des[0,0]},\t{growth_pos_cur[0]},\t{growth_pos_P_gain * (growth_pos_des - growth_pos_cur)[0,0]}")
+        torques[0] = growth_pos_P_gain * (growth_pos_des - growth_pos_cur) + growth_rate_P_gain * (growth_rate_des - growth_rate_cur)
 
         # Set efforts
         if USE_MOVING_BASE:
@@ -1546,8 +1541,8 @@ def rescale_to_u(u_fpam, min, max):
 def rescale_to_u_rail_velocity(u_rail_velocity, scale):
     return u_rail_velocity * scale
 
-def rescale_to_u_growth(u_rail_velocity, scale):
-    return u_rail_velocity * scale
+def rescale_to_u_growth(u_growth, min, max):
+    return (u_growth + 1.0) / 2.0 * (max - min) + min
 #######################################################################
 ### =========================jit functions========================= ###
 #######################################################################
