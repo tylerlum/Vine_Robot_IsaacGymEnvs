@@ -1081,8 +1081,8 @@ class Vine5LinkMovingBase3D(VecTask):
             #        = - A @ x
             K = torch.diag(torch.tensor([0.8385, 0.8385, 0.8385, 1.5400, 1.5109, 1.2887, 0.4347], device=self.device))
             C = torch.diag(torch.tensor([0.0178, 0.0178, 0.0178, 0.0304, 0.0528, 0.0367, 0.0223], device=self.device))
-            b = torch.tensor([0.0, 0.0007, 0.01, 0.0062, 0.0402, 0.0160, 0.0133], device=self.device)
-            B = torch.tensor([0.0, 0.0247, 0.01, 0.0616, 0.0779, 0.0498, 0.0268], device=self.device)
+            b = 0*torch.tensor([0.0, 0.0007, 0.01, 0.0062, 0.0402, 0.0160, 0.0133], device=self.device)
+            B = torch.tensor([0.005, 0.0247, 0.01, 0.0616, 0.0779, 0.0498, 0.0268], device=self.device)
 
             A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
             self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
@@ -1147,16 +1147,19 @@ class Vine5LinkMovingBase3D(VecTask):
         self.prev_cart_vel = cart_vel_y.detach().clone()
 
         # TEST GROWTH CONTROL
-        growth_rate_des = 0.0
-        growth_pos_des = self.u_growth
+        growth_rate_des = 0.0 * self.u_growth[:, 0]
+        growth_pos_des = self.u_growth[:, 0]
 
         # breakpoint()
         growth_rate_cur = qd[:, 0]
         growth_pos_cur = q[:, 0]
         growth_rate_P_gain = 0.0
         growth_pos_P_gain = 50.0
-        print(f"{qd[0, 0]},\t{growth_pos_des[0,0]},\t{growth_pos_cur[0]},\t{growth_pos_P_gain * (growth_pos_des - growth_pos_cur)[0,0]}")
-        torques[0] = growth_pos_P_gain * (growth_pos_des - growth_pos_cur) + growth_rate_P_gain * (growth_rate_des - growth_rate_cur)
+        # print(f"{qd[0, 0]},\t{growth_pos_des[0]},\t{growth_pos_cur[0]},\t{growth_pos_P_gain * (growth_pos_des - growth_pos_cur)[0]}")
+        if len(torques.shape) == 0:
+            torques[0] = growth_pos_P_gain * (growth_pos_des - growth_pos_cur) + growth_rate_P_gain * (growth_rate_des - growth_rate_cur)
+        else:
+            torques[:, 0] = growth_pos_P_gain * (growth_pos_des - growth_pos_cur) + growth_rate_P_gain * (growth_rate_des - growth_rate_cur)
 
         # Set efforts
         if USE_MOVING_BASE:
