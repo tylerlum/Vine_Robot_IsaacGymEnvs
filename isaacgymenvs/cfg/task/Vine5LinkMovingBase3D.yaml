@@ -45,6 +45,8 @@ env:
   # Action space
   FPAM_MIN: -0.1
   FPAM_MAX: 3.0
+  GROWTH_MIN: 0.0
+  GROWTH_MAX: 0.3
   RAIL_VELOCITY_SCALE: ${resolve_default:1.0,${...RAIL_VELOCITY_SCALE}}
 
   DAMPING: 2e-2
