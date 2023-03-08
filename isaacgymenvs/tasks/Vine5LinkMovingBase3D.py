@@ -233,6 +233,7 @@ class Vine5LinkMovingBase3D(VecTask):
         # Dt
         self.dt = self.cfg["sim"]["dt"]
         self.control_dt = self.dt * self.control_freq_inv
+        self.counter_start = int(1.0/self.cfg["sim"]["dt"]/12.0)
 
         # Keep track of prevs
         self.prev_dof_pos = self.dof_pos.clone()
@@ -770,22 +771,22 @@ class Vine5LinkMovingBase3D(VecTask):
         self.logger.info(f"self.PRINT_DEBUG_IDX = {self.PRINT_DEBUG_IDX}")
 
     def _move_left_callback(self):
-        self.MOVE_LEFT_COUNTER = 10
+        self.MOVE_LEFT_COUNTER = self.counter_start
         self.MOVE_RIGHT_COUNTER = 0
         self.logger.info(f"self.MOVE_LEFT_COUNTER = {self.MOVE_LEFT_COUNTER}")
 
     def _move_right_callback(self):
-        self.MOVE_RIGHT_COUNTER = 10
+        self.MOVE_RIGHT_COUNTER = self.counter_start
         self.MOVE_LEFT_COUNTER = 0
         self.logger.info(f"self.MOVE_RIGHT_COUNTER = {self.MOVE_RIGHT_COUNTER}")
 
     def _max_pressure_callback(self):
-        self.MAX_PRESSURE_COUNTER = 10
+        self.MAX_PRESSURE_COUNTER = self.counter_start
         self.MIN_PRESSURE_COUNTER = 0
         self.logger.info(f"self.MAX_PRESSURE_COUNTER = {self.MAX_PRESSURE_COUNTER}")
 
     def _min_pressure_callback(self):
-        self.MIN_PRESSURE_COUNTER = 10
+        self.MIN_PRESSURE_COUNTER = self.counter_start
         self.MAX_PRESSURE_COUNTER = 0
         self.logger.info(f"self.MIN_PRESSURE_COUNTER = {self.MIN_PRESSURE_COUNTER}")
 
@@ -1156,7 +1157,7 @@ class Vine5LinkMovingBase3D(VecTask):
         growth_rate_P_gain = 0.0
         growth_pos_P_gain = 50.0
         # print(f"{qd[0, 0]},\t{growth_pos_des[0]},\t{growth_pos_cur[0]},\t{growth_pos_P_gain * (growth_pos_des - growth_pos_cur)[0]}")
-        if len(torques.shape) == 0:
+        if len(torques.shape) == 1:
             torques[0] = growth_pos_P_gain * (growth_pos_des - growth_pos_cur) + growth_rate_P_gain * (growth_rate_des - growth_rate_cur)
         else:
             torques[:, 0] = growth_pos_P_gain * (growth_pos_des - growth_pos_cur) + growth_rate_P_gain * (growth_rate_des - growth_rate_cur)
@@ -1167,6 +1168,7 @@ class Vine5LinkMovingBase3D(VecTask):
             dof_efforts[:, 1:] = torques
         else:
             dof_efforts[:, :] = torques
+        print(dof_efforts)
         self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
     ##### PRE PHYSICS STEP END #####
 
