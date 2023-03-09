@@ -316,6 +316,9 @@ class Vine5LinkMovingBase3D(VecTask):
                 u_fpam = torch.zeros(self.num_envs, N_PRESSURE_ACTIONS, device=self.device) + U_traj[1, i]
                 self.actions_history.append((u_rail_velocity, u_fpam))
 
+        # For testing - TODO: Remove
+        self.last_cart_velocity = 1.0
+
     def read_mat_file(self, filename):
         # TODO: Unused right now
         import scipy.io
@@ -1080,10 +1083,10 @@ class Vine5LinkMovingBase3D(VecTask):
             # torque = - Kq - Cqd - b - Bu;
             #        = - [K C diag(b) diag(B)] @ [q; qd; ones(5), u_fpam*ones(5)]
             #        = - A @ x
-            K = torch.diag(torch.tensor([0.8385, 0.8385, 0.8385, 1.5400, 1.5109, 1.2887, 0.4347], device=self.device))
-            C = torch.diag(torch.tensor([0.0178, 0.0178, 0.0178, 0.0304, 0.0528, 0.0367, 0.0223], device=self.device))
-            b = 0*torch.tensor([0.0, 0.0007, 0.01, 0.0062, 0.0402, 0.0160, 0.0133], device=self.device)
-            B = torch.tensor([0.005, 0.0247, 0.01, 0.0616, 0.0779, 0.0498, 0.0268], device=self.device)
+            K = torch.diag(torch.tensor([0.0, 0.8385, 0.8385, 1.5400, 1.5109, 1.2887, 0.4347], device=self.device))
+            C = torch.diag(torch.tensor([0.0, 0.0178, 0.0178, 0.0304, 0.0528, 0.0367, 0.0223], device=self.device))
+            b = 0*torch.tensor([0.0, 0.0, 0.0007, 0.0062, 0.0402, 0.0160, 0.0133], device=self.device)
+            B = torch.tensor([0.0, 0.01, 0.0247, 0.0616, 0.0779, 0.0498, 0.0268], device=self.device)
 
             A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
             self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
@@ -1095,6 +1098,21 @@ class Vine5LinkMovingBase3D(VecTask):
             A = self.A
 
         u_fpam_to_use = self.smoothed_u_fpam if self.cfg['env']['USE_SMOOTHED_FPAM'] else self.u_fpam
+
+        # # For testing - move left and right
+        # if self.dof_pos[0, 0] > .1:
+        #     self.u_rail_velocity[:] = -1.0
+        #     self.last_cart_velocity = -1.0
+        #     u_fpam_to_use[:] = -3.0
+        # elif self.dof_pos[0, 0] < -.1:
+        #     self.u_rail_velocity[:] = 1.0
+        #     self.last_cart_velocity = 1.0
+        #     u_fpam_to_use[:] = 3.0
+        # else:
+        #     self.u_rail_velocity[:] = self.last_cart_velocity
+        #     u_fpam_to_use[:] = 3.0 if self.last_cart_velocity == 1.0 else 0.0
+        # self.u_rail_velocity[:] /= 2.0
+
         x = torch.cat([q, qd, torch.ones(self.num_envs, N_PRISMATIC_DOFS + N_REVOLUTE_DOFS - (1 if USE_MOVING_BASE else 0), device=self.device), u_fpam_to_use *
                        torch.ones(self.num_envs, N_PRISMATIC_DOFS + N_REVOLUTE_DOFS - (1 if USE_MOVING_BASE else 0), device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
         torques = -torch.matmul(A, x).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
@@ -1147,20 +1165,23 @@ class Vine5LinkMovingBase3D(VecTask):
         self.prev_cart_vel_error = cart_vel_error.detach().clone()
         self.prev_cart_vel = cart_vel_y.detach().clone()
 
-        # TEST GROWTH CONTROL
+        # GROWTH CONTROL
         growth_rate_des = 0.0 * self.u_growth[:, 0]
         growth_pos_des = self.u_growth[:, 0]
+        # override
+        # growth_pos_des = .01 + 0.0 * self.u_growth[:, 0]
 
-        # breakpoint()
         growth_rate_cur = qd[:, 0]
         growth_pos_cur = q[:, 0]
-        growth_rate_P_gain = 0.0
+        growth_rate_P_gain = 1.0
         growth_pos_P_gain = 50.0
         # print(f"{qd[0, 0]},\t{growth_pos_des[0]},\t{growth_pos_cur[0]},\t{growth_pos_P_gain * (growth_pos_des - growth_pos_cur)[0]}")
         if len(torques.shape) == 1:
             torques[0] = growth_pos_P_gain * (growth_pos_des - growth_pos_cur) + growth_rate_P_gain * (growth_rate_des - growth_rate_cur)
+            # torques[0] = 0.0 # override
         else:
             torques[:, 0] = growth_pos_P_gain * (growth_pos_des - growth_pos_cur) + growth_rate_P_gain * (growth_rate_des - growth_rate_cur)
+            # torques[:, 0] = 0.0 # override
 
         # Set efforts
         if USE_MOVING_BASE:
@@ -1168,7 +1189,16 @@ class Vine5LinkMovingBase3D(VecTask):
             dof_efforts[:, 1:] = torques
         else:
             dof_efforts[:, :] = torques
-        print(dof_efforts)
+        # print(dof_efforts)
+
+        # # Test - set prismatic joint to a fixed value
+        # env_ptr = self.envs[0]
+        # vine_handle = self.vine_handles[0]
+        # vine_dof_props = self.gym.get_actor_dof_properties(env_ptr, vine_handle)
+        # vine_dof_props['lower'][1] = .01 - 1e-4
+        # vine_dof_props['upper'][1] = .01 + 1e-4 
+        # self.gym.set_actor_dof_properties(env_ptr, vine_handle, vine_dof_props)
+
         self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(dof_efforts))
     ##### PRE PHYSICS STEP END #####
 
