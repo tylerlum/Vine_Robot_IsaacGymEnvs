@@ -57,6 +57,7 @@ START_POS_IDX, END_POS_IDX = 0, 3
 START_QUAT_IDX, END_QUAT_IDX = 3, 7
 START_LIN_VEL_IDX, END_LIN_VEL_IDX = 7, 10
 START_ANG_VEL_IDX, END_ANG_VEL_IDX = 10, 13
+GROWTH_JOINT_IDX = 1 # index in "torques" array corresponding to growth prismatic joint
 
 DOF_MODE = gymapi.DOF_MODE_EFFORT
 
@@ -209,7 +210,7 @@ class Vine5LinkMovingBase3D(VecTask):
         self.index_to_view = int(0.1 * self.num_envs)
         tip_pos = self.tip_positions[self.index_to_view]
         cam_target = gymapi.Vec3(tip_pos[0], tip_pos[1], INIT_Z-0.25)
-        cam_pos = cam_target + gymapi.Vec3(1.0, 1.0, 0.0)
+        cam_pos = cam_target + gymapi.Vec3(1.0, -0.50, 0.0)
         self.gym.viewer_camera_look_at(self.viewer, self.envs[self.index_to_view], cam_pos, cam_target)
 
         # Setup camera for taking pictures
@@ -448,8 +449,8 @@ class Vine5LinkMovingBase3D(VecTask):
 
         # Sanity check ordering of indices
         if N_PRISMATIC_DOFS == 2:
-            assert (self.prismatic_dof_indices == [0, 1])
-            assert (self.revolute_dof_indices == [i+2 for i in range(N_REVOLUTE_DOFS)])
+            assert (self.prismatic_dof_indices == [0, 2])
+            assert (self.revolute_dof_indices == [1] + [i+2 for i in range(1, N_REVOLUTE_DOFS)])
         elif N_PRISMATIC_DOFS == 1:
             assert (self.prismatic_dof_indices == [0])
             assert (self.revolute_dof_indices == [i+1 for i in range(N_REVOLUTE_DOFS)])
@@ -1083,10 +1084,10 @@ class Vine5LinkMovingBase3D(VecTask):
             # torque = - Kq - Cqd - b - Bu;
             #        = - [K C diag(b) diag(B)] @ [q; qd; ones(5), u_fpam*ones(5)]
             #        = - A @ x
-            K = torch.diag(torch.tensor([0.0, 0.8385, 0.8385, 1.5400, 1.5109, 1.2887, 0.4347], device=self.device))
-            C = torch.diag(torch.tensor([0.0, 0.0178, 0.0178, 0.0304, 0.0528, 0.0367, 0.0223], device=self.device))
+            K = torch.diag(torch.tensor([0.8385, 0.0, 0.8385, 1.5400, 1.5109, 1.2887, 0.4347], device=self.device))
+            C = torch.diag(torch.tensor([0.0178, 0.0, 0.0178, 0.0304, 0.0528, 0.0367, 0.0223], device=self.device))
             b = 0*torch.tensor([0.0, 0.0, 0.0007, 0.0062, 0.0402, 0.0160, 0.0133], device=self.device)
-            B = torch.tensor([0.0, 0.01, 0.0247, 0.0616, 0.0779, 0.0498, 0.0268], device=self.device)
+            B = torch.tensor([0.0, 0.0, 0.0247, 0.0616, 0.0779, 0.0498, 0.0268], device=self.device)
 
             A1 = torch.cat([K, C, torch.diag(b), torch.diag(B)], dim=-1)  # (5, 20)
             self.A = A1[None, ...].repeat_interleave(self.num_envs, dim=0)  # (num_envs, 5, 20)
@@ -1113,9 +1114,19 @@ class Vine5LinkMovingBase3D(VecTask):
         #     u_fpam_to_use[:] = 3.0 if self.last_cart_velocity == 1.0 else 0.0
         # self.u_rail_velocity[:] /= 2.0
 
+        # # For testing - move left and stop
+        # if self.dof_pos[0, 0] < .1:
+        #     self.u_rail_velocity[:] = 1.0
+        #     self.last_cart_velocity = 1.0
+        #     u_fpam_to_use[:] = 3.0
+        # else:
+        #     self.u_rail_velocity[:] = 0.0
+        #     self.last_cart_velocity = 0.0
+        #     u_fpam_to_use[:] = 0.0
+
         x = torch.cat([q, qd, torch.ones(self.num_envs, N_PRISMATIC_DOFS + N_REVOLUTE_DOFS - (1 if USE_MOVING_BASE else 0), device=self.device), u_fpam_to_use *
                        torch.ones(self.num_envs, N_PRISMATIC_DOFS + N_REVOLUTE_DOFS - (1 if USE_MOVING_BASE else 0), device=self.device)], dim=1)[..., None]  # (num_envs, 20, 1)
-        torques = -torch.matmul(A, x).squeeze().cpu()  # (num_envs, 5, 1) => (num_envs, 5)
+        torques = -torch.matmul(A, x).squeeze().cpu()  # (num_envs, 7, 1) => (num_envs, 7)
 
         # Compute rail force
         # Previous approach:
@@ -1171,17 +1182,17 @@ class Vine5LinkMovingBase3D(VecTask):
         # override
         # growth_pos_des = .01 + 0.0 * self.u_growth[:, 0]
 
-        growth_rate_cur = qd[:, 0]
-        growth_pos_cur = q[:, 0]
+        growth_rate_cur = qd[:, GROWTH_JOINT_IDX]
+        growth_pos_cur = q[:, GROWTH_JOINT_IDX]
         growth_rate_P_gain = 1.0
         growth_pos_P_gain = 50.0
         # print(f"{qd[0, 0]},\t{growth_pos_des[0]},\t{growth_pos_cur[0]},\t{growth_pos_P_gain * (growth_pos_des - growth_pos_cur)[0]}")
         if len(torques.shape) == 1:
-            torques[0] = growth_pos_P_gain * (growth_pos_des - growth_pos_cur) + growth_rate_P_gain * (growth_rate_des - growth_rate_cur)
-            # torques[0] = 0.0 # override
+            torques[GROWTH_JOINT_IDX] = growth_pos_P_gain * (growth_pos_des - growth_pos_cur) + growth_rate_P_gain * (growth_rate_des - growth_rate_cur)
+            # torques[GROWTH_JOINT_IDX] = 0.0 # override
         else:
-            torques[:, 0] = growth_pos_P_gain * (growth_pos_des - growth_pos_cur) + growth_rate_P_gain * (growth_rate_des - growth_rate_cur)
-            # torques[:, 0] = 0.0 # override
+            torques[:, GROWTH_JOINT_IDX] = growth_pos_P_gain * (growth_pos_des - growth_pos_cur) + growth_rate_P_gain * (growth_rate_des - growth_rate_cur)
+            # torques[:, GROWTH_JOINT_IDX] = 0.0 # override
 
         # Set efforts
         if USE_MOVING_BASE:
