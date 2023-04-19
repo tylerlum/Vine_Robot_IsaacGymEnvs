@@ -295,7 +295,7 @@
         <axis xyz="0.0 1.0 0.0" />
 
         <!-- Change z to set relative position of link wrt cart (half cart height) -->
-        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 -1.5708" />
 
         <parent link="translation_z" />
         <child link="rotation_y" />
