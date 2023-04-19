@@ -210,7 +210,7 @@ class Vine5LinkMovingBase3D(VecTask):
         self.index_to_view = int(0.1 * self.num_envs)
         tip_pos = self.tip_positions[self.index_to_view]
         cam_target = gymapi.Vec3(tip_pos[0], tip_pos[1], INIT_Z-0.25)
-        cam_pos = cam_target + gymapi.Vec3(1.0, -0.50, 0.0)
+        cam_pos = cam_target + gymapi.Vec3(1.0, -0.0, 0.0)
         self.gym.viewer_camera_look_at(self.viewer, self.envs[self.index_to_view], cam_pos, cam_target)
 
         # Setup camera for taking pictures
@@ -719,6 +719,7 @@ class Vine5LinkMovingBase3D(VecTask):
             "PRINT_DEBUG_IDX_DOWN": gymapi.KEY_J,
             "MOVE_LEFT": gymapi.KEY_LEFT,
             "MOVE_RIGHT": gymapi.KEY_RIGHT,
+            "STOP_RAIL": gymapi.KEY_SPACE,
             "MAX_PRESSURE": gymapi.KEY_UP,
             "MIN_PRESSURE": gymapi.KEY_DOWN,
             "HISTOGRAM": gymapi.KEY_H,
@@ -732,6 +733,7 @@ class Vine5LinkMovingBase3D(VecTask):
             "PRINT_DEBUG_IDX_DOWN": self._print_debug_idx_down_callback,
             "MOVE_LEFT": self._move_left_callback,
             "MOVE_RIGHT": self._move_right_callback,
+            "STOP_RAIL": self._stop_rail_callback,
             "MAX_PRESSURE": self._max_pressure_callback,
             "MIN_PRESSURE": self._min_pressure_callback,
             "HISTOGRAM": self._histogram_callback,
@@ -742,6 +744,7 @@ class Vine5LinkMovingBase3D(VecTask):
         self.PRINT_DEBUG_IDX = 0
         self.MOVE_LEFT_COUNTER = 0
         self.MOVE_RIGHT_COUNTER = 0
+        self.STOP_RAIL_COUNTER = 0
         self.MAX_PRESSURE_COUNTER = 0
         self.MIN_PRESSURE_COUNTER = 0
         self.create_histogram_command_from_keyboard_press = False
@@ -783,6 +786,10 @@ class Vine5LinkMovingBase3D(VecTask):
         self.MOVE_RIGHT_COUNTER = self.counter_start
         self.MOVE_LEFT_COUNTER = 0
         self.logger.info(f"self.MOVE_RIGHT_COUNTER = {self.MOVE_RIGHT_COUNTER}")
+
+    def _stop_rail_callback(self):
+        self.STOP_RAIL_COUNTER = self.counter_start
+        self.logger.info(f"self.STOP_RAIL_COUNTER = {self.STOP_RAIL_COUNTER}")
 
     def _max_pressure_callback(self):
         self.MAX_PRESSURE_COUNTER = self.counter_start
@@ -1056,6 +1063,9 @@ class Vine5LinkMovingBase3D(VecTask):
         if self.MOVE_RIGHT_COUNTER > 0:
             self.u_rail_velocity[:] = self.cfg['env']['RAIL_VELOCITY_SCALE']
             self.MOVE_RIGHT_COUNTER -= 1
+        if self.STOP_RAIL_COUNTER > 0:
+            self.u_rail_velocity[:] = 0.0
+            self.STOP_RAIL_COUNTER -= 1
 
         if self.MAX_PRESSURE_COUNTER > 0:
             self.u_fpam[:] = self.cfg['env']['FPAM_MAX']
