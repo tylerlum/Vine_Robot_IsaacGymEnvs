@@ -208,8 +208,8 @@ class Vine5LinkMovingBase3D(VecTask):
         # Setup viewer camera
         self.index_to_view = int(0.1 * self.num_envs)
         tip_pos = self.tip_positions[self.index_to_view]
-        cam_target = gymapi.Vec3(tip_pos[0], tip_pos[1], INIT_Z)
-        cam_pos = cam_target + gymapi.Vec3(1.0, 0.0, 0.0)
+        cam_target = gymapi.Vec3(tip_pos[0], tip_pos[1], INIT_Z-0.25)
+        cam_pos = cam_target + gymapi.Vec3(1.0, 1.0, 0.0)
         self.gym.viewer_camera_look_at(self.viewer, self.envs[self.index_to_view], cam_pos, cam_target)
 
         # Setup camera for taking pictures
@@ -316,8 +316,8 @@ class Vine5LinkMovingBase3D(VecTask):
                 u_fpam = torch.zeros(self.num_envs, N_PRESSURE_ACTIONS, device=self.device) + U_traj[1, i]
                 self.actions_history.append((u_rail_velocity, u_fpam))
 
-        # For testing - TODO: Remove
-        self.last_cart_velocity = 1.0
+        # # For testing - TODO: Remove
+        # self.last_cart_velocity = 1.0
 
     def read_mat_file(self, filename):
         # TODO: Unused right now
@@ -932,7 +932,7 @@ class Vine5LinkMovingBase3D(VecTask):
         # TODO: move this to init for efficiency
         # IMPORTANT: Tune these angles depending the task, affects the range of target positions
 
-        TARGET_POS_MIN_X, TARGET_POS_MAX_X = 0.0, 0.0  # Ignored dimension
+        TARGET_POS_MIN_X, TARGET_POS_MAX_X = self.cfg['env']['MIN_TARGET_X'], self.cfg['env']['MAX_TARGET_X']
         if USE_MOVING_BASE:
             # TARGET_POS_MIN_Y, TARGET_POS_MAX_Y = -LENGTH_RAIL/2, LENGTH_RAIL/2  # Set to length of rail
             # TODO: Tune the Y limits of target position depending on task and pipe dims/orientation
