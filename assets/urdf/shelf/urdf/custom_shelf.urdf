@@ -13,9 +13,9 @@
             <material name="beige"/>
         </visual>
         <visual>
-            <origin xyz="0 0 0.0" />
+            <origin xyz="0 -0.001 0.0" />
             <geometry>
-                <box size="0.15 0.4 0.01" />
+                <box size="0.15 0.399 0.01" />
             </geometry>
             <material name="beige"/>
         </visual>
@@ -73,16 +73,16 @@
 
         <!-- COLLISION -->
         <!-- layers -->
-        <collision>
+        <!-- <collision>
             <origin xyz="0 0 -0.2" />
             <geometry>
                 <box size="0.15 0.4 0.01" />
             </geometry>
-        </collision>
+        </collision> -->
         <collision>
-            <origin xyz="0 0 0.0" />
+            <origin xyz="0 -0.001 0.0" />
             <geometry>
-                <box size="0.15 0.4 0.01" />
+                <box size="0.15 0.399 0.01" />
             </geometry>
         </collision>
         <collision>
@@ -92,7 +92,7 @@
             </geometry>
         </collision>
         <!-- legs -->
-        <collision>
+        <!-- <collision>
             <origin xyz="0.11 -0.18 -0.175" />
             <geometry>
                 <box size="0.025 0.025 0.75" />
@@ -128,7 +128,7 @@
             <geometry>
                 <box size="0.025 0.025 0.75" />
             </geometry>
-        </collision>
+        </collision> -->
 
         <inertial>
             <mass value="500" />
@@ -136,4 +136,24 @@
             <inertia ixx="1000.0" ixy="0.0" ixz="0.0" iyy="1000.0" iyz="0.0" izz="1000.0" />
         </inertial>
     </link>
+    <link name="shelf_link">
+        <visual >
+            <origin xyz="0 0.199 0.0" />
+            <geometry>
+                <box size="0.15 0.002 0.01" />
+            </geometry> 
+        </visual>
+        <collision>
+            <origin xyz="0 0.199 0.0" />
+            <geometry>
+                <box size="0.15 0.002 0.01" />
+            </geometry> 
+        </collision>
+    </link>
+    <joint name="surface_to_shelf" type="fixed">
+        <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+        <parent link="shelf"/>
+        <child link="shelf_link"/>
+        <axis xyz="0.0 0.0 0.0"/>
+    </joint>
 </robot>  
