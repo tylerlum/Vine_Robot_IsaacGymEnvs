@@ -80,6 +80,20 @@ python train.py task=Vine5LinkMovingBase wandb_activate=True wandb_entity=<your_
 <br>
 <br>
 
+
+## Citation
+
+If you find our code useful for your research, please cite:
+
+```
+@inproceedings{jitosho2023rlsoftrobot,
+  author    = {Jitosho, Rianna and Lum, Tyler and Okamura, Allison and Liu, Karen},
+  title     = {Reinforcement Learning Enables Real-Time Planning and Control of Agile Maneuvers for Soft Robot Arms},
+  journal   = {Conference on Robot Learning},
+  year      = {2023},
+}
+```
+
 ## Early Results (Jan 2023)
 
 <p align="center">
