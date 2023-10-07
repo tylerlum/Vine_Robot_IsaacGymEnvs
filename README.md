@@ -73,6 +73,8 @@ python train.py task=Vine5LinkMovingBase wandb_activate=True wandb_entity=<your_
 
 * We use wandb extensively in this codebase, so we highly recommend setting up an account and using it. We log rewards over iterations, breakdowns of weighted and unweighted reward terms (for reward tuning), videos of the robot in the training process, observations, and more.
 
+* For the paper submission, we added additional visual links to make the sim look more visually appealing on another [branch](https://github.com/tylerlum/Vine_Robot_IsaacGymEnvs/pull/31). 
+
 <br>
 <br>
 <br>
