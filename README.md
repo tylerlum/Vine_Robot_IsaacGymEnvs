@@ -1,28 +1,72 @@
-# Vine Robot Isaac Gym Environment
+# Reinforcement Learning Enables Real-Time Planning and Control of Agile Maneuvers for Soft Robot Arms
 
 <p align="center">
-  <img height="450" src="https://user-images.githubusercontent.com/26510814/232339957-0c343407-f2ef-45c6-a9b7-b329fd054992.png">
+  <img width="600" src="https://user-images.githubusercontent.com/26510814/232339957-0c343407-f2ef-45c6-a9b7-b329fd054992.png">
 </p>
 
-The purpose of this repository is to model and simulate a [Vine robot](https://www.vinerobots.org/) and train a reinforcement learning policy to control the robot. Below are gifs of the Vine robot in action (in sim and real).
+This repository contains the implementation of [Reinforcement Learning Enables Real-Time Planning and Control of Agile Maneuvers for Soft Robot Arms](https://sites.google.com/view/rl-soft-robot). This is the first work that demonstrates real-time planning and control of agile maneuvers by soft robot arms, which is achieved by using reinforcement learning and key insights with simulation and actuator modeling to overcome sim-to-real challenges for zero-shot sim-to-real transfer.
 
 ## Results (Feb 2023)
 
 <p align="center">
-  <img height="450" src="https://user-images.githubusercontent.com/26510814/232340470-816d7427-8d0d-41f9-add0-bf63331462be.gif">
-  <img height="450" src="https://user-images.githubusercontent.com/26510814/232340585-2330d715-afe4-49d5-bbba-ac9d5a54d392.gif">
+  <img width="600" src="https://user-images.githubusercontent.com/26510814/232340470-816d7427-8d0d-41f9-add0-bf63331462be.gif">
+  <img width="600" src="https://user-images.githubusercontent.com/26510814/232340585-2330d715-afe4-49d5-bbba-ac9d5a54d392.gif">
 </p>
 
 ## System Overview (Feb 2023)
 
 <p align="center">
-  <img height="600" src="https://user-images.githubusercontent.com/26510814/232339952-42785e1d-90a5-4ee3-9626-3a14e3694995.png">
+  <img height="600" src="https://github.com/tylerlum/Vine_Robot_IsaacGymEnvs/assets/26510814/dc2dc8e1-0844-4891-9ad3-02a4c477e736">
 </p>
 
-You can run the training with:
+## How to run
+
+### Installation
+
+First, install isaacgym and isaacgymenvs. The following is a copy from the official isaacgymenvs repository installation instructions as of October 6, 2023. Reminder to install isaacgymenvs from this repository, not the official repository.
+
+Download the Isaac Gym Preview 4 release from the [website](https://developer.nvidia.com/isaac-gym), then
+follow the installation instructions in the documentation. We highly recommend using a conda environment 
+to simplify set up.
+
+Ensure that Isaac Gym works on your system by running one of the examples from the `python/examples` 
+directory, like `joint_monkey.py`. Follow troubleshooting steps described in the Isaac Gym Preview 4
+install instructions if you have any trouble running the samples.
+
+Once Isaac Gym is installed and samples work within your current python environment, install this repo:
+
+```bash
+pip install -e .
+```
+
+### Run Training
+
+Before training, please navigate to the `isaacgymenvs` folder, eg.
 
 ```
-python train.py task=Vine5LinkMovingBase wandb_activate=True wandb_entity=tylerlum wandb_project=vine_robot_v3 wandb_name=new_train_0 max_iterations=1000 enable_viewer_sync_at_start=False OBSERVATION_TYPE=POS_AND_FD_VEL RAIL_P_GAIN=3.0 RAIL_SOFT_LIMIT=0.2 RAIL_VELOCITY_SCALE=0.8 CAPTURE_VIDEO=True
+cd Vine_Robot_IsaacGymEnvs/isaacgymenvs
+```
+
+You can run the training in the same way as typical isaacgymenvs. For example:
+```
+python train.py task=Vine5LinkMovingBase wandb_activate=True wandb_entity=<your_wandb_entity> wandb_project=vine_robot wandb_name=new_train_0 max_iterations=1000 enable_viewer_sync_at_start=False OBSERVATION_TYPE=POS_AND_FD_VEL RAIL_P_GAIN=3.0 RAIL_SOFT_LIMIT=0.2 RAIL_VELOCITY_SCALE=0.8 CAPTURE_VIDEO=True
+```
+
+Note that we have added hydra tab completion. Run the following (or add to your `.bashrc`) to get [tab completion](https://github.com/NVIDIA-Omniverse/IsaacGymEnvs/pull/127):
+```
+eval "$(python train.py -sc install=bash)"
+```
+
+### Best Result for Free Space Target Reaching
+
+```
+python train.py task=Vine5LinkMovingBase wandb_activate=True wandb_entity=tylerlum wandb_project=vine_robot_v3 wandb_name=FSTR_acc6_DR-act-001_suc-dist-0-04_ytar-4_no-theta-thetad_rsl0-25_max-ep-100_accel-noise-1-05_action-delay-1 max_iterations=600 CAPTURE_VIDEO=True enable_viewer_sync_at_start=False RAIL_SOFT_LIMIT=.25 RAIL_P_GAIN=30.0 RAIL_ACCELERATION=6.0 task.env.RAIL_VELOCITY_SCALE=1.0 task.env.CREATE_SHELF=False task.env.CREATE_PIPE=False vine_randomize=True task.env.USE_NONZERO_CONTACT_FORCE_RESET=False task.env.CONTACT_FORCE_REWARD_WEIGHT=0.0 task.env.USE_TARGET_REACHED_RESET=True task.env.MIN_TARGET_DEPTH_IN_OBSTACLE=0.0 task.env.MAX_TARGET_DEPTH_IN_OBSTACLE=0.0 task.env.OBSERVATION_TYPE=TIP_AND_CART_AND_OBJ_INFO task.env.ACTION_DELAY=1 task.env.maxEpisodeLength=100 task.env.SUCCESS_DIST=0.04 task.env.MIN_TARGET_Y=-.4 task.env.MAX_TARGET_Y=.4 task.env.MIN_TARGET_Z=.55 task.env.MAX_TARGET_Z=.7 task.task.randomization_parameters.DYNAMICS_SCALING_MIN=0.999999 task.task.randomization_parameters.DYNAMICS_SCALING_MAX=1.000001 task.task.randomization_parameters.ACTION_NOISE_STD=0.001 task.task.randomization_parameters.OBSERVATION_NOISE_STD=0.0 task.task.randomization_parameters.ACCEL_TARGET_SCALING_MIN=0.99 task.task.randomization_parameters.ACCEL_TARGET_SCALING_MAX=1.05
+```
+
+### Best Result for Shelf Target Reaching
+
+```
+python train.py task=Vine5LinkMovingBase wandb_activate=True wandb_entity=tylerlum wandb_project=vine_robot_v3 wandb_name=ABLATION_4l48ph5o_shelf_action-delay-1_no-theta-thetad_dractions-01 max_iterations=500 CAPTURE_VIDEO=True enable_viewer_sync_at_start=False RAIL_SOFT_LIMIT=.25 RAIL_P_GAIN=30.0 RAIL_ACCELERATION=6.0 task.env.RAIL_VELOCITY_SCALE=1.0 task.env.CREATE_SHELF=True task.env.CREATE_PIPE=False vine_randomize=True task.env.USE_NONZERO_CONTACT_FORCE_RESET=False task.env.CONTACT_FORCE_REWARD_WEIGHT=0.0 task.env.USE_TARGET_REACHED_RESET=True task.env.MIN_TARGET_DEPTH_IN_OBSTACLE=-0.05 task.env.MAX_TARGET_DEPTH_IN_OBSTACLE=0.2 task.env.OBSERVATION_TYPE=TIP_AND_CART_AND_OBJ_INFO task.env.ACTION_DELAY=1 task.task.randomization_parameters.DYNAMICS_SCALING_MIN=0.999999 task.task.randomization_parameters.DYNAMICS_SCALING_MAX=1.000001 task.task.randomization_parameters.ACTION_NOISE_STD=0.01
 ```
 
 <br>
@@ -33,14 +77,14 @@ python train.py task=Vine5LinkMovingBase wandb_activate=True wandb_entity=tylerl
 ## Early Results (Jan 2023)
 
 <p align="center">
-  <img height="450" src="https://user-images.githubusercontent.com/26510814/213611552-bbc9d7e7-084c-47a5-942c-1d36873a0204.gif">
-  <img height="450" src="https://user-images.githubusercontent.com/26510814/213611573-58d733f6-af53-458a-81d4-51965dcc4448.gif">
+  <img width="600" src="https://user-images.githubusercontent.com/26510814/213611552-bbc9d7e7-084c-47a5-942c-1d36873a0204.gif">
+  <img width="600" src="https://user-images.githubusercontent.com/26510814/213611573-58d733f6-af53-458a-81d4-51965dcc4448.gif">
 
-  <img height="450" src="https://user-images.githubusercontent.com/26510814/207246825-f6f0171d-590a-4718-a47c-a5433cc202cd.gif">
-  <img height="450" src="https://user-images.githubusercontent.com/26510814/207246835-394e0c04-be75-4a2e-b9ec-2d2b867bb215.gif">
-  <img height="450" src="https://user-images.githubusercontent.com/26510814/207246862-0073e20e-16c8-44c0-8aa6-2b66dcfc5e91.gif">
-  <img height="450" src="https://user-images.githubusercontent.com/26510814/207247188-8141f588-34b0-4c2e-b5ea-e8eb85a63343.gif">
-  <img height="450" src="https://user-images.githubusercontent.com/26510814/207247433-c1f89c79-8d02-4d5f-9be2-a9df2afef041.gif">
+  <img width="600" src="https://user-images.githubusercontent.com/26510814/207246825-f6f0171d-590a-4718-a47c-a5433cc202cd.gif">
+  <img width="600" src="https://user-images.githubusercontent.com/26510814/207246835-394e0c04-be75-4a2e-b9ec-2d2b867bb215.gif">
+  <img width="600" src="https://user-images.githubusercontent.com/26510814/207246862-0073e20e-16c8-44c0-8aa6-2b66dcfc5e91.gif">
+  <img width="600" src="https://user-images.githubusercontent.com/26510814/207247188-8141f588-34b0-4c2e-b5ea-e8eb85a63343.gif">
+  <img width="600"src="https://user-images.githubusercontent.com/26510814/207247433-c1f89c79-8d02-4d5f-9be2-a9df2afef041.gif">
 </p>
 
 ## Rough RL Training Diagram (Jan 2023)
