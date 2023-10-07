@@ -71,6 +71,7 @@ class ObservationType(Enum):
     POS_AND_PREV_POS = "POS_AND_PREV_POS"
     POS_AND_FD_VEL_AND_OBJ_INFO = "POS_AND_FD_VEL_AND_OBJ_INFO"
     TIP_AND_CART_AND_OBJ_INFO = "TIP_AND_CART_AND_OBJ_INFO"
+    NO_FD_TIP_AND_CART_AND_OBJ_INFO = "NO_FD_TIP_AND_CART_AND_OBJ_INFO"
 
 
 # Rewards
@@ -86,6 +87,7 @@ INIT_X, INIT_Y, INIT_Z = 0.0, 0.0, 1.0
 
 # PIPE_RADIUS = 0.065 * PIPE_ADDITIONAL_SCALING
 PIPE_RADIUS = 0.07 * PIPE_ADDITIONAL_SCALING
+
 
 class Vine5LinkMovingBase(VecTask):
     """
@@ -154,7 +156,7 @@ class Vine5LinkMovingBase(VecTask):
             self.cfg["env"]["numObservations"] = (
                 N_REVOLUTE_DOFS + N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ + N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
             )
-        elif observation_type == ObservationType.TIP_AND_CART_AND_OBJ_INFO:
+        elif observation_type in [ObservationType.TIP_AND_CART_AND_OBJ_INFO, ObservationType.NO_FD_TIP_AND_CART_AND_OBJ_INFO]:
             self.cfg["env"]["numObservations"] = (
                 2 * (N_PRISMATIC_DOFS + NUM_XYZ + NUM_XYZ) +
                 N_PRESSURE_ACTIONS + N_PRISMATIC_DOFS
@@ -211,12 +213,16 @@ class Vine5LinkMovingBase(VecTask):
 
         # Setup camera for taking pictures
         self.camera_properties = gymapi.CameraProperties()
-        self.camera_properties.width = self.camera_properties.width // 4  # Save storage space
-        self.camera_properties.height = self.camera_properties.height // 4  # Save storage space
+        if self.cfg['env']['USE_NICE_VISUALS']:
+            self.camera_properties.width = self.camera_properties.width  # Save storage space
+            self.camera_properties.height = self.camera_properties.height  # Save storage space
+        else:
+            self.camera_properties.width = self.camera_properties.width // 4  # Save storage space
+            self.camera_properties.height = self.camera_properties.height // 4  # Save storage space
         self.camera_handle = self.gym.create_camera_sensor(self.envs[self.index_to_view], self.camera_properties)
         self.video_frames = []
         self.num_video_frames = 100
-        self.capture_video_every = 1_000
+        self.capture_video_every = 1
         self.num_steps = 0
         self.gym.set_camera_location(self.camera_handle, self.envs[self.index_to_view], cam_pos, cam_target)
 
@@ -253,9 +259,9 @@ class Vine5LinkMovingBase(VecTask):
                                                 0.86,
                                                 0.0385,
                                                 0.5], dtype=torch.float, device=self.device)
-            elif observation_type == ObservationType.TIP_AND_CART_AND_OBJ_INFO:
-                self.obs_scaling[:] = to_torch([0.12, # 0.269, 0.148, 0.249, 0.148, 0.344,
-                                                0.67, # 2.22, 1.47, 1.14, 0.903, 0.716,
+            elif observation_type in [ObservationType.TIP_AND_CART_AND_OBJ_INFO, ObservationType.NO_FD_TIP_AND_CART_AND_OBJ_INFO]:
+                self.obs_scaling[:] = to_torch([0.12,  # 0.269, 0.148, 0.249, 0.148, 0.344,
+                                                0.67,  # 2.22, 1.47, 1.14, 0.903, 0.716,
                                                 0.0656, 0.238, 0.0656,
                                                 0.732, 2.0, 0.732,
                                                 0.02, 0.0235, 0.02,
@@ -289,6 +295,23 @@ class Vine5LinkMovingBase(VecTask):
         first_u_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device)
         first_u_fpam = torch.zeros(self.num_envs, N_PRESSURE_ACTIONS, device=self.device)
         self.actions_history = [(first_u_rail_velocity, first_u_fpam) for _ in range(self.cfg["env"]["ACTION_DELAY"])]
+        if len(self.cfg['env']['U_TRAJ_MAT_FILE']) > 0:
+            print("WARNING - turning off randomize dof init and appending to actions history")
+            print(f"USING MAT FILE {self.cfg['env']['U_TRAJ_MAT_FILE']}")
+            self.cfg['env']['RANDOMIZE_DOF_INIT'] = False
+
+            # load traj from mat file
+            mat = self.read_mat_file(self.cfg['env']['U_TRAJ_MAT_FILE'])
+            U_traj = mat['raw_RL_commands']
+            n_actions, n_timesteps = U_traj.shape
+            assert (n_actions == 2)
+
+            # append onto actions history
+            print(f"WARNING: Actions history will use {n_timesteps} timesteps")
+            for i in range(n_timesteps):
+                u_rail_velocity = torch.zeros(self.num_envs, N_PRISMATIC_DOFS, device=self.device) + U_traj[0, i]
+                u_fpam = torch.zeros(self.num_envs, N_PRESSURE_ACTIONS, device=self.device) + U_traj[1, i]
+                self.actions_history.append((u_rail_velocity, u_fpam))
 
     def read_mat_file(self, filename):
         # TODO: Unused right now
@@ -441,7 +464,7 @@ class Vine5LinkMovingBase(VecTask):
         assert (self.up_axis == 'z')
         vine_init_pose.p.x = INIT_X
         vine_init_pose.p.y = INIT_Y
-        vine_init_pose.p.z = INIT_Z
+        vine_init_pose.p.z = INIT_Z + 0.11
         vine_init_pose.r = INIT_QUAT
 
         self.envs = []
@@ -813,6 +836,12 @@ class Vine5LinkMovingBase(VecTask):
         self.target_positions[env_ids, :] = self.sample_target_positions(len(env_ids))
         self.target_velocities[env_ids, :] = self.sample_target_velocities(len(env_ids))
 
+        # Reset action history
+        for i in range(self.cfg["env"]["ACTION_DELAY"]):
+            history_u_rail_velocity, history_u_fpam = self.actions_history[i]
+            history_u_rail_velocity[env_ids, :] = 0
+            history_u_fpam[env_ids, :] = 0
+
         if self.cfg['env']['CREATE_SHELF']:
             # Shelf dimensions
             half_shelf_length_y = 0.4 / 2
@@ -928,7 +957,8 @@ class Vine5LinkMovingBase(VecTask):
 
         # Add noise to actions before scaling
         if self.vine_randomize:
-            action_noise = self.cfg["task"]["randomization_parameters"]["ACTION_NOISE_STD"] * torch.randn_like(self.raw_actions)
+            action_noise = self.cfg["task"]["randomization_parameters"]["ACTION_NOISE_STD"] * \
+                torch.randn_like(self.raw_actions)
             self.raw_actions += action_noise
 
         # Store newest action, use oldest action
@@ -1072,19 +1102,32 @@ class Vine5LinkMovingBase(VecTask):
         # compute force for acceleration tracking to be used when velocity error is large
         # baseline force is bang-bang control
         RAIL_ACCELERATION = self.cfg['env']['RAIL_ACCELERATION']
-        RAIL_FORCE_MAX = RAIL_ACCELERATION/2.0
+        APPROX_MASS = 0.5
+        RAIL_FORCE_MAX = RAIL_ACCELERATION * APPROX_MASS
         rail_force_minmax = torch.where(cart_vel_error > 0, torch.tensor(
             RAIL_FORCE_MAX, device=self.device), torch.tensor(-RAIL_FORCE_MAX, device=self.device))
+
         # fine tune with P control on acceleration
-        accel = (cart_vel_y - self.prev_cart_vel) / self.dt
+        if self.cfg['env']['USE_CART_ACCEL_TRACKING']:
+            # print("Using cart accel tracking")
+            accel = (cart_vel_y - self.prev_cart_vel) / self.dt
 
-        accel_target = torch.where(cart_vel_error > 0, torch.tensor(
-            RAIL_ACCELERATION, device=self.device), torch.tensor(-RAIL_ACCELERATION, device=self.device))
-        COURSE_P_GAIN = .30
-        COURSE_D_GAIN = .01
-        adjustment = COURSE_P_GAIN * (accel_target - accel)
+            accel_target = torch.where(cart_vel_error > 0, torch.tensor(
+                RAIL_ACCELERATION, device=self.device), torch.tensor(-RAIL_ACCELERATION, device=self.device))
 
-        rail_force_minmax += adjustment
+            # Add noise to the rail acceleration target
+            if self.vine_randomize:
+                accel_target *= (
+                    torch.FloatTensor(*accel_target.shape).uniform_(self.cfg['task']['randomization_parameters']['ACCEL_TARGET_SCALING_MIN'],
+                                                                    self.cfg['task']['randomization_parameters']['ACCEL_TARGET_SCALING_MAX']).to(accel_target.device)
+                )
+            COURSE_P_GAIN = .30
+            COURSE_D_GAIN = .01
+            adjustment = COURSE_P_GAIN * (accel_target - accel)
+
+            rail_force_minmax += adjustment
+
+            # print(f"accel: {accel[0,0]}\cart_vel_error: {cart_vel_error[0,0]}\tadjustment: {adjustment[0,0]}")
 
         # compute force for velocity tracking to be used when velocity error is small
         rail_force_pid = self.cfg['env']['RAIL_P_GAIN'] * cart_vel_error + \
@@ -1093,7 +1136,6 @@ class Vine5LinkMovingBase(VecTask):
         # choose between velocity and acceleration tracking for each environment
         self.rail_force = torch.where(torch.abs(cart_vel_error) > 0.1, rail_force_minmax, rail_force_pid)
 
-        # print(f"accel: {accel[0,0]}\cart_vel_error: {cart_vel_error[0,0]}\tadjustment: {adjustment[0,0]}")
         self.prev_cart_vel_error = cart_vel_error.detach().clone()
         self.prev_cart_vel = cart_vel_y.detach().clone()
 
@@ -1123,8 +1165,14 @@ class Vine5LinkMovingBase(VecTask):
         if self.viewer and self.enable_viewer_sync:
             # Create spheres
             visualization_sphere_radius = self.cfg['env']['SUCCESS_DIST']
+
+            if self.cfg['env']['USE_NICE_VISUALS']:
+                num_lats, num_lons = 100, 100
+            else:
+                num_lats, num_lons = 3, 3
+
             visualization_sphere_green = gymutil.WireframeSphereGeometry(
-                radius=visualization_sphere_radius, num_lats=3, num_lons=3, color=(0, 1, 0))
+                radius=visualization_sphere_radius, num_lats=num_lats, num_lons=num_lons, color=(0.17647059, 0.63137255, 0.13333333))
 
             self.gym.clear_lines(self.viewer)
             # Draw target
@@ -1136,6 +1184,9 @@ class Vine5LinkMovingBase(VecTask):
 
             # Draw episode progress
             for i in range(self.num_envs):
+                if self.cfg['env']['USE_NICE_VISUALS']:
+                    break
+
                 # For now, draw only one env to save time
                 if i != self.index_to_view:
                     continue
@@ -1151,6 +1202,9 @@ class Vine5LinkMovingBase(VecTask):
 
             # Draw rail soft limits
             for i in range(self.num_envs):
+                if self.cfg['env']['USE_NICE_VISUALS']:
+                    break
+
                 # For now, draw only one env to save time
                 if i != self.index_to_view:
                     continue
@@ -1376,6 +1430,11 @@ class Vine5LinkMovingBase(VecTask):
                                  self.target_positions, self.target_velocities,
                                  self.smoothed_u_fpam, self.prev_u_rail_velocity,
                                  self.object_info]
+        elif observation_type == ObservationType.NO_FD_TIP_AND_CART_AND_OBJ_INFO:
+            tensors_to_concat = [self.dof_pos[:, :1], self.dof_vel[:, :1], self.tip_positions, self.tip_velocities,
+                                 self.target_positions, self.target_velocities,
+                                 self.smoothed_u_fpam, self.prev_u_rail_velocity,
+                                 self.object_info]
         else:
             raise NotImplementedError(f"Observation type {observation_type} not implemented.")
 
@@ -1386,7 +1445,8 @@ class Vine5LinkMovingBase(VecTask):
 
         # Add obs noise
         if self.vine_randomize:
-            obs_noise = self.cfg["task"]["randomization_parameters"]["OBSERVATION_NOISE_STD"] * torch.randn_like(self.obs_buf)
+            obs_noise = self.cfg["task"]["randomization_parameters"]["OBSERVATION_NOISE_STD"] * \
+                torch.randn_like(self.obs_buf)
             self.obs_buf += obs_noise
 
         if self.cfg['env']['CREATE_HISTOGRAMS_PERIODICALLY'] or self.create_histogram_command_from_keyboard_press:
@@ -1522,7 +1582,9 @@ def compute_reward_jit(dist_to_target, target_reached, tip_velocities,
         elif reward_name == "Rail Limit":
             reward_matrix[:, i] += torch.where(limit_hit, RAIL_LIMIT_PUNISHMENT, 0.0)
         elif reward_name == "Cart Y":
-            reward_matrix[:, i] -= torch.abs(cart_y)
+            # reward_matrix[:, i] -= torch.abs(cart_y)
+            # TODO Generalize this if we keep
+            reward_matrix[:, i] += torch.where(torch.abs(cart_y) > 0.2, RAIL_LIMIT_PUNISHMENT/10, 0.0)
         elif reward_name == "Tip Y":
             reward_matrix[:, i] += torch.where(tip_limit_hit, TIP_LIMIT_PUNISHMENT, 0.0)
         elif reward_name == "Contact Force":

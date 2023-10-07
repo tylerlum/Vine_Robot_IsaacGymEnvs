@@ -40,6 +40,7 @@ env:
   # MAT_FILE: "/home/tylerlum/Downloads/2022-12-11_17-24-00_1sx04cnm_Vine5LinkMovingBase.mat"
   # MAT_FILE: "/home/tylerlum/Downloads/2022-12-11_17-22-44_1sx04cnm_Vine5LinkMovingBase.mat"
   MAT_FILE: ""
+  U_TRAJ_MAT_FILE: ""
 
   # Action space
   FPAM_MIN: -0.1
@@ -99,6 +100,12 @@ env:
   # Action delay number of timesteps
   ACTION_DELAY: 1
 
+  # Cart accel tracking
+  USE_CART_ACCEL_TRACKING: True
+
+  # Nice visuals
+  USE_NICE_VISUALS: False
+
 sim:
   dt: 0.00833 # 120 Hz
   substeps: 10  # Default 2
@@ -132,3 +139,6 @@ task:
 
     OBSERVATION_NOISE_STD: 0.0
     ACTION_NOISE_STD: 0.0
+
+    ACCEL_TARGET_SCALING_MIN: 0.99999
+    ACCEL_TARGET_SCALING_MAX: 1.00001
