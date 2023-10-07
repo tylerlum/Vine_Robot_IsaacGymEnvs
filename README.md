@@ -75,12 +75,6 @@ python train.py task=Vine5LinkMovingBase wandb_activate=True wandb_entity=<your_
 
 * For the paper submission, we added additional visual links to make the sim look more visually appealing on another [branch](https://github.com/tylerlum/Vine_Robot_IsaacGymEnvs/pull/31). 
 
-<br>
-<br>
-<br>
-<br>
-
-
 ## Citation
 
 If you find our code useful for your research, please cite:
@@ -93,6 +87,13 @@ If you find our code useful for your research, please cite:
   year      = {2023},
 }
 ```
+
+
+<br>
+<br>
+<br>
+<br>
+
 
 ## Early Results (Jan 2023)
 
